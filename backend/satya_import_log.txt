@@ -1,0 +1,259 @@
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Fortel CRM  —  SATYA DISTRIBUTORS Import
+  Period: May 2026  |  Customers: 40
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+━━━ STEP 1: Products ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ✓ AMTRIOS SOFTGEL CAP 30                        (exists)
+  ✓ LYCOTURM SYRUP 200ML                          (exists)
+  ✓ NUTRIA CAPSULES 1*10S                         (exists)
+  ✓ ZOLVERA LOTION 150ML                          (exists)
+  ✓ NUNEXA 400GM                                  (exists)
+  ✓ ZYORA MOUTHWASH 500ML                         (exists)
+  ✓ EMWET SPRAY                                   (exists)
+  ✓ ONCODOL 50 TAB                                (exists)
+  ✓ XENOCAINE VISCOUS                             (exists)
+  ✓ XEROWET MD                                    (exists)
+  ✓ CAXIMEG ORAL SUSP 60ML                        (exists)
+  ✓ REFILAC CAP 10S                               (exists)
+  ✓ HEXAMUNE TABLETS                              (exists)
+  ✓ IMUNEXA CAPS 10S                              (exists)
+  ✓ NUTAMINE SACHETS                              (exists)
+
+  0 new products added, 15 already existed.
+
+━━━ STEP 2 & 3: Doctors + Sales ━━━━━━━━━━━━━━━━━━━━━━━━
+  ✓ All entries will be assigned to: B.Vani (id=3)
+
+  ─── AMRA RAM ───
+  ✓ Found in DB: AMRA RAM (id=816)
+  ↻ 2026-05-09  Zyora Mouthwash 500ml: 3 units  ₹1,285.71 (updated)
+
+  ─── BASAVATARAKAM INDO AMERICAN HOSPITAL ───
+  ✓ Found in DB: BASAVATARAKAM INDO AMERICAN HOSPITAL (id=817)
+  ↻ 2026-05-30  Emwet Spray: 10 units  ₹5,065.70 (updated)
+  ↻ 2026-05-20  Nunexa 400GM: 10 units  ₹9,593.20 (updated)
+  ↻ 2026-05-25  Nunexa 400GM: 10 units  ₹9,593.20 (updated)
+  ↻ 2026-05-30  Oncodol 50 Tab: 38 units  ₹1,900.00 (updated)
+  ↻ 2026-05-19  Xenocaine Viscous: 20 units  ₹2,500.00 (updated)
+  ↻ 2026-05-09  XEROWET MD: 95 units  ₹25,387.80 (updated)
+  ↻ 2026-05-18  XEROWET MD: 30 units  ₹8,017.20 (updated)
+  ↻ 2026-05-30  Zolvera Lotion 150ml: 20 units  ₹7,240.00 (updated)
+
+  ─── CHINA LAXMAIAH ───
+  ✓ Found in DB: CHINA LAXMAIAH (id=818)
+  ↻ 2026-05-21  Amtrios Softgel Cap 30: 1 units  ₹3,333.33 (updated)
+  ↻ 2026-05-21  Lycoturm Syrup 200ml: 1 units  ₹1,714.28 (updated)
+
+  ─── CONTINENTAL HOSPITALS ───
+  ✓ Found in DB: CONTINENTAL HOSPITALS (id=819)
+  ↻ 2026-05-12  Emwet Spray: 10 units  ₹4,160.00 (updated)
+
+  ─── D MANJULA ───
+  ✓ Found in DB: D MANJULA (id=820)
+  ↻ 2026-05-30  Xenocaine Viscous: 3 units  ₹771.42 (updated)
+
+  ─── DR A RAJYALAKSHMI ───
+  ✓ Found in DB: DR A RAJYALAKSHMI (id=821)
+  ↻ 2026-05-07  Amtrios Softgel Cap 30: 1 units  ₹3,809.52 (updated)
+  ↻ 2026-05-07  Lycoturm Syrup 200ml: 1 units  ₹1,714.29 (updated)
+  ↻ 2026-05-07  NUTRIA CAPSULES 1*10S: 3 units  ₹476.13 (updated)
+  ↻ 2026-05-07  Zolvera Lotion 150ml: 1 units  ₹593.22 (updated)
+
+  ─── DR DARWIN ───
+  ✓ Found in DB: DR DARWIN (id=822)
+  ↻ 2026-05-02  Amtrios Softgel Cap 30: 1 units  ₹3,619.05 (updated)
+  ↻ 2026-05-02  Nunexa 400GM: 1 units  ₹1,619.05 (updated)
+  ↻ 2026-05-02  NUTRIA CAPSULES 1*10S: 3 units  ₹476.19 (updated)
+
+  ─── DR SANKALPA NAIDU ───
+  ✓ Found in DB: DR SANKALPA NAIDU (id=823)
+  ↻ 2026-05-12  Refilac Cap 10s: 10 units  ₹2,200.00 (updated)
+  ↻ 2026-05-30  Refilac Cap 10s: 20 units  ₹4,400.00 (updated)
+
+  ─── DURGA BAI DESHMUKH HOSPITAL ───
+  + Created: DURGA BAI DESHMUKH HOSPITAL | phone: n/a | type: hospital (id=864)
+  ✓ 2026-05-22  Caximeg Oral Susp 60ml: 10 units  ₹9,062.50
+
+  ─── DURGABAI DESHMUKH HOSPITAL ───
+  ✓ Found in DB: DURGABAI DESHMUKH HOSPITAL (id=825)
+  ↻ 2026-05-04  Caximeg Oral Susp 60ml: 10 units  ₹9,066.70 (updated)
+  ↻ 2026-05-18  Caximeg Oral Susp 60ml: 10 units  ₹9,066.70 (updated)
+  ↻ 2026-05-30  Caximeg Oral Susp 60ml: 11 units  ₹9,973.37 (updated)
+  ↻ 2026-05-19  Lycoturm Syrup 200ml: 2 units  ₹2,922.20 (updated)
+
+  ─── DWARAKA MEDICAL DISTRIBUTORS ───
+  ✓ Found in DB: DWARAKA MEDICAL DISTRIBUTORS (id=826)
+  ↻ 2026-05-16  Amtrios Softgel Cap 30: 3 units  ₹8,850.00 (updated)
+  ↻ 2026-05-29  Amtrios Softgel Cap 30: 6 units  ₹17,700.00 (updated)
+  ↻ 2026-05-16  Caximeg Oral Susp 60ml: 15 units  ₹11,250.00 (updated)
+  ↻ 2026-05-04  Lycoturm Syrup 200ml: 5 units  ₹7,309.30 (updated)
+  ↻ 2026-05-11  Lycoturm Syrup 200ml: 5 units  ₹7,309.30 (updated)
+  ↻ 2026-05-16  Lycoturm Syrup 200ml: 6 units  ₹8,771.16 (updated)
+  ↻ 2026-05-29  Lycoturm Syrup 200ml: 5 units  ₹7,309.30 (updated)
+  ↻ 2026-05-12  NUTRIA CAPSULES 1*10S: 30 units  ₹3,177.90 (updated)
+  ↻ 2026-05-29  NUTRIA CAPSULES 1*10S: 50 units  ₹5,296.50 (updated)
+  ↻ 2026-05-16  Refilac Cap 10s: 12 units  ₹2,564.52 (updated)
+  ↻ 2026-05-26  Xenocaine Viscous: 10 units  ₹1,928.60 (updated)
+  ↻ 2026-05-16  XEROWET MD: 5 units  ₹1,250.00 (updated)
+  ↻ 2026-05-29  Zolvera Lotion 150ml: 10 units  ₹4,406.80 (updated)
+
+  ─── GADDIPATI SAI RATNA ───
+  ✓ Found in DB: GADDIPATI SAI RATNA (id=827)
+  ↻ 2026-05-19  Amtrios Softgel Cap 30: 1 units  ₹3,809.14 (updated)
+  ↻ 2026-05-19  NUTRIA CAPSULES 1*10S: 3 units  ₹476.10 (updated)
+
+  ─── GANGA PHARMA DISTRIBUTORS ───
+  + Created: GANGA PHARMA DISTRIBUTORS | phone: n/a | type: distributor (id=865)
+  ✓ 2026-05-05  Amtrios Softgel Cap 30: 2 units  ₹5,932.20
+  ✓ 2026-05-21  Amtrios Softgel Cap 30: 3 units  ₹8,898.30
+  ✓ 2026-05-13  Zolvera Lotion 150ml: 5 units  ₹2,620.30
+
+  ─── HYDERABAD INSTITUTE OF ONCOLOGY ───
+  ✓ Found in DB: HYDERABAD INSTITUTE OF ONCOLOGY (id=829)
+  ↻ 2026-05-04  Amtrios Softgel Cap 30: 5 units  ₹9,000.00 (updated)
+  ↻ 2026-05-12  Amtrios Softgel Cap 30: 10 units  ₹18,000.00 (updated)
+
+  ─── JANGAIAH ───
+  ✓ Found in DB: JANGAIAH (id=830)
+  ↻ 2026-05-12  Zolvera Lotion 150ml: 1 units  ₹576.27 (updated)
+
+  ─── JAYA SURGICAL AND PHARMA ───
+  + Created: JAYA SURGICAL AND PHARMA | phone: n/a | type: pharmacy (id=866)
+  ✓ 2026-05-29  Nunexa 400GM: 20 units  ₹27,800.00
+  ✓ 2026-05-29  Xenocaine Viscous: 20 units  ₹2,924.00
+
+  ─── K RAMREDDY ───
+  ✓ Found in DB: K RAMREDDY (id=832)
+  ↻ 2026-05-05  Lycoturm Syrup 200ml: 1 units  ₹1,714.29 (updated)
+
+  ─── LAKSHMI ───
+  ✓ Found in DB: LAKSHMI (id=833)
+  ↻ 2026-05-18  Caximeg Oral Susp 60ml: 1 units  ₹3,809.52 (updated)
+
+  ─── MEDICARE GALAXY LLP ───
+  ✓ Found in DB: MEDICARE GALAXY LLP (id=834)
+  ↻ 2026-05-22  Amtrios Softgel Cap 30: 6 units  ₹16,434.00 (updated)
+
+  ─── MEDIHAUXE PHARMACEUTICALS ───
+  + Created: MEDIHAUXE PHARMACEUTICALS | phone: n/a | type: distributor (id=867)
+  ✓ 2026-05-21  HEXAMUNE TABLETS: 50 units  ₹4,900.00
+
+  ─── NATIONAL PHARMACY ───
+  ✓ Found in DB: NATIONAL PHARMACY (id=836)
+  ↻ 2026-05-05  Caximeg Oral Susp 60ml: 6 units  ₹5,282.16 (updated)
+  ↻ 2026-05-13  Caximeg Oral Susp 60ml: 6 units  ₹5,282.16 (updated)
+  ↻ 2026-05-05  IMUNEXA CAPS 10S: 30 units  ₹7,102.80 (updated)
+  ↻ 2026-05-13  Lycoturm Syrup 200ml: 2 units  ₹2,838.70 (updated)
+  ↻ 2026-05-26  Nunexa 400GM: 2 units  ₹2,869.84 (updated)
+  ↻ 2026-05-13  NUTRIA CAPSULES 1*10S: 70 units  ₹8,389.50 (updated)
+  ↻ 2026-05-13  Oncodol 50 Tab: 20 units  ₹2,367.80 (updated)
+  ↻ 2026-05-05  Refilac Cap 10s: 20 units  ₹8,827.20 (updated)
+  ↻ 2026-05-13  Xenocaine Viscous: 50 units  ₹10,928.50 (updated)
+  ↻ 2026-05-05  Zolvera Lotion 150ml: 2 units  ₹950.84 (updated)
+  ↻ 2026-05-05  Zyora Mouthwash 500ml: 15 units  ₹5,008.95 (updated)
+
+  ─── NEERAJA REDDY ───
+  ✓ Found in DB: NEERAJA REDDY (id=837)
+  ↻ 2026-05-22  Amtrios Softgel Cap 30: 1 units  ₹3,809.28 (updated)
+  ↻ 2026-05-09  Lycoturm Syrup 200ml: 1 units  ₹1,714.29 (updated)
+  ↻ 2026-05-22  Lycoturm Syrup 200ml: 1 units  ₹1,714.29 (updated)
+  ↻ 2026-05-22  NUTRIA CAPSULES 1*10S: 3 units  ₹476.04 (updated)
+  ↻ 2026-05-22  Zolvera Lotion 150ml: 1 units  ₹666.66 (updated)
+
+  ─── P KOTESHWARAMMA ───
+  ✓ Found in DB: P KOTESHWARAMMA (id=838)
+  ↻ 2026-05-08  Refilac Cap 10s: 2 units  ₹500.00 (updated)
+
+  ─── P VENKATAIAH ───
+  ✓ Found in DB: P VENKATAIAH (id=839)
+  ↻ 2026-05-30  Amtrios Softgel Cap 30: 1 units  ₹3,809.52 (updated)
+  ↻ 2026-05-30  Lycoturm Syrup 200ml: 1 units  ₹1,714.29 (updated)
+  ↻ 2026-05-30  Nunexa 400GM: 1 units  ₹1,688.14 (updated)
+  ↻ 2026-05-30  NUTRIA CAPSULES 1*10S: 5 units  ₹792.85 (updated)
+
+  ─── PRASAD MEHTA ───
+  ✓ Found in DB: PRASAD MEHTA (id=840)
+  ↻ 2026-05-15  Refilac Cap 10s: 6 units  ₹1,508.52 (updated)
+
+  ─── PURUSHOTTAM ───
+  ✓ Found in DB: PURUSHOTTAM (id=841)
+  ↻ 2026-05-12  Amtrios Softgel Cap 30: 1 units  ₹3,809.52 (updated)
+  ↻ 2026-05-12  NUTRIA CAPSULES 1*10S: 3 units  ₹476.19 (updated)
+
+  ─── RAJANNA ───
+  ✓ Found in DB: RAJANNA (id=842)
+  ↻ 2026-05-11  Amtrios Softgel Cap 30: 1 units  ₹3,619.05 (updated)
+  ↻ 2026-05-11  Zolvera Lotion 150ml: 1 units  ₹593.22 (updated)
+
+  ─── RAMA MURTHY ───
+  ✓ Found in DB: RAMA MURTHY (id=843)
+  ↻ 2026-05-16  Amtrios Softgel Cap 30: 1 units  ₹3,809.52 (updated)
+  ↻ 2026-05-16  Lycoturm Syrup 200ml: 1 units  ₹1,714.29 (updated)
+  ↻ 2026-05-16  NUTRIA CAPSULES 1*10S: 2 units  ₹342.86 (updated)
+
+  ─── RENOVA PHARMACY ───
+  ✓ Found in DB: RENOVA PHARMACY (id=844)
+  ↻ 2026-05-07  Emwet Spray: 1 units  ₹475.00 (updated)
+
+  ─── RENOVA SOUMYA PHARMACY ───
+  ✓ Found in DB: RENOVA SOUMYA PHARMACY (id=845)
+  ↻ 2026-05-23  Emwet Spray: 2 units  ₹820.00 (updated)
+  ↻ 2026-05-05  Lycoturm Syrup 200ml: 9 units  ₹11,835.00 (updated)
+  ↻ 2026-05-23  Nunexa 400GM: 2 units  ₹2,624.00 (updated)
+
+  ─── SACHIN ASTHAGE ───
+  ✓ Found in DB: SACHIN ASTHAGE (id=846)
+  ↻ 2026-05-12  Zyora Mouthwash 500ml: 2 units  ₹761.90 (updated)
+
+  ─── SAVITRI ───
+  ✓ Found in DB: SAVITRI (id=847)
+  ↻ 2026-05-09  Amtrios Softgel Cap 30: 1 units  ₹3,619.04 (updated)
+  ↻ 2026-05-09  NUTRIA CAPSULES 1*10S: 3 units  ₹476.19 (updated)
+
+  ─── SHABANA ───
+  ✓ Found in DB: SHABANA (id=848)
+  ↻ 2026-05-25  NUTRIA CAPSULES 1*10S: 3 units  ₹571.41 (updated)
+
+  ─── SHABANA BEGUM ───
+  ✓ Found in DB: SHABANA BEGUM (id=849)
+  ↻ 2026-05-04  NUTRIA CAPSULES 1*10S: 2 units  ₹317.42 (updated)
+
+  ─── SHOBHA ───
+  ✓ Found in DB: SHOBHA (id=850)
+  ↻ 2026-05-22  Lycoturm Syrup 200ml: 1 units  ₹1,714.80 (updated)
+  ↻ 2026-05-22  NUTRIA CAPSULES 1*10S: 6 units  ₹952.20 (updated)
+
+  ─── SRI SAI ASHIRWAD ENTERPRISES ───
+  ✓ Found in DB: SRI SAI ASHIRWAD ENTERPRISES (id=851)
+  ↻ 2026-05-25  Nunexa 400GM: 10 units  ₹13,294.10 (updated)
+  ↻ 2026-05-25  NUTAMINE SACHETS: 10 units  ₹1,098.00 (updated)
+
+  ─── SYED WAHEED ───
+  ✓ Found in DB: SYED WAHEED (id=852)
+  ↻ 2026-05-08  Caximeg Oral Susp 60ml: 1 units  ₹1,038.09 (updated)
+
+  ─── VARSHA ARORA ───
+  ✓ Found in DB: VARSHA ARORA (id=853)
+  ↻ 2026-05-02  Lycoturm Syrup 200ml: 1 units  ₹1,714.29 (updated)
+
+  ─── VIJAY ───
+  ✓ Found in DB: VIJAY (id=854)
+  ↻ 2026-05-25  Emwet Spray: 4 units  ₹2,933.32 (updated)
+  ↻ 2026-05-25  Zolvera Lotion 150ml: 1 units  ₹559.32 (updated)
+  ↻ 2026-05-25  Zyora Mouthwash 500ml: 1 units  ₹388.57 (updated)
+
+  ─── ZAMRUD BEGUM ───
+  ✓ Found in DB: ZAMRUD BEGUM (id=855)
+  ↻ 2026-05-16  Caximeg Oral Susp 60ml: 1 units  ₹3,428.57 (updated)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Products created     : 0
+  Doctors matched      : 36
+  Doctors created      : 4
+  Sales entries saved  : 102
+  Total value imported : ₹474,806.46
+
+  ✅ Done! Open the dashboard to see reports.
