@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 
-const API = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API = process.env.REACT_APP_API_URL || '';
 
 const CUSTOMER_TYPES = {
   doctor:   { icon: '👨‍⚕️', color: '#1d4ed8' },

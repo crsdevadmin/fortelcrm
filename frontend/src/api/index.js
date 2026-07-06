@@ -3,7 +3,7 @@ import client from './client';
 // ── AUTH ──────────────────────────────────────
 export const authAPI = {
   me: (token) => client.get(`/auth/me?token=${token}`),
-  googleLogin: () => { window.location.href = `${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/auth/google/login`; },
+  googleLogin: () => { window.location.href = `${process.env.REACT_APP_API_URL || ''}/auth/google/login`; },
 };
 
 // ── USERS ────────────────────────────────────
@@ -78,7 +78,7 @@ export const productsAPI = {
 };
 
 // ── EXPORTS ───────────────────────────────────
-const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const API_BASE = process.env.REACT_APP_API_URL || '';
 
 export const exportsAPI = {
   // These return file downloads — use window.open or anchor href
