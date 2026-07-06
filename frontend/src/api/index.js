@@ -3,7 +3,7 @@ import client from './client';
 // ── AUTH ──────────────────────────────────────
 export const authAPI = {
   me: (token) => client.get(`/auth/me?token=${token}`),
-  googleLogin: () => { window.location.href = 'http://localhost:8000/auth/google/login'; },
+  googleLogin: () => { window.location.href = `${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/auth/google/login`; },
 };
 
 // ── USERS ────────────────────────────────────

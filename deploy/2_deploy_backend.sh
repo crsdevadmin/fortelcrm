@@ -1,15 +1,13 @@
 #!/bin/bash
-# ============================================================
-# Fortel CRM — Deploy backend to EC2
-# Run from your LOCAL machine (Windows users: use Git Bash):
+# Fortel CRM - deploy backend to EC2.
+# Run from Git Bash on your local machine:
 #   chmod +x deploy/2_deploy_backend.sh
 #   ./deploy/2_deploy_backend.sh
-#
-# Prerequisites: fill in EC2_HOST below
-# ============================================================
 
-EC2_HOST="ubuntu@YOUR_EC2_PUBLIC_IP"   # ← change this
-KEY_FILE="~/.ssh/fortel-key.pem"        # ← path to your .pem file
+set -e
+
+EC2_HOST="ubuntu@13.206.119.130"
+KEY_FILE="$HOME/.ssh/fortel-key.pem"
 APP_DIR="/opt/fortel-crm"
 
 echo "=== Syncing code to EC2 ==="
@@ -22,7 +20,7 @@ echo "=== Installing Python dependencies ==="
 ssh -i "$KEY_FILE" "$EC2_HOST" "
   source $APP_DIR/venv/bin/activate
   pip install --upgrade pip
-  pip install -r $APP_DIR/requirements.txt
+  pip install -r $APP_DIR/backend/requirements.txt
   pip install openpyxl gunicorn
 "
 
@@ -34,4 +32,4 @@ ssh -i "$KEY_FILE" "$EC2_HOST" "
   sudo systemctl status fortel --no-pager
 "
 
-echo "=== Deploy complete ==="
+echo "=== Backend deploy complete ==="

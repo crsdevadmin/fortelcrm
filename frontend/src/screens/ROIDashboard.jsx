@@ -3,7 +3,7 @@ import axios from 'axios';
 import { roiAPI, investmentsAPI, salesAPI } from '../api';
 import { useAuth } from '../context/AuthContext';
 
-const API = 'http://localhost:8000';
+const API = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 
 const NOW = new Date();
 const CUR_YEAR  = NOW.getFullYear();

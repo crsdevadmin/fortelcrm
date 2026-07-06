@@ -12,6 +12,7 @@ venv/
 env/
 .venv/
 *.env
+!deploy/ec2_env_template.env
 .env.local
 
 # Node / React

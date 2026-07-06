@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { roiAPI } from '../api';
 
-const API   = 'http://localhost:8000';
+const API   = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 const NOW   = new Date();
 const CUR_YEAR  = NOW.getFullYear();
 const CUR_MONTH = NOW.getMonth() + 1;
