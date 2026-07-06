@@ -17,6 +17,8 @@ import RegionView from './screens/RegionView';
 import MyTeam from './screens/MyTeam';
 import MyCustomers from './screens/MyCustomers';
 import ProductSales from './screens/ProductSales';
+import VisitLog from './screens/VisitLog';
+import RepActivity from './screens/RepActivity';
 
 const Placeholder = ({ title }) => (
   <div>
@@ -52,6 +54,8 @@ function PrivateRoutes() {
         <Route path="/risk"             element={<Placeholder title="Risk Management" />} />
         <Route path="/whiteboard"       element={<Placeholder title="Whiteboard Review" />} />
         <Route path="/my-team"          element={<MyTeam />} />
+        <Route path="/visit-log"        element={<VisitLog />} />
+        <Route path="/rep-activity"     element={<RepActivity />} />
         <Route path="/my-customers"     element={<MyCustomers />} />
         <Route path="/my-sales"         element={<Navigate to="/enter-sales" replace />} />
         <Route path="/product-sales"    element={<ProductSales />} />

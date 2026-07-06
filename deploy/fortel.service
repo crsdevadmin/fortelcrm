@@ -1,0 +1,23 @@
+[Unit]
+Description=Fortel CRM FastAPI backend
+After=network.target
+
+[Service]
+User=fortel
+Group=fortel
+WorkingDirectory=/opt/fortel-crm
+Environment="PATH=/opt/fortel-crm/venv/bin"
+EnvironmentFile=/opt/fortel-crm/.env
+ExecStart=/opt/fortel-crm/venv/bin/gunicorn run:app \
+    --workers 3 \
+    --worker-class uvicorn.workers.UvicornWorker \
+    --bind 127.0.0.1:8000 \
+    --timeout 120 \
+    --access-logfile /var/log/fortel/access.log \
+    --error-logfile /var/log/fortel/error.log
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -55,7 +55,7 @@ def submit_sales(payload: SalesEntryRequest, db: Session = Depends(get_db)):
             SalesEntry.week         == day,
         ).first()
         if existing:
-            existing.quantity     = item.quantity
+            existing.qty     = item.quantity
             existing.value        = item.value
             existing.remarks      = payload.remarks
             existing.sale_date    = payload.sale_date
@@ -69,7 +69,7 @@ def submit_sales(payload: SalesEntryRequest, db: Session = Depends(get_db)):
                 month        = month,
                 week         = day,
                 sale_date    = payload.sale_date,
-                quantity     = item.quantity,
+                qty          = item.quantity,
                 value        = item.value,
                 remarks      = payload.remarks,
             ))
@@ -111,7 +111,7 @@ def get_doctor_summary(doctor_id: int, db: Session = Depends(get_db)):
     rows = db.query(
         SalesEntry.year, SalesEntry.month,
         func.sum(SalesEntry.value).label("actual_sales"),
-        func.sum(SalesEntry.quantity).label("total_qty"),
+        func.sum(SalesEntry.qty).label("total_qty"),
     ).filter(SalesEntry.doctor_id == doctor_id)\
      .group_by(SalesEntry.year, SalesEntry.month)\
      .order_by(SalesEntry.year.desc(), SalesEntry.month.desc()).all()
@@ -136,12 +136,10 @@ def get_sales_by_product(year: int, month: int,
     q = db.query(
         SalesEntry.product_id,
         func.sum(SalesEntry.value).label("total_value"),
-        func.sum(SalesEntry.quantity).label("total_qty"),
+        func.sum(SalesEntry.qty).label("total_qty"),
     )
-    if start_date and end_date:
-        q = q.filter(SalesEntry.sale_date >= start_date, SalesEntry.sale_date <= end_date)
-    else:
-        q = q.filter(SalesEntry.year == year, SalesEntry.month == month)
+    # Use year/month (sale_date is NULL on imported records)
+    q = q.filter(SalesEntry.year == year, SalesEntry.month == month)
     rows = q.group_by(SalesEntry.product_id).all()
 
     result = []
@@ -169,12 +167,11 @@ def get_doctors_by_product(
     q = db.query(
         SalesEntry.doctor_id,
         func.sum(SalesEntry.value).label("total_value"),
-        func.sum(SalesEntry.quantity).label("total_qty"),
+        func.sum(SalesEntry.qty).label("total_qty"),
     ).filter(SalesEntry.product_id == product_id)
 
-    if start_date and end_date:
-        q = q.filter(SalesEntry.sale_date >= start_date, SalesEntry.sale_date <= end_date)
-    else:
+    # Use year/month (sale_date is NULL on imported records)
+    if year and month:
         q = q.filter(SalesEntry.year == year, SalesEntry.month == month)
 
     rows = q.group_by(SalesEntry.doctor_id).order_by(func.sum(SalesEntry.value).desc()).all()
@@ -226,7 +223,7 @@ def get_my_sales(associate_id: int, year: int, month: int, db: Session = Depends
             "entry_id":     r.id,
             "product_id":   r.product_id,
             "product_name": prod.name if prod else f"Product {r.product_id}",
-            "quantity":     r.quantity or 0,
+            "quantity":     r.qty or 0,
             "value":        r.value    or 0,
         })
         dates_map[date_key][did]["total"] += r.value or 0
@@ -268,7 +265,7 @@ def get_my_today(associate_id: int, sale_date: str, db: Session = Depends(get_db
         doctors_map[did]["products"].append({
             "product_id":   r.product_id,
             "product_name": prod.name if prod else f"Product {r.product_id}",
-            "quantity":     r.quantity,
+            "quantity":     r.qty,
             "value":        r.value,
         })
         doctors_map[did]["total"] += r.value or 0

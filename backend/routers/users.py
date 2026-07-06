@@ -80,7 +80,7 @@ def create_user(payload: CreateUserRequest, db: Session = Depends(get_db)):
         "id": user.id,
         "name": user.name,
         "email": user.email,
-        "role": user.role.value,
+        "role": user.role,
         "display_role": user.display_role,
         "temp_password": auto_pwd,    # admin shows this to the user for first login
         "must_reset_password": True,
@@ -110,10 +110,10 @@ def list_users(role: Optional[str] = None, viewer_id: Optional[int] = None, db: 
             "city": getattr(u, 'city', None),
             "state": getattr(u, 'state', None),
             "plain_password": getattr(u, 'plain_password', None),
-            "role": u.role.value, "display_role": u.display_role,
+            "role": u.role, "display_role": u.display_role,
             "custom_role_name": u.custom_role_name,
             "is_active": u.is_active,
-            "must_reset_password": u.must_reset_password,
+            "must_reset_password": getattr(u, "must_reset_password", False),
             "reports_to_id": u.reports_to_id,
             "reports_to_name": u.reports_to.name if u.reports_to else None,
             "created_at": u.created_at,
@@ -138,14 +138,14 @@ def get_hierarchy_tree(db: Session = Depends(get_db)):
             "personal_email": getattr(user, 'personal_email', None),
             "city": getattr(user, 'city', None),
             "state": getattr(user, 'state', None),
-            "role": user.role.value,
+            "role": user.role,
             "display_role": user.display_role,
             "custom_role_name": user.custom_role_name,
             "is_active": user.is_active,
             "reports": [build_node(c) for c in children],
         }
 
-    roots = [u for u in all_users if u.reports_to_id is None and u.role != UserRole.admin]
+    roots = [u for u in all_users if u.reports_to_id is None and u.role != "admin"]
     return [build_node(r) for r in roots]
 
 
@@ -158,10 +158,10 @@ def get_user(user_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="User not found")
     return {
         "id": user.id, "name": user.name, "email": user.email,
-        "role": user.role.value, "display_role": user.display_role,
+        "role": user.role, "display_role": user.display_role,
         "custom_role_name": user.custom_role_name,
         "phone": user.phone, "is_active": user.is_active,
-        "must_reset_password": user.must_reset_password,
+        "must_reset_password": getattr(user, "must_reset_password", False),
         "reports_to_id": user.reports_to_id,
         "reports_to_name": user.reports_to.name if user.reports_to else None,
     }
@@ -210,7 +210,7 @@ def deactivate_user(user_id: int, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    if user.role == UserRole.admin:
+    if user.role == "admin":
         raise HTTPException(status_code=400, detail="Cannot deactivate admin")
     user.is_active = False
     db.commit()

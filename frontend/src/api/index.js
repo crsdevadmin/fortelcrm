@@ -35,9 +35,7 @@ export const salesAPI = {
 
 // ── INVESTMENTS ───────────────────────────────
 export const investmentsAPI = {
-  submit: (formData) => client.post('/investments/submit', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  }),
+  submit: (payload) => client.post('/investments/', payload),
   doctorInvestments: (doctorId) => client.get(`/investments/doctor/${doctorId}`),
   doctorTotal: (doctorId) => client.get(`/investments/doctor/${doctorId}/total`),
   byCategory: (year, month) => client.get('/investments/summary/by-category', { params: { year, month } }),
@@ -58,14 +56,16 @@ export const roiAPI = {
     client.get('/roi/all-doctors', { params: { year: 0, month: 0, start_date: startDate, end_date: endDate, ...params } }),
   gradeSummary: (year, month, extra = {}) =>
     client.get('/roi/grade-summary', { params: { year, month, ...extra } }),
+  clientStats: (year, month, params = {}) =>
+    client.get('/roi/client-stats', { params: { year, month, ...params } }),
   atRisk: (year, month) =>
     client.get('/roi/at-risk', { params: { year, month } }),
   productsSummary: (year, month) =>
     client.get('/roi/products-summary', { params: { year, month } }),
   spendAnalysis: (year, month, params = {}) =>
-    client.get('/roi/spend-analysis', { params: { year, month, ...params } }),
+    client.get('/investments/spend-analysis', { params: { year, month, ...params } }),
   concentrationRisk: (year, month, params = {}) =>
-    client.get('/roi/concentration-risk', { params: { year, month, ...params } }),
+    client.get('/investments/concentration-risk', { params: { year, month, ...params } }),
   updateCommercial: (doctorId, payload) =>
     client.patch(`/roi/doctor/${doctorId}/commercial`, payload),
 };
@@ -75,6 +75,28 @@ export const productsAPI = {
   list: () => client.get('/products/'),
   create: (payload) => client.post('/products/', payload),
   deactivate: (id) => client.delete(`/products/${id}`),
+};
+
+// ── EXPORTS ───────────────────────────────────
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+
+export const exportsAPI = {
+  // These return file downloads — use window.open or anchor href
+  salesUrl: (year, month, params = {}) => {
+    const qs = new URLSearchParams({ year, month, ...params }).toString();
+    return `${API_BASE}/exports/sales?${qs}`;
+  },
+  repActivityUrl: (year, month, params = {}) => {
+    const qs = new URLSearchParams({ year, month, ...params }).toString();
+    return `${API_BASE}/exports/rep-activity?${qs}`;
+  },
+  doctorMasterUrl: (params = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return `${API_BASE}/exports/doctor-master${qs ? '?' + qs : ''}`;
+  },
+  // JSON version for dashboard screen
+  repActivityData: (year, month, params = {}) =>
+    client.get('/exports/rep-activity-data', { params: { year, month, ...params } }),
 };
 
 // ── REGIONS ───────────────────────────────────

@@ -329,6 +329,7 @@ export default function Dashboard() {
   const [allUsers,    setAllUsers]    = useState([]);
   const [docCounts,   setDocCounts]   = useState({});
   const [topProducts, setTopProducts] = useState([]);
+  const [clientStats, setClientStats] = useState(null);
   const [loading,     setLoading]     = useState(true);
 
   const [selRegion,     setSelRegion]     = useState(null);
@@ -373,7 +374,11 @@ export default function Dashboard() {
       setDocCounts(counts);
       setLoading(false);
     }).catch(() => setLoading(false));
-  }, [me?.id, startDate, endDate]);
+
+    // Client stats — prescribed vs not
+    roiAPI.clientStats(year, month, { viewer_id: me.id })
+      .then(r => setClientStats(r.data)).catch(() => {});
+  }, [me?.id, startDate, endDate, year, month]);
 
   const allRegions = useMemo(() => {
     const seen = new Set();
@@ -600,7 +605,7 @@ export default function Dashboard() {
             ...(hasReports ? [
               { icon: '◈', label: 'Team', val: totalTeams, action: () => { closeAllPanels(); setView('all-teams'); setSelUser(null); } },
             ] : []),
-            { icon: '✦', label: 'Clients',    val: totalDocs,             action: () => { closeAllPanels(); setView('all-clients'); setClientSearch(''); setClientsVisible(8); } },
+            { icon: '✦', label: 'Clients',    val: totalDocs,             action: () => { closeAllPanels(); setView('all-clients'); setClientSearch(''); setClientsVisible(8); }, prescribed: clientStats?.prescribed, notPrescribed: clientStats?.not_prescribed },
             { icon: '◆', label: 'Sales',      val: fmtInr(totalSales),    action: () => { setView('overview'); setShowInvestPanel(false); setShowROIPanel(false); setShowSalesPanel(s => !s); setSelProduct(null); setShowAllProducts(false); setShowAllProdDoctors(false); } },
             { icon: '◈', label: 'Investment', val: fmtInr(totalInvested), action: () => { setView('overview'); setShowSalesPanel(false); setShowROIPanel(false); setShowInvestPanel(s => !s); setShowAllInvest(false); } },
             { icon: '◇', label: 'ROI',        val: `${overallROI}x`,      action: () => { setView('overview'); setShowSalesPanel(false); setShowInvestPanel(false); setShowROIPanel(s => !s); }, sub: roiStatus },
@@ -623,9 +628,32 @@ export default function Dashboard() {
                     onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = `0 4px 20px ${c}55`; }}
                   >
                     <div style={{ fontSize: 11, fontWeight: 700, opacity: 0.8, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 6 }}>{m.label}</div>
-                    <div style={{ fontSize: 22, fontWeight: 900, letterSpacing: '-0.5px' }}>{m.val}</div>
+                    {m.prescribed === undefined && <div style={{ fontSize: 22, fontWeight: 900, letterSpacing: '-0.5px' }}>{m.val}</div>}
                     {m.sub && <div style={{ fontSize: 10, opacity: 0.85, marginTop: 4 }}>{m.sub}</div>}
-                    {m.action && !m.sub && <div style={{ fontSize: 10, opacity: 0.7, marginTop: 4 }}>tap to explore</div>}
+                    {m.action && !m.sub && !m.prescribed && <div style={{ fontSize: 10, opacity: 0.7, marginTop: 4 }}>tap to explore</div>}
+
+                    {/* Clients card — 2-column layout */}
+                    {m.prescribed !== undefined && (
+                      <div style={{ display: 'flex', gap: 0, marginTop: 8 }}>
+                        {/* Col 1 — total */}
+                        <div style={{ flex: 1, borderRight: '1px solid rgba(255,255,255,0.25)', paddingRight: 10 }}>
+                          <div style={{ fontSize: 26, fontWeight: 900 }}>{m.val}</div>
+                          <div style={{ fontSize: 9, opacity: 0.55 }}>Total</div>
+                          <div style={{ fontSize: 9, opacity: 0.4, marginTop: 8 }}>tap to explore</div>
+                        </div>
+                        {/* Col 2 — prescribed / not prescribed */}
+                        <div style={{ flex: 1, paddingLeft: 10 }}>
+                          <div style={{ paddingBottom: 6, borderBottom: '1px solid rgba(255,255,255,0.2)' }}>
+                            <div style={{ fontSize: 18, fontWeight: 800 }}>{m.prescribed ?? '—'}</div>
+                            <div style={{ fontSize: 9, opacity: 0.55 }}>Prescribed</div>
+                          </div>
+                          <div style={{ paddingTop: 6 }}>
+                            <div style={{ fontSize: 18, fontWeight: 800 }}>{m.notPrescribed ?? '—'}</div>
+                            <div style={{ fontSize: 9, opacity: 0.55 }}>Not Prescribed</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}

@@ -2,12 +2,42 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
   <title>Fortel CRM</title>
+
+  <!-- PWA manifest -->
+  <link rel="manifest" href="/manifest.json"/>
+
+  <!-- iOS / iPadOS PWA support -->
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="Fortel CRM"/>
+  <link rel="apple-touch-icon" href="/icons/icon-192.png"/>
+  <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152.png"/>
+  <link rel="apple-touch-icon" sizes="167x167" href="/icons/icon-167.png"/>
+  <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-180.png"/>
+
+  <!-- Theme color (tab bar / header on mobile) -->
+  <meta name="theme-color" content="#0f2027"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+
   <link rel="preconnect" href="https://fonts.googleapis.com"/>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+
+  <style>
+    * { touch-action: manipulation; -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+    body { margin: 0; -webkit-font-smoothing: antialiased; background: #f0f2f5; }
+    #root { padding-bottom: env(safe-area-inset-bottom); }
+  </style>
 </head>
 <body>
   <div id="root"></div>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
+      });
+    }
+  </script>
 </body>
 </html>

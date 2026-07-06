@@ -1,3 +1,4 @@
+import InstallBanner from './InstallBanner';
 import React, { useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -29,10 +30,11 @@ const NAV = {
       { to: '/admin-doctors', icon: '✦', label: 'Customer Master' },
     ]},
     { label: 'Performance', items: [
-      { to: '/roi',           icon: '◈', label: 'Investment & ROI' },
-      { to: '/control-tower', icon: '⊕', label: 'Control Tower' },
-      { to: '/business',      icon: '▤', label: 'Business Tracker' },
-      { to: '/risk',          icon: '⚐', label: 'Risk Management' },
+      { to: '/roi',             icon: '◈', label: 'Investment & ROI' },
+      { to: '/rep-activity',    icon: '📊', label: 'Rep Activity' },
+      { to: '/control-tower',   icon: '⊕', label: 'Control Tower' },
+      { to: '/business',        icon: '▤', label: 'Business Tracker' },
+      { to: '/risk',            icon: '⚐', label: 'Risk Management' },
     ]},
     { label: 'Organisation', items: [
       { to: '/my-team',       icon: '⋮', label: 'My Hierarchy' },
@@ -45,7 +47,9 @@ const NAV = {
     { label: 'My Work', items: [
       { to: '/my-customers',  icon: '✦', label: 'My Customers' },
       { to: '/enter-sales',   icon: '📋', label: 'My Sales' },
+      { to: '/visit-log',     icon: '📍', label: 'Visit Log' },
       { to: '/roi',           icon: '◈', label: 'Investment & ROI' },
+      { to: '/rep-activity',  icon: '📊', label: 'Rep Activity' },
     ]},
     { label: 'Organisation', items: [
       { to: '/my-team',       icon: '⋮', label: 'My Hierarchy' },
@@ -58,7 +62,9 @@ const NAV = {
     { label: 'My Work', items: [
       { to: '/my-customers',  icon: '✦', label: 'My Customers' },
       { to: '/enter-sales',   icon: '📋', label: 'My Sales' },
+      { to: '/visit-log',     icon: '📍', label: 'Visit Log' },
       { to: '/roi',           icon: '◈', label: 'Investment & ROI' },
+      { to: '/rep-activity',  icon: '📊', label: 'Rep Activity' },
     ]},
     { label: 'Organisation', items: [
       { to: '/my-team',       icon: '⋮', label: 'My Hierarchy' },
@@ -71,7 +77,9 @@ const NAV = {
     { label: 'My Work', items: [
       { to: '/my-customers',  icon: '✦', label: 'My Customers' },
       { to: '/enter-sales',   icon: '📋', label: 'My Sales' },
+      { to: '/visit-log',     icon: '📍', label: 'Visit Log' },
       { to: '/roi',           icon: '◈', label: 'Investment & ROI' },
+      { to: '/rep-activity',  icon: '📊', label: 'Rep Activity' },
     ]},
     { label: 'Organisation', items: [
       { to: '/my-team',       icon: '⋮', label: 'My Hierarchy' },
@@ -84,6 +92,7 @@ const NAV = {
     { label: 'My Work', items: [
       { to: '/my-customers',  icon: '✦', label: 'My Customers' },
       { to: '/enter-sales',   icon: '📋', label: 'My Sales' },
+      { to: '/visit-log',     icon: '📍', label: 'Visit Log' },
       { to: '/roi',           icon: '◈', label: 'Investment & ROI' },
     ]},
     { label: 'Organisation', items: [
@@ -97,6 +106,7 @@ const NAV = {
     { label: 'My Work', items: [
       { to: '/my-customers',  icon: '✦', label: 'My Customers' },
       { to: '/enter-sales',   icon: '📋', label: 'My Sales' },
+      { to: '/visit-log',     icon: '📍', label: 'Visit Log' },
       { to: '/roi',           icon: '◈', label: 'Investment & ROI' },
     ]},
     { label: 'Organisation', items: [
@@ -105,14 +115,15 @@ const NAV = {
   ],
 };
 
-// Page title map for header breadcrumb
 const PAGE_TITLES = {
   '/':              'Dashboard',
   '/roi':           'Investment & ROI',
   '/my-team':       'My Hierarchy',
   '/my-customers':  'My Customers',
   '/enter-sales':   'My Sales',
-  '/product-sales': 'Sales by Product',
+  '/visit-log':     'Visit Log',
+  '/product-sales':  'Sales by Product',
+  '/rep-activity':   'Rep Activity',
   '/users':         'User Management',
   '/admin-doctors': 'Customer Master',
   '/business':      'Business Tracker',
@@ -129,8 +140,9 @@ export default function Layout({ children }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen]       = useState(false);   // mobile drawer
+  const [collapsed, setCollapsed]           = useState(false);   // desktop collapse
+  const [profileOpen, setProfileOpen]       = useState(false);
 
   const role = user?.role || 'custom';
   const navSections = NAV[role] || NAV.custom;
@@ -139,35 +151,51 @@ export default function Layout({ children }) {
   const handleLogout = () => { logout(); navigate('/login'); };
 
   return (
+    <>
+    <InstallBanner />
     <div className="app-layout">
 
       {/* ── SIDEBAR ─────────────────────────── */}
-      <div className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
+      <div className={`sidebar ${sidebarOpen ? 'open' : ''} ${collapsed ? 'collapsed' : ''}`}>
 
         {/* Brand */}
-        <div className="sidebar-brand">
+        <div className="sidebar-brand" style={{ position: 'relative' }}>
           <div className="sidebar-brand-inner">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 0, paddingTop: 4 }}>
-              <span style={{ fontSize: 24, fontWeight: 900, color: '#1A1A1A', letterSpacing: '-0.5px', lineHeight: 1.2 }}>
-                fort
-              </span>
+            {/* Full logo */}
+            <div className="sidebar-brand-logo-full" style={{ display: 'flex', alignItems: 'center', gap: 0, paddingTop: 4 }}>
+              <span style={{ fontSize: 24, fontWeight: 900, color: '#1A1A1A', letterSpacing: '-0.5px', lineHeight: 1.2 }}>fort</span>
               <span style={{ position: 'relative', display: 'inline-block', lineHeight: 1.2 }}>
                 <span style={{ fontSize: 24, fontWeight: 900, color: '#1A1A1A', letterSpacing: '-0.5px' }}>e</span>
-                <svg style={{ position: 'absolute', top: -6, left: 0, pointerEvents: 'none' }}
-                  width="12" height="8" viewBox="0 0 12 8">
+                <svg style={{ position: 'absolute', top: -6, left: 0, pointerEvents: 'none' }} width="12" height="8" viewBox="0 0 12 8">
                   <ellipse cx="6" cy="4" rx="5.5" ry="3" fill="#3D8C40" transform="rotate(-20 6 4)"/>
                 </svg>
               </span>
-              <span style={{ fontSize: 24, fontWeight: 900, color: '#1A1A1A', letterSpacing: '-0.5px', lineHeight: 1.2 }}>
-                l
-              </span>
+              <span style={{ fontSize: 24, fontWeight: 900, color: '#1A1A1A', letterSpacing: '-0.5px', lineHeight: 1.2 }}>l</span>
+              <span style={{
+                fontSize: 9, fontWeight: 800, background: '#1A1A1A',
+                color: '#F5B800', padding: '2px 7px', borderRadius: 4,
+                letterSpacing: '1.5px', marginLeft: 8, flexShrink: 0,
+              }}>CRM</span>
             </div>
-            <span style={{
-              fontSize: 9, fontWeight: 800, background: '#1A1A1A',
-              color: '#F5B800', padding: '2px 7px', borderRadius: 4,
-              letterSpacing: '1.5px', marginLeft: 8, flexShrink: 0,
-            }}>CRM</span>
+            {/* Mini logo (collapsed) */}
+            <div className="sidebar-brand-logo-mini" style={{ display: 'none', alignItems: 'center', justifyContent: 'center' }}>
+              <span style={{ fontSize: 20, fontWeight: 900, color: '#1A1A1A' }}>F</span>
+              <svg style={{ position: 'absolute', top: 8, left: '50%', transform: 'translateX(-4px)', pointerEvents: 'none' }} width="10" height="7" viewBox="0 0 12 8">
+                <ellipse cx="6" cy="4" rx="5.5" ry="3" fill="#3D8C40" transform="rotate(-20 6 4)"/>
+              </svg>
+            </div>
           </div>
+
+          {/* Collapse toggle — desktop only */}
+          <button
+            className="sidebar-collapse-btn"
+            onClick={() => setCollapsed(c => !c)}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            style={{ display: 'none' }}
+            id="collapse-btn"
+          >
+            {collapsed ? '›' : '‹'}
+          </button>
         </div>
 
         {/* User */}
@@ -189,11 +217,12 @@ export default function Layout({ children }) {
                   key={item.to}
                   to={item.to}
                   end={item.to === '/'}
+                  data-label={item.label}
                   className={({ isActive }) => `sidebar-link${isActive ? ' active' : ''}`}
                   onClick={() => setSidebarOpen(false)}
                 >
-                  <span className="icon" style={{ fontSize: 11, opacity: 0.9 }}>{item.icon}</span>
-                  {item.label}
+                  <span className="icon" style={{ fontSize: 13, opacity: 0.9, flexShrink: 0 }}>{item.icon}</span>
+                  <span className="link-label">{item.label}</span>
                 </NavLink>
               ))}
             </div>
@@ -203,24 +232,42 @@ export default function Layout({ children }) {
         {/* Bottom */}
         <div className="sidebar-bottom">
           <button className="logout-btn" onClick={handleLogout}>
-            <span style={{ fontSize: 11 }}>→</span>
-            Sign Out
+            <span style={{ fontSize: 13, flexShrink: 0 }}>→</span>
+            <span className="link-label">Sign Out</span>
           </button>
         </div>
       </div>
 
       {/* ── MAIN ────────────────────────────── */}
-      <div className="main-content">
+      <div className={`main-content ${collapsed ? 'sidebar-collapsed' : ''}`}>
 
         {/* Top bar */}
         <div className="header">
+          {/* Mobile hamburger */}
           <button className="menu-toggle" onClick={() => setSidebarOpen(s => !s)}>☰</button>
+
+          {/* Desktop collapse toggle (shown inside header on desktop) */}
+          <button
+            onClick={() => setCollapsed(c => !c)}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: 'rgba(255,255,255,0.5)', fontSize: 18, padding: '4px 6px',
+              borderRadius: 6, display: 'flex', alignItems: 'center',
+              transition: 'color 0.15s',
+            }}
+            onMouseEnter={e => e.currentTarget.style.color = 'rgba(255,255,255,0.9)'}
+            onMouseLeave={e => e.currentTarget.style.color = 'rgba(255,255,255,0.5)'}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className="desktop-collapse-toggle"
+          >
+            {collapsed ? '›' : '‹'}
+          </button>
 
           {/* Page breadcrumb */}
           <div className="logo">
-            <span style={{ color: 'var(--text-3)', fontSize: 11 }}>Fortel</span>
-            <span style={{ color: 'var(--border-2)', fontSize: 13 }}>›</span>
-            <span style={{ fontWeight: 700, fontSize: 13 }}>{pageTitle}</span>
+            <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 11 }}>Fortel</span>
+            <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 13 }}>›</span>
+            <span style={{ fontWeight: 700, fontSize: 13, color: 'rgba(255,255,255,0.9)' }}>{pageTitle}</span>
           </div>
 
           <div className="header-right" style={{ position: 'relative' }}>
@@ -230,19 +277,20 @@ export default function Layout({ children }) {
             >
               <div style={{
                 width: 32, height: 32, borderRadius: '50%',
-                background: 'linear-gradient(135deg,#1d4ed8,#7c3aed)',
-                color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: 'linear-gradient(135deg, #F5B800, #D4A017)',
+                color: '#1A1A1A', display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: 11, fontWeight: 800, flexShrink: 0,
+                boxShadow: '0 0 0 2px rgba(245,184,0,0.3)',
               }}>
                 {initials(user?.name)}
               </div>
               <div style={{ textAlign: 'left' }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-1)', lineHeight: 1.2 }}>{user?.name}</div>
-                <div style={{ fontSize: 10, color: 'var(--text-3)', lineHeight: 1.2 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'rgba(255,255,255,0.9)', lineHeight: 1.2 }}>{user?.name}</div>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', lineHeight: 1.2 }}>
                   {user?.custom_role_name || user?.display_role || role}
                 </div>
               </div>
-              <span style={{ fontSize: 10, color: 'var(--text-3)', marginLeft: 2 }}>▾</span>
+              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginLeft: 2 }}>▾</span>
             </button>
 
             {profileOpen && (
@@ -253,7 +301,7 @@ export default function Layout({ children }) {
                   background: '#fff', borderRadius: 14, boxShadow: '0 8px 32px rgba(0,0,0,0.15)',
                   border: '1px solid #e5e7eb', minWidth: 200, overflow: 'hidden',
                 }}>
-                  <div style={{ padding: '14px 16px', borderBottom: '1px solid #f3f4f6', background: 'linear-gradient(135deg,#0f2027,#2c5364)', color: '#fff' }}>
+                  <div style={{ padding: '14px 16px', borderBottom: '1px solid #f3f4f6', background: 'linear-gradient(135deg,#0B1E10,#1a3a20)', color: '#fff' }}>
                     <div style={{ fontWeight: 800, fontSize: 14 }}>{user?.name}</div>
                     <div style={{ fontSize: 11, opacity: 0.6, marginTop: 2 }}>{user?.email}</div>
                     <div style={{ fontSize: 10, opacity: 0.5, marginTop: 1 }}>{user?.custom_role_name || user?.display_role || role}</div>
@@ -310,5 +358,6 @@ export default function Layout({ children }) {
         />
       )}
     </div>
+    </>
   );
 }

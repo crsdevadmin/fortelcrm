@@ -17,7 +17,7 @@ def get_subtree_ids(viewer_id: int, db: Session) -> Optional[Set[int]]:
         return set()
 
     # Admin and MD see everything
-    if viewer.role in (UserRole.admin, UserRole.md):
+    if viewer.role in ("admin", "md"):
         return None
 
     # BFS from the viewer's node

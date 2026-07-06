@@ -85,20 +85,20 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is deactivated. Contact admin.")
 
-    token = create_access_token(user.id, user.role.value)
+    token = create_access_token(user.id, user.role if isinstance(user.role, str) else user.role.value)
 
     return {
         "access_token": token,
         "token_type": "bearer",
-        "must_reset_password": user.must_reset_password,
+        "must_reset_password": getattr(user, "must_reset_password", False),
         "user": {
             "id": user.id,
             "name": user.name,
             "email": user.email,
-            "role": user.role.value,
-            "display_role": user.display_role,
-            "custom_role_name": user.custom_role_name,
-            "reports_to_id": user.reports_to_id,
+            "role": user.role if isinstance(user.role, str) else user.role.value,
+            "display_role": getattr(user, "display_role", None),
+            "custom_role_name": getattr(user, "custom_role_name", None),
+            "reports_to_id": getattr(user, "reports_to_id", None),
         }
     }
 
@@ -114,8 +114,8 @@ def change_password(payload: ChangePasswordRequest, db: Session = Depends(get_db
     if len(payload.new_password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
     user.password_hash = hash_password(payload.new_password)
-    user.plain_password = payload.new_password
-    user.must_reset_password = False
+    if hasattr(user, "plain_password"): user.plain_password = payload.new_password
+    if hasattr(user, "must_reset_password"): user.must_reset_password = False
     db.commit()
     return {"status": "password changed"}
 
@@ -131,8 +131,8 @@ def admin_reset_password(payload: AdminResetPasswordRequest, db: Session = Depen
 
     new_pwd = payload.new_password or generate_password()
     user.password_hash = hash_password(new_pwd)
-    user.plain_password = new_pwd
-    user.must_reset_password = True    # force user to reset on next login
+    if hasattr(user, "plain_password"): user.plain_password = new_pwd
+    if hasattr(user, "must_reset_password"): user.must_reset_password = True    # force user to reset on next login
     db.commit()
     return {"status": "reset", "new_password": new_pwd, "user_email": user.email}
 
@@ -147,8 +147,8 @@ def get_me(token: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="User not found")
     return {
         "id": user.id, "name": user.name, "email": user.email,
-        "role": user.role.value, "display_role": user.display_role,
-        "custom_role_name": user.custom_role_name,
-        "must_reset_password": user.must_reset_password,
-        "reports_to_id": user.reports_to_id,
+        "role": user.role if isinstance(user.role, str) else user.role.value, "display_role": getattr(user, "display_role", None),
+        "custom_role_name": getattr(user, "custom_role_name", None),
+        "must_reset_password": getattr(user, "must_reset_password", False),
+        "reports_to_id": getattr(user, "reports_to_id", None),
     }

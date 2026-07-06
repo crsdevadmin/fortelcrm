@@ -430,18 +430,16 @@ function AddInvestmentModal({ doctor, year, month, onClose, onSaved }) {
     if (!form.amount || !form.category) { setError('Amount and category are required'); return; }
     setSaving(true); setError('');
     try {
-      const fd = new FormData();
-      fd.append('doctor_id', doctor.doctor_id);
-      fd.append('associate_id', user?.id || 1);
-      fd.append('year', year);
-      fd.append('month', month);
-      fd.append('week', 1);
-      fd.append('category', form.category);
-      if (form.sub_category) fd.append('sub_category', form.sub_category);
-      fd.append('amount', form.amount);
-      fd.append('expected_multiple', form.expected_multiple);
-      if (form.purpose) fd.append('purpose', form.purpose);
-      await investmentsAPI.submit(fd);
+      await investmentsAPI.submit({
+        doctor_id: doctor.doctor_id,
+        associate_id: user?.id || 1,
+        year, month, week: 1,
+        category: form.category,
+        sub_category: form.sub_category || null,
+        amount: Number(form.amount),
+        expected_multiple: Number(form.expected_multiple) || 5,
+        purpose: form.purpose || null,
+      });
       onSaved();
       onClose();
     } catch (err) {
@@ -667,8 +665,8 @@ export default function ROIDashboard() {
   const [invSuccess,  setInvSuccess]  = useState('');
 
   // Analytics panels
-  const [spendData,  setSpendData]  = useState(null);
-  const [riskData,   setRiskData]   = useState(null);
+  const [spendData,    setSpendData]    = useState(null);
+  const [riskData,     setRiskData]     = useState(null);
   const [analyticsTab, setAnalyticsTab] = useState('allocation'); // 'allocation' | 'spend' | 'risk'
 
   const load = useCallback(() => {
@@ -725,18 +723,17 @@ export default function ROIDashboard() {
     if (!invForm.commercial_model_type) { setInvError('Please select an investment type (U1–R1)'); return; }
     setInvSaving(true); setInvError('');
     try {
-      const fd = new FormData();
-      fd.append('doctor_id', invForm.doctor_id);
-      fd.append('associate_id', me?.id || 1);
-      fd.append('year', year);
-      fd.append('month', month);
-      fd.append('week', invForm.week);
-      fd.append('commercial_model_type', invForm.commercial_model_type);
-      if (invForm.sub_category) fd.append('sub_category', invForm.sub_category);
-      fd.append('amount', invForm.amount);
-      fd.append('expected_multiple', invForm.expected_multiple);
-      if (invForm.purpose) fd.append('purpose', invForm.purpose);
-      await investmentsAPI.submit(fd);
+      await investmentsAPI.submit({
+        doctor_id: invForm.doctor_id,
+        associate_id: me?.id || 1,
+        year, month,
+        week: invForm.week || 1,
+        commercial_model_type: invForm.commercial_model_type,
+        sub_category: invForm.sub_category || null,
+        amount: Number(invForm.amount),
+        expected_multiple: Number(invForm.expected_multiple) || 5,
+        purpose: invForm.purpose || null,
+      });
       setInvSuccess(`Investment of ₹${Number(invForm.amount).toLocaleString()} added for ${selDoc?.name}`);
       setInvForm(EMPTY_INV); setSelDoc(null); setShowForm(false);
       setTimeout(() => setInvSuccess(''), 4000);
@@ -793,8 +790,9 @@ export default function ROIDashboard() {
           </div>
         </div>
 
-        {/* Row 1 — Summary metric chips */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        {/* Row 1 — Summary metric chips + Clients card */}
+        <div style={{ display: 'flex', alignItems: 'stretch', gap: 10, flexWrap: 'wrap' }}>
+          {/* Regular metric chips */}
           {[
             { label: 'Invested',    val: summary ? fmtInr(summary.total_invested || 0) : '—',  color: '#4ade80' },
             { label: 'Business',    val: summary ? fmtInr(summary.total_sales    || 0) : '—',  color: '#60a5fa' },
@@ -806,6 +804,56 @@ export default function ROIDashboard() {
               <div style={{ fontSize: 16, fontWeight: 800, color: chip.color }}>{chip.val}</div>
             </div>
           ))}
+
+          {/* Clients card */}
+          <div
+            onClick={() => setGradeFilter('All')}
+            style={{
+              background: 'rgba(255,255,255,0.1)', borderRadius: 10, padding: '10px 16px',
+              minWidth: 160, cursor: 'pointer', border: '1px solid rgba(255,255,255,0.15)',
+              transition: 'background 0.15s',
+            }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.18)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <div style={{ fontSize: 10, opacity: 0.55, marginBottom: 2 }}>Clients</div>
+                <div style={{ fontSize: 22, fontWeight: 900, color: '#fff', lineHeight: 1 }}>
+                  {clientStats ? clientStats.total : '—'}
+                </div>
+                <div style={{ fontSize: 9, opacity: 0.45, marginTop: 3, letterSpacing: 0.3 }}>tap to explore ↗</div>
+              </div>
+              <div style={{ fontSize: 18, opacity: 0.3 }}>👥</div>
+            </div>
+
+            {/* Prescribed / Not prescribed bar */}
+            {clientStats && clientStats.total > 0 && (
+              <div style={{ marginTop: 10 }}>
+                {/* Mini progress bar */}
+                <div style={{ height: 4, borderRadius: 99, background: 'rgba(255,255,255,0.15)', overflow: 'hidden', marginBottom: 6 }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${(clientStats.prescribed / clientStats.total) * 100}%`,
+                    background: '#4ade80',
+                    borderRadius: 99,
+                    transition: 'width 0.4s',
+                  }} />
+                </div>
+                {/* Labels */}
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <div style={{ textAlign: 'left' }}>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: '#4ade80' }}>{clientStats.prescribed}</div>
+                    <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.45)' }}>Prescribed</div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: '#f87171' }}>{clientStats.not_prescribed}</div>
+                    <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.45)' }}>Not Prescribed</div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Row 2 — Grade filter strip (visually separate from metrics) */}

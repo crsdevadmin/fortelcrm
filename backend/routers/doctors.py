@@ -5,7 +5,7 @@ from typing import Optional
 from pydantic import BaseModel
 
 from ..database import get_db
-from ..models.models import Doctor, CommercialModel, RepDoctorMapping, User
+from ..models.models import Doctor, RepDoctorMapping, User
 from ..utils.hierarchy import get_subtree_ids
 
 router = APIRouter(prefix="/doctors", tags=["Doctors"])
@@ -42,9 +42,9 @@ def doc_to_dict(d: Doctor) -> dict:
         "address3": d.address3,
         "latitude": d.latitude,
         "longitude": d.longitude,
-        "commercial_model": d.commercial_model.value if d.commercial_model else None,
+        "commercial_model": d.commercial_model or None,
         "expected_multiple": d.expected_multiple,
-        "roi_grade": d.roi_grade.value if d.roi_grade else None,
+        "roi_grade": d.roi_grade or None,
         "add_date": d.add_date,
         "status": d.status,
         "is_active": d.is_active,
@@ -86,7 +86,7 @@ class DoctorPayload(BaseModel):
     address3: Optional[str] = None
     latitude: Optional[str] = None
     longitude: Optional[str] = None
-    commercial_model: Optional[CommercialModel] = None
+    commercial_model: Optional[str] = None
     expected_multiple: float = 5.0
     add_date: Optional[str] = None
     status: Optional[str] = "Active"

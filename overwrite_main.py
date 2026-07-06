@@ -1,4 +1,9 @@
-# backend/main.py
+"""Run this to update backend/main.py — uses direct write, not atomic rename."""
+import os
+
+path = os.path.join(os.path.dirname(__file__), "backend", "main.py")
+
+content = '''# backend/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -14,6 +19,7 @@ from .routers.regions import router as regions_router
 from .routers.doctors import router as doctors_router
 from .routers.products import router as products_router
 from .routers.visits import router as visits_router
+from .routers.exports import router as exports_router
 
 Base.metadata.create_all(bind=engine)
 
@@ -42,8 +48,18 @@ app.include_router(regions_router)
 app.include_router(doctors_router)
 app.include_router(products_router)
 app.include_router(visits_router)
+app.include_router(exports_router)
 
 
 @app.get("/")
 def health():
     return {"status": "ok", "service": "Fortel CRM API"}
+'''
+
+try:
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+    print(f"✅ Updated: {path}")
+except PermissionError:
+    print("❌ File still locked — make sure uvicorn is fully stopped.")
+    print("   Open Task Manager, end any 'python' process, then run this again.")

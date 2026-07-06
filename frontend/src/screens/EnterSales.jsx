@@ -3,7 +3,7 @@ import axios from 'axios';
 import { salesAPI } from '../api';
 import { useAuth } from '../context/AuthContext';
 
-const API = 'http://localhost:8000';
+const API = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 const MN  = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const now = new Date();
 const CUR_Y = now.getFullYear();
@@ -114,15 +114,43 @@ export default function SalesScreen() {
     if (entries.find(e => e.product.id === p.id)) {
       document.getElementById(`qty-${p.id}`)?.focus(); return;
     }
-    setEntries(prev => [...prev, { uid: `${p.id}-${Date.now()}`, product: p, qty: '', value: p.rate > 0 ? String(p.rate) : '' }]);
+    setEntries(prev => [...prev, { uid: `${p.id}-${Date.now()}`, product: p, qty: '', price: p.rate > 0 ? String(p.rate) : '', value: '' }]);
     setTimeout(() => document.getElementById(`qty-${p.id}`)?.focus(), 60);
   };
 
-  const updEntry = (uid, f, v) => setEntries(prev => prev.map(e => e.uid === uid ? { ...e, [f]: v } : e));
+  const gstRate = (gstStr) => {
+    if (!gstStr) return 0.05;
+    const n = parseFloat(gstStr);
+    return isNaN(n) ? 0.05 : n / 100;
+  };
+
+  // Total = qty × PTS × (1 + GST%)
+  const calcTotal = (qty, product) => {
+    const q = parseFloat(qty) || 0;
+    const pts = product.rate || 0;
+    const gst = gstRate(product.gst);
+    return q > 0 && pts > 0 ? parseFloat((q * pts * (1 + gst)).toFixed(2)) : 0;
+  };
+
+  const updEntry = (uid, f, v) => setEntries(prev => prev.map(e => {
+    if (e.uid !== uid) return e;
+    const updated = { ...e, [f]: v };
+    // Recalc value whenever qty or price changes
+    const qty   = parseFloat(f === 'qty'   ? v : e.qty)   || 0;
+    const price = parseFloat(f === 'price' ? v : e.price) || 0;
+    const gst   = gstRate(e.product.gst);
+    updated.value = qty > 0 && price > 0 ? String(parseFloat((qty * price * (1 + gst)).toFixed(2))) : '';
+    return updated;
+  }));
   const delEntry = uid => setEntries(prev => prev.filter(e => e.uid !== uid));
 
-  const grandTotal = entries.reduce((s,e) => s + (parseFloat(e.value)||0), 0);
-  const grandQty   = entries.reduce((s,e) => s + (parseFloat(e.qty)||0),   0);
+  const grandTotal = entries.reduce((s,e) => {
+    const qty = parseFloat(e.qty) || 0;
+    const price = parseFloat(e.price) || 0;
+    const gst = gstRate(e.product.gst);
+    return s + (qty > 0 && price > 0 ? qty * price * (1 + gst) : 0);
+  }, 0);
+  const grandQty = entries.reduce((s,e) => s + (parseFloat(e.qty)||0), 0);
 
   const resetForm = () => {
     clearDoctor(); setEntries([]); setProdQ(''); setErr(''); setShowForm(false);
@@ -131,15 +159,20 @@ export default function SalesScreen() {
   const submit = async () => {
     if (!selDoctor)    { setErr('Select a doctor first.'); return; }
     if (!entries.length){ setErr('Add at least one product.'); return; }
-    const rows = entries.filter(e => (parseFloat(e.value)||0) > 0);
-    if (!rows.length)  { setErr('Enter a value for at least one product.'); return; }
+    const rows = entries.filter(e => (parseFloat(e.qty)||0) > 0 && (parseFloat(e.price)||0) > 0);
+    if (!rows.length)  { setErr('Enter price and quantity for at least one product.'); return; }
     setErr(''); setBusy(true);
     try {
       await salesAPI.submit({
         doctor_id:    selDoctor.id,
         associate_id: me?.id,
         sale_date:    saleDate,
-        entries: rows.map(e => ({ product_id: e.product.id, quantity: parseFloat(e.qty)||0, value: parseFloat(e.value)||0 })),
+        entries: rows.map(e => {
+          const qty   = parseFloat(e.qty);
+          const price = parseFloat(e.price);
+          const gst   = gstRate(e.product.gst);
+          return { product_id: e.product.id, quantity: qty, value: parseFloat((qty * price * (1 + gst)).toFixed(2)) };
+        }),
         remarks: '',
       });
       resetForm();
@@ -231,14 +264,26 @@ export default function SalesScreen() {
               <div>
                 <label style={lbl}>Doctor / Pharmacy ({doctors.length} available)</label>
                 {selDoctor ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 10, background: '#EAF5EA', border: '1.5px solid #3D8C40' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 14px', borderRadius: 10, background: '#EAF5EA', border: '1.5px solid #3D8C40' }}>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 700, color: '#1D5C20', fontSize: 13 }}>✓ {selDoctor.name}</div>
-                      <div style={{ fontSize: 11, color: '#555', marginTop: 1 }}>
-                        {[selDoctor.specialty||selDoctor.customer_type, selDoctor.hospital, selDoctor.city].filter(Boolean).join(' · ')}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <div style={{ fontWeight: 700, color: '#1D5C20', fontSize: 13 }}>✓ {selDoctor.name}</div>
+                        {selDoctor.expected_multiple && (
+                          <span style={{ background: '#F5B800', color: '#0B1E10', fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 20 }}>
+                            🎯 Target {selDoctor.expected_multiple}×
+                          </span>
+                        )}
+                      </div>
+                      {selDoctor.hospital && (
+                        <div style={{ fontSize: 12, color: '#1D5C20', marginTop: 3, fontWeight: 600 }}>
+                          🏥 {selDoctor.hospital}
+                        </div>
+                      )}
+                      <div style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
+                        {[selDoctor.specialty||selDoctor.customer_type, selDoctor.city].filter(Boolean).join(' · ')}
                       </div>
                     </div>
-                    <button onClick={clearDoctor} style={{ background: 'none', border: 'none', fontSize: 16, color: '#888', cursor: 'pointer' }}>✕</button>
+                    <button onClick={clearDoctor} style={{ background: 'none', border: 'none', fontSize: 16, color: '#888', cursor: 'pointer', marginTop: 2 }}>✕</button>
                   </div>
                 ) : (
                   <div ref={docRef} style={{ position: 'relative' }}>
@@ -253,8 +298,16 @@ export default function SalesScreen() {
                           <div key={d.id} onClick={() => pickDoctor(d)} style={ddItem}
                             onMouseEnter={e => e.currentTarget.style.background='#f0faf0'}
                             onMouseLeave={e => e.currentTarget.style.background='#fff'}>
-                            <div style={{ fontSize: 13, fontWeight: 600 }}>{d.name}</div>
-                            <div style={{ fontSize: 11, color: '#888', marginTop: 1 }}>{[d.specialty||d.customer_type,d.hospital,d.city].filter(Boolean).join(' · ')}</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                              <span style={{ fontSize: 13, fontWeight: 600 }}>{d.name}</span>
+                              {d.expected_multiple && (
+                                <span style={{ background: '#FEF3C7', color: '#92400E', fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 10 }}>
+                                  🎯 {d.expected_multiple}×
+                                </span>
+                              )}
+                            </div>
+                            {d.hospital && <div style={{ fontSize: 11, color: '#3D8C40', marginTop: 1, fontWeight: 500 }}>🏥 {d.hospital}</div>}
+                            <div style={{ fontSize: 11, color: '#888', marginTop: 1 }}>{[d.specialty||d.customer_type, d.city].filter(Boolean).join(' · ')}</div>
                           </div>
                         ))}
                       </div>
@@ -284,11 +337,15 @@ export default function SalesScreen() {
                           style={{ ...ddItem, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
                           onMouseEnter={e => e.currentTarget.style.background='#f0faf0'}
                           onMouseLeave={e => e.currentTarget.style.background='#fff'}>
-                          <div>
+                          <div style={{ flex: 1 }}>
                             <div style={{ fontSize: 13, fontWeight: 600 }}>{p.name}</div>
-                            {p.pack_size && <div style={{ fontSize: 11, color: '#888', marginTop: 1 }}>{p.pack_size}</div>}
+                            {p.composition && <div style={{ fontSize: 10, color: '#888', marginTop: 1 }}>{p.composition}</div>}
+                            {p.pack && <div style={{ fontSize: 10, color: '#aaa' }}>Pack: {p.pack}</div>}
                           </div>
-                          {p.rate > 0 && <div style={{ fontSize: 12, fontWeight: 700, color: '#3D8C40', marginLeft: 12 }}>₹{p.rate}</div>}
+                          <div style={{ textAlign: 'right', marginLeft: 12, flexShrink: 0 }}>
+                            {p.rate > 0 && <div style={{ fontSize: 12, fontWeight: 700, color: '#3D8C40' }}>PTS ₹{p.rate}</div>}
+                            {p.mrp > 0 && <div style={{ fontSize: 10, color: '#888' }}>MRP ₹{p.mrp}</div>}
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -303,48 +360,93 @@ export default function SalesScreen() {
             {/* Products table */}
             {entries.length > 0 && (
               <div style={{ background: '#f9fafb', borderRadius: 12, border: '1px solid #e5e7eb', marginBottom: 12, overflow: 'hidden' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 120px 36px', padding: '7px 16px', background: '#f0f0f0', fontSize: 10, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                  <div>Product</div><div style={{textAlign:'center'}}>Qty</div><div style={{textAlign:'right'}}>Value ₹</div><div/>
+                {/* Header */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px 70px 100px 36px', padding: '7px 14px', background: '#f0f0f0', fontSize: 10, fontWeight: 700, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  <div>Product</div>
+                  <div style={{ textAlign: 'center' }}>Price ₹</div>
+                  <div style={{ textAlign: 'center' }}>Qty</div>
+                  <div style={{ textAlign: 'right' }}>Total (incl. GST)</div>
+                  <div/>
                 </div>
+
                 {entries.map((e, idx) => {
-                  const ok = (parseFloat(e.value)||0) > 0;
+                  const enteredPrice = parseFloat(e.price) || 0;
+                  const qty          = parseFloat(e.qty)   || 0;
+                  const gst          = gstRate(e.product.gst);
+                  const lineTotal    = qty > 0 && enteredPrice > 0 ? parseFloat((qty * enteredPrice * (1 + gst)).toFixed(2)) : 0;
+                  const ok           = lineTotal > 0;
                   return (
-                    <div key={e.uid} style={{ display: 'grid', gridTemplateColumns: '1fr 80px 120px 36px', alignItems: 'center', padding: '9px 16px', background: ok ? '#fafff8' : '#fff', borderTop: idx > 0 ? '1px solid #f0f0f0' : 'none' }}>
+                    <div key={e.uid} style={{ display: 'grid', gridTemplateColumns: '1fr 100px 70px 100px 36px', alignItems: 'center', padding: '10px 14px', background: ok ? '#fafff8' : '#fff', borderTop: idx > 0 ? '1px solid #f0f0f0' : 'none' }}>
+
+                      {/* Product info */}
                       <div>
                         <div style={{ fontSize: 12, fontWeight: 600 }}>{e.product.name}</div>
-                        {e.product.pack_size && <div style={{ fontSize: 10, color: '#bbb' }}>{e.product.pack_size}</div>}
+                        {e.product.pack && <div style={{ fontSize: 10, color: '#888' }}>Pack: {e.product.pack}</div>}
+                        {e.product.mrp > 0 && <div style={{ fontSize: 10, color: '#aaa' }}>MRP ₹{e.product.mrp}</div>}
                       </div>
+
+                      {/* Price input — pre-filled from PTS, editable */}
                       <div style={{ textAlign: 'center' }}>
-                        <input id={`qty-${e.product.id}`} type="number" min="0" placeholder="0" value={e.qty}
-                          onChange={ev => updEntry(e.uid,'qty',ev.target.value)}
-                          style={{ width: 54, padding: '5px 4px', border: '1px solid #ddd', borderRadius: 7, fontSize: 12, textAlign: 'center', outline: 'none' }}
-                          onFocus={ev => ev.target.style.borderColor='#3D8C40'}
-                          onBlur={ev  => ev.target.style.borderColor='#ddd'} />
-                      </div>
-                      <div style={{ textAlign: 'right' }}>
                         <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
-                          <span style={{ position: 'absolute', left: 7, fontSize: 11, color: '#aaa' }}>₹</span>
-                          <input type="number" min="0" placeholder="0.00" value={e.value}
-                            onChange={ev => updEntry(e.uid,'value',ev.target.value)}
-                            style={{ width: 90, padding: '5px 5px 5px 18px', border: `1px solid ${ok?'#3D8C40':'#ddd'}`, borderRadius: 7, fontSize: 12, textAlign: 'right', outline: 'none', background: ok?'#f0faf0':'#fafafa' }}
-                            onFocus={ev => ev.target.style.borderColor='#3D8C40'}
-                            onBlur={ev  => ev.target.style.borderColor=ok?'#3D8C40':'#ddd'} />
+                          <span style={{ position: 'absolute', left: 5, fontSize: 11, color: '#aaa', pointerEvents: 'none' }}>₹</span>
+                          <input
+                            type="number" min="0" step="0.01"
+                            placeholder="0.00"
+                            value={e.price}
+                            onChange={ev => updEntry(e.uid, 'price', ev.target.value)}
+                            style={{ width: 84, padding: '5px 4px 5px 16px', border: '1px solid #ddd', borderRadius: 7, fontSize: 12, textAlign: 'right', outline: 'none' }}
+                            onFocus={ev => ev.target.style.borderColor = '#3D8C40'}
+                            onBlur={ev  => ev.target.style.borderColor = '#ddd'}
+                          />
                         </div>
+                        <div style={{ fontSize: 9, color: '#bbb', marginTop: 2 }}>+{e.product.gst || '5%'} GST</div>
                       </div>
+
+                      {/* Qty input */}
                       <div style={{ textAlign: 'center' }}>
-                        <button onClick={() => delEntry(e.uid)}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#ddd', padding: '3px 4px' }}
-                          onMouseEnter={ev => ev.currentTarget.style.color='#DC2626'}
-                          onMouseLeave={ev => ev.currentTarget.style.color='#ddd'}>✕</button>
+                        <input
+                          id={`qty-${e.product.id}`}
+                          type="number" min="0" placeholder="0"
+                          value={e.qty}
+                          onChange={ev => updEntry(e.uid, 'qty', ev.target.value)}
+                          style={{ width: 54, padding: '5px 4px', border: '1px solid #ddd', borderRadius: 7, fontSize: 12, textAlign: 'center', outline: 'none' }}
+                          onFocus={ev => ev.target.style.borderColor = '#3D8C40'}
+                          onBlur={ev  => ev.target.style.borderColor = '#ddd'}
+                        />
+                      </div>
+
+                      {/* Total — read-only */}
+                      <div style={{ textAlign: 'right', paddingRight: 2 }}>
+                        {ok
+                          ? <div style={{ fontSize: 13, fontWeight: 700, color: '#0B1E10' }}>
+                              ₹{lineTotal.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </div>
+                          : <div style={{ fontSize: 13, color: '#ddd' }}>—</div>
+                        }
+                        {ok && <div style={{ fontSize: 9, color: '#aaa', marginTop: 1 }}>{qty}×₹{enteredPrice}</div>}
+                      </div>
+
+                      {/* Delete */}
+                      <div style={{ textAlign: 'center' }}>
+                        <button onClick={() => delEntry(e.uid)} title="Remove"
+                          style={{ background: '#fee2e2', border: 'none', cursor: 'pointer', fontSize: 12, color: '#DC2626', padding: '5px 7px', borderRadius: 6, fontWeight: 700 }}
+                          onMouseEnter={ev => { ev.currentTarget.style.background='#DC2626'; ev.currentTarget.style.color='#fff'; }}
+                          onMouseLeave={ev => { ev.currentTarget.style.background='#fee2e2'; ev.currentTarget.style.color='#DC2626'; }}>✕</button>
                       </div>
                     </div>
                   );
                 })}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 120px 36px', padding: '10px 16px', background: '#1A1A1A', borderRadius: '0 0 12px 12px', fontWeight: 700, fontSize: 13, color: '#fff', alignItems: 'center' }}>
-                  <div style={{ color: '#F5B800' }}>Grand Total</div>
-                  <div style={{ textAlign: 'center', fontSize: 11, color: '#888' }}>{grandQty > 0 ? `${grandQty} units` : '—'}</div>
-                  <div style={{ textAlign: 'right', color: '#F5B800', fontSize: 15 }}>{fmtV(grandTotal)}</div>
-                  <div />
+
+                {/* Grand total footer */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 100px 70px 100px 36px', padding: '12px 14px', background: '#0B1E10', borderRadius: '0 0 12px 12px', fontWeight: 700, fontSize: 13, color: '#fff', alignItems: 'center' }}>
+                  <div style={{ color: '#F5B800', fontSize: 12 }}>
+                    Grand Total
+                    <div style={{ fontSize: 10, fontWeight: 400, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>{entries.length} product{entries.length !== 1 ? 's' : ''} · incl. GST</div>
+                  </div>
+                  <div/>
+                  <div style={{ textAlign: 'center', fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>{grandQty > 0 ? `${grandQty} units` : '—'}</div>
+                  <div style={{ textAlign: 'right', color: '#F5B800', fontSize: 16 }}>{fmtV(grandTotal)}</div>
+                  <div/>
                 </div>
               </div>
             )}
