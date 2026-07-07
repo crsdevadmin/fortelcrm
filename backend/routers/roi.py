@@ -1,7 +1,7 @@
 # backend/routers/roi.py
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from typing import Optional
 from pydantic import BaseModel
 
@@ -33,6 +33,31 @@ COMMERCIAL_DESC = {
     "D1": "New doctor under evaluation",
     "R1": "Declining business or high competitor threat",
 }
+
+
+def apply_viewer_scope(q, viewer_id: Optional[int], db: Session, year: Optional[int] = None, month: Optional[int] = None):
+    subtree = get_subtree_ids(viewer_id, db)
+    if subtree is None:
+        return q
+
+    from ..models.models import RepDoctorMapping
+    visible_ids = {r.doctor_id for r in db.query(RepDoctorMapping.doctor_id).filter(
+        (RepDoctorMapping.associate_id.in_(subtree)) |
+        (RepDoctorMapping.rep_id.in_(subtree)),
+        RepDoctorMapping.is_active == True,
+    ).all()}
+
+    if year and month:
+        visible_ids.update(r.doctor_id for r in db.query(SalesEntry.doctor_id).filter(
+            SalesEntry.associate_id.in_(subtree),
+            SalesEntry.year == year,
+            SalesEntry.month == month,
+        ).distinct().all())
+
+    conditions = [Doctor.manager_id.in_(subtree)]
+    if visible_ids:
+        conditions.append(Doctor.id.in_(visible_ids))
+    return q.filter(or_(*conditions))
 
 
 class CommercialUpdateRequest(BaseModel):
@@ -301,18 +326,18 @@ def get_all_doctors_roi(
 ):
     q = db.query(Doctor).filter(Doctor.is_active != False)
 
+    # Derive year/month: if caller sent year=0, extract from start_date
+    eff_year, eff_month = year, month
+    if (eff_year == 0 or eff_month == 0) and start_date:
+        try:
+            from datetime import datetime as _dt
+            _d = _dt.strptime(start_date, "%Y-%m-%d")
+            eff_year, eff_month = _d.year, _d.month
+        except Exception:
+            pass
+
     if viewer_id and not manager_id:
-        subtree = get_subtree_ids(viewer_id, db)
-        if subtree is not None:
-            from ..models.models import RepDoctorMapping
-            mapped_ids = {r.doctor_id for r in db.query(RepDoctorMapping.doctor_id).filter(
-                (RepDoctorMapping.associate_id.in_(subtree)) |
-                (RepDoctorMapping.rep_id.in_(subtree)),
-                RepDoctorMapping.is_active == True,
-            ).all()}
-            q = q.filter(
-                (Doctor.manager_id.in_(subtree)) | (Doctor.id.in_(mapped_ids))
-            )
+        q = apply_viewer_scope(q, viewer_id, db, eff_year, eff_month)
 
     if manager_id:
         q = q.filter(Doctor.manager_id == manager_id)
@@ -323,16 +348,6 @@ def get_all_doctors_roi(
         return []
 
     doctor_ids = [d.id for d in doctors]
-
-    # Derive year/month: if caller sent year=0, extract from start_date
-    eff_year, eff_month = year, month
-    if (eff_year == 0 or eff_month == 0) and start_date:
-        try:
-            from datetime import datetime as _dt
-            _d = _dt.strptime(start_date, "%Y-%m-%d")
-            eff_year, eff_month = _d.year, _d.month
-        except Exception:
-            pass
 
     sales_q = db.query(
         SalesEntry.doctor_id,
@@ -405,17 +420,7 @@ def get_all_doctors_roi(
 def get_grade_summary(year: int, month: int, viewer_id: Optional[int] = None, db: Session = Depends(get_db)):
     q = db.query(Doctor).filter(Doctor.is_active != False)
     if viewer_id:
-        subtree = get_subtree_ids(viewer_id, db)
-        if subtree is not None:
-            from ..models.models import RepDoctorMapping
-            mapped_ids = {r.doctor_id for r in db.query(RepDoctorMapping.doctor_id).filter(
-                (RepDoctorMapping.associate_id.in_(subtree)) |
-                (RepDoctorMapping.rep_id.in_(subtree)),
-                RepDoctorMapping.is_active == True,
-            ).all()}
-            q = q.filter(
-                (Doctor.manager_id.in_(subtree)) | (Doctor.id.in_(mapped_ids))
-            )
+        q = apply_viewer_scope(q, viewer_id, db, year, month)
     doctors = q.all()
     if not doctors:
         return []
@@ -453,17 +458,7 @@ def get_client_stats(year: int, month: int, viewer_id: Optional[int] = None, db:
     """Returns total clients, prescribed (had sales this month), not prescribed."""
     q = db.query(Doctor).filter(Doctor.is_active != False)
     if viewer_id:
-        subtree = get_subtree_ids(viewer_id, db)
-        if subtree is not None:
-            from ..models.models import RepDoctorMapping
-            mapped_ids = {r.doctor_id for r in db.query(RepDoctorMapping.doctor_id).filter(
-                (RepDoctorMapping.associate_id.in_(subtree)) |
-                (RepDoctorMapping.rep_id.in_(subtree)),
-                RepDoctorMapping.is_active == True,
-            ).all()}
-            q = q.filter(
-                (Doctor.manager_id.in_(subtree)) | (Doctor.id.in_(mapped_ids))
-            )
+        q = apply_viewer_scope(q, viewer_id, db, year, month)
     doctor_ids = [d.id for d in q.all()]
     total = len(doctor_ids)
 
@@ -487,17 +482,7 @@ def get_client_stats(year: int, month: int, viewer_id: Optional[int] = None, db:
 def get_at_risk(year: int, month: int, viewer_id: Optional[int] = None, db: Session = Depends(get_db)):
     q = db.query(Doctor).filter(Doctor.is_active != False)
     if viewer_id:
-        subtree = get_subtree_ids(viewer_id, db)
-        if subtree is not None:
-            from ..models.models import RepDoctorMapping
-            mapped_ids = {r.doctor_id for r in db.query(RepDoctorMapping.doctor_id).filter(
-                (RepDoctorMapping.associate_id.in_(subtree)) |
-                (RepDoctorMapping.rep_id.in_(subtree)),
-                RepDoctorMapping.is_active == True,
-            ).all()}
-            q = q.filter(
-                (Doctor.manager_id.in_(subtree)) | (Doctor.id.in_(mapped_ids))
-            )
+        q = apply_viewer_scope(q, viewer_id, db, year, month)
     doctors = q.all()
     if not doctors:
         return []
