@@ -20,13 +20,6 @@ import ProductSales from './screens/ProductSales';
 import VisitLog from './screens/VisitLog';
 import RepActivity from './screens/RepActivity';
 
-const Placeholder = ({ title }) => (
-  <div>
-    <div className="page-title">{title}</div>
-    <div className="empty">This screen is coming next.</div>
-  </div>
-);
-
 // Route guard — redirects to / if role not allowed
 function RoleGuard({ children, allowedRoles }) {
   const { user } = useAuth();
@@ -47,12 +40,12 @@ function PrivateRoutes() {
         <Route path="/enter-sales"      element={<EnterSales />} />
         <Route path="/enter-investment" element={<Navigate to="/roi" replace />} />
         <Route path="/roi"              element={<ROIDashboard />} />
-        <Route path="/roi-product"      element={<Placeholder title="ROI by Product" />} />
-        <Route path="/control-tower"    element={<Placeholder title="Control Tower" />} />
-        <Route path="/business"         element={<Placeholder title="Business Tracker" />} />
-        <Route path="/investment"       element={<Placeholder title="Investment Tracker" />} />
-        <Route path="/risk"             element={<Placeholder title="Risk Management" />} />
-        <Route path="/whiteboard"       element={<Placeholder title="Whiteboard Review" />} />
+        <Route path="/roi-product"      element={<Navigate to="/product-sales" replace />} />
+        <Route path="/control-tower"    element={<Navigate to="/" replace />} />
+        <Route path="/business"         element={<Navigate to="/" replace />} />
+        <Route path="/investment"       element={<Navigate to="/roi" replace />} />
+        <Route path="/risk"             element={<Navigate to="/roi" replace />} />
+        <Route path="/whiteboard"       element={<Navigate to="/" replace />} />
         <Route path="/my-team"          element={<MyTeam />} />
         <Route path="/visit-log"        element={<VisitLog />} />
         <Route path="/rep-activity"     element={<RepActivity />} />
@@ -75,7 +68,7 @@ function PrivateRoutes() {
         <Route path="/region-view"      element={<RegionView />} />
         <Route path="/regions"          element={<Regions />} />
         <Route path="/approvals"        element={<PendingApprovals />} />
-        <Route path="/mapping"          element={<Placeholder title="Rep–Doctor Mapping" />} />
+        <Route path="/mapping"          element={<Navigate to="/admin-doctors" replace />} />
         <Route path="*"                 element={<Navigate to="/" replace />} />
       </Routes>
     </Layout>

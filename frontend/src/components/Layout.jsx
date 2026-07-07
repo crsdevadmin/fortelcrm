@@ -15,15 +15,13 @@ const NAV = {
     ]},
     { label: 'Performance', items: [
       { to: '/roi',           icon: '◈', label: 'Investment & ROI' },
-      { to: '/roi-product',   icon: '◇', label: 'ROI by Product' },
-      { to: '/control-tower', icon: '⊕', label: 'Control Tower' },
-      { to: '/business',      icon: '▤', label: 'Business Tracker' },
+      { to: '/product-sales', icon: '◇', label: 'Product Sales' },
+      { to: '/rep-activity',  icon: '📊', label: 'Rep Activity' },
     ]},
   ],
   md: [
     { label: 'Overview', items: [
       { to: '/',              icon: '⊞', label: 'MD Dashboard' },
-      { to: '/whiteboard',    icon: '⊡', label: 'Whiteboard' },
     ]},
     { label: 'Administration', items: [
       { to: '/users',         icon: '◎', label: 'User Management' },
@@ -31,10 +29,8 @@ const NAV = {
     ]},
     { label: 'Performance', items: [
       { to: '/roi',             icon: '◈', label: 'Investment & ROI' },
+      { to: '/product-sales',   icon: '◇', label: 'Product Sales' },
       { to: '/rep-activity',    icon: '📊', label: 'Rep Activity' },
-      { to: '/control-tower',   icon: '⊕', label: 'Control Tower' },
-      { to: '/business',        icon: '▤', label: 'Business Tracker' },
-      { to: '/risk',            icon: '⚐', label: 'Risk Management' },
     ]},
     { label: 'Organisation', items: [
       { to: '/my-team',       icon: '⋮', label: 'My Hierarchy' },
@@ -126,10 +122,6 @@ const PAGE_TITLES = {
   '/rep-activity':   'Rep Activity',
   '/users':         'User Management',
   '/admin-doctors': 'Customer Master',
-  '/business':      'Business Tracker',
-  '/risk':          'Risk Management',
-  '/whiteboard':    'Whiteboard',
-  '/control-tower': 'Control Tower',
 };
 
 function initials(name) {
