@@ -45,6 +45,12 @@ function fmtInr(val) {
   return `₹${Math.round(val)}`;
 }
 
+function fmtROIValue(sales, invested, roi) {
+  if ((invested || 0) > 0) return `${roi || 0}×`;
+  if ((sales || 0) > 0) return 'Sales only';
+  return '0×';
+}
+
 function CaBadge({ status, pct }) {
   const c = CA_COLORS[status] || CA_COLORS.red;
   return (
@@ -135,7 +141,7 @@ function DoctorCard({ d, onClick, selected }) {
         </div>
         <div>
           <div style={{ fontSize: 10, color: '#888' }}>ROI</div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: gc.dot }}>{d.roi_multiple}×</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: gc.dot }}>{fmtROIValue(d.actual_sales, d.total_invested, d.roi_multiple)}</div>
         </div>
       </div>
 
@@ -214,7 +220,7 @@ function DrillPanel({ doctorId, year, month, onClose, onAddInvestment, onAddBusi
         </div>
         <div style={{ background: '#f5f5f5', borderRadius: 8, padding: '10px 12px', textAlign: 'center' }}>
           <div style={{ fontSize: 10, color: '#888' }}>ROI</div>
-          <div style={{ fontSize: 16, fontWeight: 700, color: gc.dot }}>{data.roi_multiple}×</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: gc.dot }}>{fmtROIValue(data.actual_sales, data.total_invested, data.roi_multiple)}</div>
         </div>
       </div>
 
@@ -859,7 +865,7 @@ export default function ROIDashboard() {
           {[
             { label: 'Invested',    val: fmtInr(summaryTotals.total_invested),  color: '#4ade80' },
             { label: 'Business',    val: fmtInr(summaryTotals.total_sales),     color: '#60a5fa' },
-            { label: 'ROI',         val: `${summaryTotals.overall_roi_multiple || 0}×`, color: '#fbbf24' },
+            { label: 'ROI',         val: fmtROIValue(summaryTotals.total_sales, summaryTotals.total_invested, summaryTotals.overall_roi_multiple), color: '#fbbf24' },
             { label: 'Achievement', val: `${summaryTotals.overall_ca_percent || 0}%`, color: summaryTotals.overall_ca_percent >= 100 ? '#4ade80' : summaryTotals.overall_ca_percent >= 80 ? '#fbbf24' : '#f87171' },
           ].map(chip => (
             <div key={chip.label} style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 10, padding: '8px 14px', minWidth: 88 }}>
@@ -1288,7 +1294,7 @@ export default function ROIDashboard() {
                   {chartDocs.map((doc, i) => {
                     const invPct   = (doc.total_invested / maxVal) * 100;
                     const salesPct = (doc.actual_sales / maxVal) * 100;
-                    const roi      = doc.roi_multiple || 0;
+                    const roi      = fmtROIValue(doc.actual_sales, doc.total_invested, doc.roi_multiple);
                     const good     = doc.actual_sales >= doc.total_invested;
                     const gc       = GRADE_COLORS[doc.roi_grade] || GRADE_COLORS.Bronze;
                     return (
@@ -1298,7 +1304,7 @@ export default function ROIDashboard() {
                           <span style={{ fontSize: 10, color: '#bbb', width: 16, textAlign: 'right', flexShrink: 0 }}>{i + 1}</span>
                           <span style={{ fontSize: 12, fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.doctor_name}</span>
                           <GradeBadge grade={doc.roi_grade} />
-                          <span style={{ fontSize: 11, fontWeight: 700, color: good ? '#0F6E56' : '#dc2626', minWidth: 36, textAlign: 'right' }}>{roi}×</span>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: good ? '#0F6E56' : '#dc2626', minWidth: 36, textAlign: 'right' }}>{roi}</span>
                         </div>
                         {/* Investment bar */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
@@ -1459,7 +1465,7 @@ export default function ROIDashboard() {
                         </td>
                         <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700 }}>{fmtInr(total)}</td>
                         <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: '#0F6E56' }}>{fmtInr(row.sales)}</td>
-                        <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: gc.dot }}>{row.roi_multiple}×</td>
+                        <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 700, color: gc.dot }}>{fmtROIValue(row.sales, row.total, row.roi_multiple)}</td>
                         <td style={{ padding: '10px 14px', textAlign: 'right' }}><GradeBadge grade={row.roi_grade} /></td>
                       </tr>
                     );

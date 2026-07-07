@@ -43,6 +43,15 @@ function fmtInr(v) {
   if (v >= 1000)     return `₹${(v/1000).toFixed(1)}K`;
   return `₹${Math.round(v)}`;
 }
+function fmtROIValue(sales, invested, roi) {
+  if ((invested || 0) > 0) return `${roi || 0}x`;
+  if ((sales || 0) > 0) return 'Sales only';
+  return '0x';
+}
+function fmtROIStatus(sales, invested, roi) {
+  if ((invested || 0) <= 0 && (sales || 0) > 0) return 'No investment';
+  return roi >= 5 ? 'On track' : roi >= 3 ? 'Average' : 'Below target';
+}
 function initials(n) { return (n || '').split(' ').filter(Boolean).map(w => w[0]).join('').slice(0,2).toUpperCase(); }
 
 function Avatar({ name, color = '#888', size = 36 }) {
@@ -136,7 +145,7 @@ function ProductView({ doctor, repUser, year, month }) {
         {[
           { label: 'Total Invested', val: fmtInr(data.total_invested) },
           { label: `Sales · ${MONTH_NAMES[month]}`, val: fmtInr(data.actual_sales), color: '#3D8C40' },
-          { label: 'ROI Multiple', val: `${data.roi_multiple}x` },
+          { label: 'ROI Multiple', val: fmtROIValue(data.actual_sales, data.total_invested, data.roi_multiple) },
           { label: 'Achievement', val: `${data.ca_percent}%`, color: caColor },
         ].map((s, i) => (
           <div key={i} style={{ background: '#fff', border: '0.5px solid #e5e7eb', borderRadius: 10, padding: '12px 16px' }}>
@@ -600,7 +609,7 @@ export default function Dashboard() {
         {/* Metric cards */}
         {(() => {
           const CARD_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#0F6E56'];
-          const roiStatus = overallROI >= 5 ? '🟢 On track' : overallROI >= 3 ? '🟡 Average' : '🔴 Below target';
+          const roiStatus = fmtROIStatus(totalSales, totalInvested, overallROI);
           const cards = [
             ...(hasReports ? [
               { icon: '◈', label: 'Team', val: totalTeams, action: () => { closeAllPanels(); setView('all-teams'); setSelUser(null); } },
@@ -608,7 +617,7 @@ export default function Dashboard() {
             { icon: '✦', label: 'Clients',    val: totalDocs,             action: () => { closeAllPanels(); setView('all-clients'); setClientSearch(''); setClientsVisible(8); }, prescribed: clientStats?.prescribed, notPrescribed: clientStats?.not_prescribed },
             { icon: '◆', label: 'Sales',      val: fmtInr(totalSales),    action: () => { setView('overview'); setShowInvestPanel(false); setShowROIPanel(false); setShowSalesPanel(s => !s); setSelProduct(null); setShowAllProducts(false); setShowAllProdDoctors(false); } },
             { icon: '◈', label: 'Investment', val: fmtInr(totalInvested), action: () => { setView('overview'); setShowSalesPanel(false); setShowROIPanel(false); setShowInvestPanel(s => !s); setShowAllInvest(false); } },
-            { icon: '◇', label: 'ROI',        val: `${overallROI}x`,      action: () => { setView('overview'); setShowSalesPanel(false); setShowInvestPanel(false); setShowROIPanel(s => !s); }, sub: roiStatus },
+            { icon: '◇', label: 'ROI',        val: fmtROIValue(totalSales, totalInvested, overallROI),      action: () => { setView('overview'); setShowSalesPanel(false); setShowInvestPanel(false); setShowROIPanel(s => !s); }, sub: roiStatus },
           ];
           return (
             <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cards.length}, 1fr)`, gap: 12, marginTop: 20, position: 'relative', zIndex: 2 }}>
@@ -881,7 +890,7 @@ export default function Dashboard() {
                 <div style={{ background: '#fff', borderRadius: 10, padding: '10px 14px', border: '1px solid #e0f2fe', marginBottom: 16 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: '#0369A1' }}>
-                      ROI Breakdown{selRegion ? ` · ${selRegion}` : ''} <span style={{ fontWeight: 400, color: '#aaa', fontSize: 11 }}>· {overallROI}x overall · {displayDoctors.length} doctors</span>
+                      ROI Breakdown{selRegion ? ` · ${selRegion}` : ''} <span style={{ fontWeight: 400, color: '#aaa', fontSize: 11 }}>· {fmtROIValue(totalSales, totalInvested, overallROI)} overall · {displayDoctors.length} doctors</span>
                     </div>
                     <button onClick={() => navigate('/investment-roi')}
                       style={{ fontSize: 10, fontWeight: 700, color: '#0369A1', background: '#E0F2FE', border: 'none', borderRadius: 20, padding: '3px 10px', cursor: 'pointer' }}>
@@ -907,7 +916,7 @@ export default function Dashboard() {
                         <div key={d.doctor_id}
                           onClick={() => { setSelDoctor(d); setSelUser(allUsers.find(u => u.id === d.manager_id) || null); setView('product'); }}
                           style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', borderRadius: 20, cursor: 'pointer', background: GRADE_BG[d.roi_grade] || '#f5f5f5', border: `1px solid ${GRADE_COLOR[d.roi_grade] || '#888'}33` }}>
-                          <span style={{ fontSize: 10, fontWeight: 700, color: GRADE_COLOR[d.roi_grade] || '#888' }}>{d.roi_multiple}x</span>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: GRADE_COLOR[d.roi_grade] || '#888' }}>{fmtROIValue(d.actual_sales, d.total_invested, d.roi_multiple)}</span>
                           <span style={{ fontSize: 11, color: '#333', maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.doctor_name}</span>
                         </div>
                       ))}
@@ -948,7 +957,7 @@ export default function Dashboard() {
                     {chartDocs.map((doc, i) => {
                       const invPct   = (doc.total_invested / maxVal) * 100;
                       const salesPct = (doc.actual_sales   / maxVal) * 100;
-                      const roi      = doc.roi_multiple || 0;
+                      const roi      = fmtROIValue(doc.actual_sales, doc.total_invested, doc.roi_multiple);
                       const good     = doc.actual_sales >= doc.total_invested;
                       const gc       = GRADE_COLOR[doc.roi_grade] || '#888';
                       const gb       = GRADE_BG[doc.roi_grade]    || '#f5f5f5';
@@ -962,7 +971,7 @@ export default function Dashboard() {
                             <span style={{ fontSize: 10, color: '#bbb', width: 14, textAlign: 'right', flexShrink: 0 }}>{i+1}</span>
                             <span style={{ fontSize: 12, fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.doctor_name}</span>
                             <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 10, background: gb, color: gc, flexShrink: 0 }}>{doc.roi_grade}</span>
-                            <span style={{ fontSize: 11, fontWeight: 700, color: good ? '#0F6E56' : '#dc2626', width: 32, textAlign: 'right', flexShrink: 0 }}>{roi}x</span>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: good ? '#0F6E56' : '#dc2626', width: 56, textAlign: 'right', flexShrink: 0 }}>{roi}</span>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
                             <span style={{ fontSize: 9, color: '#f97316', width: 40, textAlign: 'right', flexShrink: 0 }}>Inv</span>
