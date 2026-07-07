@@ -365,18 +365,23 @@ export default function AdminUsers() {
                     </div>
 
                     {/* Password row */}
-                    {u.plain_password && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, padding: '6px 10px', background: '#f9fafb', borderRadius: 8, border: '1px solid #f3f4f6' }}>
-                        <span style={{ fontSize: 10, color: '#9ca3af', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>Pwd</span>
-                        <span style={{ fontFamily: 'monospace', fontSize: 13, flex: 1, letterSpacing: pwdVisible ? 0 : 2 }}>
-                          {pwdVisible ? u.plain_password : '••••••••'}
-                        </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, padding: '8px 10px', background: '#f9fafb', borderRadius: 8, border: '1px solid #f3f4f6' }}>
+                      <span style={{ fontSize: 10, color: '#9ca3af', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>Password</span>
+                      <span style={{ fontFamily: 'monospace', fontSize: 13, flex: 1, letterSpacing: pwdVisible || !u.plain_password ? 0 : 2, color: u.plain_password ? '#111827' : '#9ca3af' }}>
+                        {u.plain_password ? (pwdVisible ? u.plain_password : '********') : 'Not stored - reset to generate'}
+                      </span>
+                      {u.plain_password ? (
                         <button onClick={() => togglePwd(u.id)}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: '#6b7280', padding: '0 2px' }}>
-                          {pwdVisible ? '🙈' : '👁'}
+                          style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6, cursor: 'pointer', fontSize: 11, color: '#374151', padding: '3px 8px', fontWeight: 700 }}>
+                          {pwdVisible ? 'Hide' : 'View'}
                         </button>
-                      </div>
-                    )}
+                      ) : (
+                        <button onClick={() => handleResetPassword(u.id)}
+                          style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, cursor: 'pointer', fontSize: 11, color: '#1d4ed8', padding: '3px 8px', fontWeight: 700 }}>
+                          Reset
+                        </button>
+                      )}
+                    </div>
 
                     {/* Reports-to */}
                     <div style={{ marginBottom: 10 }}>
@@ -480,6 +485,26 @@ export default function AdminUsers() {
                 <div style={{ fontWeight: 600, color: '#1a1a1a' }}>{value}</div>
               </div>
             ))}
+
+            <div style={{ marginTop: 14, padding: 12, borderRadius: 12, border: '1px solid #e5e7eb', background: '#f9fafb' }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Login Password</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ flex: 1, fontFamily: 'monospace', fontSize: 14, fontWeight: 800, color: viewUser.plain_password ? '#111827' : '#9ca3af' }}>
+                  {viewUser.plain_password ? (revealedPwd.has(viewUser.id) ? viewUser.plain_password : '********') : 'Not stored - reset to generate'}
+                </div>
+                {viewUser.plain_password ? (
+                  <button onClick={() => togglePwd(viewUser.id)}
+                    style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', color: '#374151', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
+                    {revealedPwd.has(viewUser.id) ? 'Hide' : 'View'}
+                  </button>
+                ) : (
+                  <button onClick={() => handleResetPassword(viewUser.id)}
+                    style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
+                    Reset
+                  </button>
+                )}
+              </div>
+            </div>
 
             <div style={{ display: 'flex', gap: 8, marginTop: 18 }}>
               <button onClick={() => handleResetPassword(viewUser.id)}
