@@ -637,6 +637,48 @@ const ALL_SUB_CATS = [
 
 const EMPTY_INV = { doctor_id: '', commercial_model_type: '', sub_category: '', week: 1, amount: '', purpose: '', expected_multiple: 5 };
 
+const toNum = value => Number(value || 0);
+
+function normalizeSpendData(data = {}) {
+  const byCategory = data.by_category || {};
+  const categoryBreakdown = data.category_breakdown || ['PD', 'RD', 'CS'].reduce((acc, cat) => {
+    acc[cat] = { total: toNum(byCategory[cat]), count: byCategory[cat] ? 1 : 0 };
+    return acc;
+  }, {});
+
+  return {
+    ...data,
+    category_breakdown: categoryBreakdown,
+    sub_activity_breakdown: data.sub_activity_breakdown || Object.entries(data.by_model || {}).map(([activity, total]) => ({
+      activity,
+      total: toNum(total),
+    })),
+    per_doctor_category: Array.isArray(data.per_doctor_category) ? data.per_doctor_category : [],
+  };
+}
+
+function normalizeRiskData(data = {}) {
+  const topDoctors = data.top_doctors || (data.doctors || []).map((doc, index) => ({
+    doctor_id: doc.doctor_id,
+    doctor_name: doc.doctor_name,
+    commercial_model: doc.commercial_model,
+    roi_grade: doc.roi_grade || 'Bronze',
+    sales: toNum(doc.sales || doc.amount),
+    pct_of_total: toNum(doc.pct),
+    cumulative_pct: toNum(doc.cumulative_pct || doc.pct),
+    rank: index + 1,
+  }));
+
+  return {
+    ...data,
+    top5_pct: toNum(data.top5_pct ?? data.top3_pct ?? data.top_doctor_pct),
+    top10_pct: toNum(data.top10_pct ?? data.top3_pct ?? data.top_doctor_pct),
+    total_sales: toNum(data.total_sales ?? data.grand_total),
+    doctor_count: toNum(data.doctor_count || topDoctors.length),
+    top_doctors: topDoctors,
+  };
+}
+
 export default function ROIDashboard() {
   const { user: me } = useAuth();
   const [year, setYear]     = useState(CUR_YEAR);
@@ -667,6 +709,7 @@ export default function ROIDashboard() {
   // Analytics panels
   const [spendData,    setSpendData]    = useState(null);
   const [riskData,     setRiskData]     = useState(null);
+  const [clientStats,  setClientStats]  = useState(null);
   const [analyticsTab, setAnalyticsTab] = useState('allocation'); // 'allocation' | 'spend' | 'risk'
 
   const load = useCallback(() => {
@@ -681,8 +724,8 @@ export default function ROIDashboard() {
       roiAPI.allDoctors(year, month, params),
       roiAPI.gradeSummary(year, month, params),
     ]).then(([dr, sr]) => {
-      setDoctors(dr.data);
-      setSummary(sr.data);
+      setDoctors(Array.isArray(dr.data) ? dr.data : []);
+      setSummary(Array.isArray(sr.data) ? sr.data : []);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, [year, month, search, gradeFilter, modelFilter, refreshKey, me?.id]);
@@ -701,9 +744,11 @@ export default function ROIDashboard() {
   useEffect(() => {
     if (!me?.id) return;
     roiAPI.spendAnalysis(year, month, { viewer_id: me.id })
-      .then(r => setSpendData(r.data)).catch(() => {});
+      .then(r => setSpendData(normalizeSpendData(r.data))).catch(() => {});
     roiAPI.concentrationRisk(year, month, { viewer_id: me.id })
-      .then(r => setRiskData(r.data)).catch(() => {});
+      .then(r => setRiskData(normalizeRiskData(r.data))).catch(() => {});
+    roiAPI.clientStats(year, month, { viewer_id: me.id })
+      .then(r => setClientStats(r.data)).catch(() => setClientStats(null));
   }, [year, month, refreshKey, me?.id]);
 
   const filteredFormDocs = myDoctors.filter(d =>
@@ -743,6 +788,19 @@ export default function ROIDashboard() {
     } finally { setInvSaving(false); }
   };
 
+  const summaryTotals = (() => {
+    const gradeRows = Array.isArray(summary) ? summary : [];
+    const sourceRows = gradeRows.length ? gradeRows : doctors;
+    const totalSales = sourceRows.reduce((sum, row) => sum + toNum(row.total_sales ?? row.actual_sales), 0);
+    const totalInvested = sourceRows.reduce((sum, row) => sum + toNum(row.total_invested), 0);
+    const expectedSales = doctors.reduce((sum, row) => sum + toNum(row.expected_sales), 0);
+    return {
+      total_sales: totalSales,
+      total_invested: totalInvested,
+      overall_roi_multiple: totalInvested > 0 ? (totalSales / totalInvested).toFixed(1) : 0,
+      overall_ca_percent: expectedSales > 0 ? Math.round((doctors.reduce((sum, row) => sum + toNum(row.actual_sales), 0) / expectedSales) * 100) : 0,
+    };
+  })();
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--color-background-tertiary,#f7f7f5)' }}>
@@ -794,10 +852,10 @@ export default function ROIDashboard() {
         <div style={{ display: 'flex', alignItems: 'stretch', gap: 10, flexWrap: 'wrap' }}>
           {/* Regular metric chips */}
           {[
-            { label: 'Invested',    val: summary ? fmtInr(summary.total_invested || 0) : '—',  color: '#4ade80' },
-            { label: 'Business',    val: summary ? fmtInr(summary.total_sales    || 0) : '—',  color: '#60a5fa' },
-            { label: 'ROI',         val: summary ? `${summary.overall_roi_multiple || 0}×`   : '—', color: '#fbbf24' },
-            { label: 'Achievement', val: summary ? `${summary.overall_ca_percent || 0}%` : '—', color: summary?.overall_ca_percent >= 100 ? '#4ade80' : summary?.overall_ca_percent >= 80 ? '#fbbf24' : '#f87171' },
+            { label: 'Invested',    val: fmtInr(summaryTotals.total_invested),  color: '#4ade80' },
+            { label: 'Business',    val: fmtInr(summaryTotals.total_sales),     color: '#60a5fa' },
+            { label: 'ROI',         val: `${summaryTotals.overall_roi_multiple || 0}×`, color: '#fbbf24' },
+            { label: 'Achievement', val: `${summaryTotals.overall_ca_percent || 0}%`, color: summaryTotals.overall_ca_percent >= 100 ? '#4ade80' : summaryTotals.overall_ca_percent >= 80 ? '#fbbf24' : '#f87171' },
           ].map(chip => (
             <div key={chip.label} style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 10, padding: '8px 14px', minWidth: 88 }}>
               <div style={{ fontSize: 10, opacity: 0.55, marginBottom: 2 }}>{chip.label}</div>

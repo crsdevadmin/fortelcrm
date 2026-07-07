@@ -38,13 +38,13 @@ function PrivateRoutes() {
         <Route path="/"                 element={<Dashboard />} />
         <Route path="/doctors"          element={<Doctors />} />
         <Route path="/enter-sales"      element={<EnterSales />} />
-        <Route path="/enter-investment" element={<Navigate to="/roi" replace />} />
-        <Route path="/roi"              element={<ROIDashboard />} />
+        <Route path="/enter-investment" element={<Navigate to="/investment-roi" replace />} />
+        <Route path="/investment-roi"   element={<ROIDashboard />} />
         <Route path="/roi-product"      element={<Navigate to="/product-sales" replace />} />
         <Route path="/control-tower"    element={<Navigate to="/" replace />} />
         <Route path="/business"         element={<Navigate to="/" replace />} />
-        <Route path="/investment"       element={<Navigate to="/roi" replace />} />
-        <Route path="/risk"             element={<Navigate to="/roi" replace />} />
+        <Route path="/investment"       element={<Navigate to="/investment-roi" replace />} />
+        <Route path="/risk"             element={<Navigate to="/investment-roi" replace />} />
         <Route path="/whiteboard"       element={<Navigate to="/" replace />} />
         <Route path="/my-team"          element={<MyTeam />} />
         <Route path="/visit-log"        element={<VisitLog />} />

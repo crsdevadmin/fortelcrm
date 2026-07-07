@@ -14,7 +14,7 @@ const NAV = {
       { to: '/admin-doctors', icon: '✦', label: 'Customer Master' },
     ]},
     { label: 'Performance', items: [
-      { to: '/roi',           icon: '◈', label: 'Investment & ROI' },
+      { to: '/investment-roi',           icon: '◈', label: 'Investment & ROI' },
       { to: '/product-sales', icon: '◇', label: 'Product Sales' },
       { to: '/rep-activity',  icon: '📊', label: 'Rep Activity' },
     ]},
@@ -28,7 +28,7 @@ const NAV = {
       { to: '/admin-doctors', icon: '✦', label: 'Customer Master' },
     ]},
     { label: 'Performance', items: [
-      { to: '/roi',             icon: '◈', label: 'Investment & ROI' },
+      { to: '/investment-roi',             icon: '◈', label: 'Investment & ROI' },
       { to: '/product-sales',   icon: '◇', label: 'Product Sales' },
       { to: '/rep-activity',    icon: '📊', label: 'Rep Activity' },
     ]},
@@ -44,7 +44,7 @@ const NAV = {
       { to: '/my-customers',  icon: '✦', label: 'My Customers' },
       { to: '/enter-sales',   icon: '📋', label: 'My Sales' },
       { to: '/visit-log',     icon: '📍', label: 'Visit Log' },
-      { to: '/roi',           icon: '◈', label: 'Investment & ROI' },
+      { to: '/investment-roi',           icon: '◈', label: 'Investment & ROI' },
       { to: '/rep-activity',  icon: '📊', label: 'Rep Activity' },
     ]},
     { label: 'Organisation', items: [
@@ -59,7 +59,7 @@ const NAV = {
       { to: '/my-customers',  icon: '✦', label: 'My Customers' },
       { to: '/enter-sales',   icon: '📋', label: 'My Sales' },
       { to: '/visit-log',     icon: '📍', label: 'Visit Log' },
-      { to: '/roi',           icon: '◈', label: 'Investment & ROI' },
+      { to: '/investment-roi',           icon: '◈', label: 'Investment & ROI' },
       { to: '/rep-activity',  icon: '📊', label: 'Rep Activity' },
     ]},
     { label: 'Organisation', items: [
@@ -74,7 +74,7 @@ const NAV = {
       { to: '/my-customers',  icon: '✦', label: 'My Customers' },
       { to: '/enter-sales',   icon: '📋', label: 'My Sales' },
       { to: '/visit-log',     icon: '📍', label: 'Visit Log' },
-      { to: '/roi',           icon: '◈', label: 'Investment & ROI' },
+      { to: '/investment-roi',           icon: '◈', label: 'Investment & ROI' },
       { to: '/rep-activity',  icon: '📊', label: 'Rep Activity' },
     ]},
     { label: 'Organisation', items: [
@@ -89,7 +89,7 @@ const NAV = {
       { to: '/my-customers',  icon: '✦', label: 'My Customers' },
       { to: '/enter-sales',   icon: '📋', label: 'My Sales' },
       { to: '/visit-log',     icon: '📍', label: 'Visit Log' },
-      { to: '/roi',           icon: '◈', label: 'Investment & ROI' },
+      { to: '/investment-roi',           icon: '◈', label: 'Investment & ROI' },
     ]},
     { label: 'Organisation', items: [
       { to: '/my-team',       icon: '⋮', label: 'My Hierarchy' },
@@ -103,7 +103,7 @@ const NAV = {
       { to: '/my-customers',  icon: '✦', label: 'My Customers' },
       { to: '/enter-sales',   icon: '📋', label: 'My Sales' },
       { to: '/visit-log',     icon: '📍', label: 'Visit Log' },
-      { to: '/roi',           icon: '◈', label: 'Investment & ROI' },
+      { to: '/investment-roi',           icon: '◈', label: 'Investment & ROI' },
     ]},
     { label: 'Organisation', items: [
       { to: '/my-team',       icon: '⋮', label: 'My Hierarchy' },
@@ -113,7 +113,7 @@ const NAV = {
 
 const PAGE_TITLES = {
   '/':              'Dashboard',
-  '/roi':           'Investment & ROI',
+  '/investment-roi':           'Investment & ROI',
   '/my-team':       'My Hierarchy',
   '/my-customers':  'My Customers',
   '/enter-sales':   'My Sales',
