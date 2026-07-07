@@ -700,6 +700,7 @@ export default function ROIDashboard() {
   const [search, setSearch]     = useState('');
   const [gradeFilter, setGradeFilter] = useState('All');
   const [modelFilter, setModelFilter] = useState('All');
+  const [activityFilter, setActivityFilter] = useState('all');
   const [selectedDoctor, setSelectedDoctor] = useState(null);
   const [addInvDoctor,  setAddInvDoctor]  = useState(null);
   const [addBizDoctor,  setAddBizDoctor]  = useState(null);
@@ -720,7 +721,6 @@ export default function ROIDashboard() {
   // Analytics panels
   const [spendData,    setSpendData]    = useState(null);
   const [riskData,     setRiskData]     = useState(null);
-  const [clientStats,  setClientStats]  = useState(null);
   const [analyticsTab, setAnalyticsTab] = useState('allocation'); // 'allocation' | 'spend' | 'risk'
 
   const load = useCallback(() => {
@@ -758,8 +758,6 @@ export default function ROIDashboard() {
       .then(r => setSpendData(normalizeSpendData(r.data))).catch(() => {});
     roiAPI.concentrationRisk(year, month, { viewer_id: me.id })
       .then(r => setRiskData(normalizeRiskData(r.data))).catch(() => {});
-    roiAPI.clientStats(year, month, { viewer_id: me.id })
-      .then(r => setClientStats(r.data)).catch(() => setClientStats(null));
   }, [year, month, refreshKey, me?.id]);
 
   const filteredFormDocs = myDoctors.filter(d =>
@@ -799,19 +797,52 @@ export default function ROIDashboard() {
     } finally { setInvSaving(false); }
   };
 
+  const displayDoctors = doctors.filter(doc => {
+    if (activityFilter === 'prescribed') return toNum(doc.actual_sales) > 0;
+    if (activityFilter === 'not_prescribed') return toNum(doc.actual_sales) <= 0;
+    return true;
+  });
+
   const summaryTotals = (() => {
     const gradeRows = Array.isArray(summary) ? summary : [];
-    const sourceRows = gradeRows.length ? gradeRows : doctors;
+    const sourceRows = activityFilter === 'all' && gradeRows.length ? gradeRows : displayDoctors;
     const totalSales = sourceRows.reduce((sum, row) => sum + toNum(row.total_sales ?? row.actual_sales), 0);
     const totalInvested = sourceRows.reduce((sum, row) => sum + toNum(row.total_invested), 0);
-    const expectedSales = doctors.reduce((sum, row) => sum + toNum(row.expected_sales), 0);
+    const expectedSales = displayDoctors.reduce((sum, row) => sum + toNum(row.expected_sales), 0);
     return {
       total_sales: totalSales,
       total_invested: totalInvested,
       overall_roi_multiple: totalInvested > 0 ? (totalSales / totalInvested).toFixed(1) : 0,
-      overall_ca_percent: expectedSales > 0 ? Math.round((doctors.reduce((sum, row) => sum + toNum(row.actual_sales), 0) / expectedSales) * 100) : 0,
+      overall_ca_percent: expectedSales > 0 ? Math.round((displayDoctors.reduce((sum, row) => sum + toNum(row.actual_sales), 0) / expectedSales) * 100) : 0,
     };
   })();
+
+  const activityStats = (() => {
+    const stats = {
+      total: doctors.length,
+      prescribedInvested: 0,
+      prescribedNotInvested: 0,
+      notPrescribedInvested: 0,
+      notPrescribedNotInvested: 0,
+    };
+    doctors.forEach(doc => {
+      const hasSales = toNum(doc.actual_sales) > 0;
+      const hasInvestment = toNum(doc.total_invested) > 0;
+      if (hasSales && hasInvestment) stats.prescribedInvested += 1;
+      else if (hasSales) stats.prescribedNotInvested += 1;
+      else if (hasInvestment) stats.notPrescribedInvested += 1;
+      else stats.notPrescribedNotInvested += 1;
+    });
+    stats.prescribed = stats.prescribedInvested + stats.prescribedNotInvested;
+    stats.notPrescribed = stats.notPrescribedInvested + stats.notPrescribedNotInvested;
+    return stats;
+  })();
+
+  const selectActivityFilter = (key) => {
+    setActivityFilter(key);
+    setExpandDoctors(false);
+    setSelectedDoctor(null);
+  };
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--color-background-tertiary,#f7f7f5)' }}>
@@ -859,7 +890,7 @@ export default function ROIDashboard() {
           </div>
         </div>
 
-        {/* Row 1 — Summary metric chips + Clients card */}
+        {/* Row 1 — Summary metric chips + account categories */}
         <div style={{ display: 'flex', alignItems: 'stretch', gap: 10, flexWrap: 'wrap' }}>
           {/* Regular metric chips */}
           {[
@@ -874,55 +905,45 @@ export default function ROIDashboard() {
             </div>
           ))}
 
-          {/* Clients card */}
-          <div
-            onClick={() => setGradeFilter('All')}
-            style={{
-              background: 'rgba(255,255,255,0.1)', borderRadius: 10, padding: '10px 16px',
-              minWidth: 160, cursor: 'pointer', border: '1px solid rgba(255,255,255,0.15)',
-              transition: 'background 0.15s',
-            }}
-            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.18)'}
-            onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <div>
-                <div style={{ fontSize: 10, opacity: 0.55, marginBottom: 2 }}>Clients</div>
-                <div style={{ fontSize: 22, fontWeight: 900, color: '#fff', lineHeight: 1 }}>
-                  {clientStats ? clientStats.total : '—'}
-                </div>
-                <div style={{ fontSize: 9, opacity: 0.45, marginTop: 3, letterSpacing: 0.3 }}>tap to explore ↗</div>
-              </div>
-              <div style={{ fontSize: 18, opacity: 0.3 }}>👥</div>
-            </div>
-
-            {/* Prescribed / Not prescribed bar */}
-            {clientStats && clientStats.total > 0 && (
-              <div style={{ marginTop: 10 }}>
-                {/* Mini progress bar */}
-                <div style={{ height: 4, borderRadius: 99, background: 'rgba(255,255,255,0.15)', overflow: 'hidden', marginBottom: 6 }}>
-                  <div style={{
-                    height: '100%',
-                    width: `${(clientStats.prescribed / clientStats.total) * 100}%`,
-                    background: '#4ade80',
-                    borderRadius: 99,
-                    transition: 'width 0.4s',
-                  }} />
-                </div>
-                {/* Labels */}
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <div style={{ textAlign: 'left' }}>
-                    <div style={{ fontSize: 13, fontWeight: 800, color: '#4ade80' }}>{clientStats.prescribed}</div>
-                    <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.45)' }}>Prescribed</div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 13, fontWeight: 800, color: '#f87171' }}>{clientStats.not_prescribed}</div>
-                    <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.45)' }}>Not Prescribed</div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+          {[
+            {
+              key: 'all',
+              label: 'All Accounts',
+              count: activityStats.total,
+              color: '#e5e7eb',
+              sub: `${activityStats.prescribed} with sales · ${activityStats.notPrescribed} no sales`,
+            },
+            {
+              key: 'prescribed',
+              label: 'Prescribed',
+              count: activityStats.prescribed,
+              color: '#4ade80',
+              sub: `${activityStats.prescribedInvested} invested + sales · ${activityStats.prescribedNotInvested} sales only`,
+            },
+            {
+              key: 'not_prescribed',
+              label: 'Not Prescribed',
+              count: activityStats.notPrescribed,
+              color: '#f87171',
+              sub: `${activityStats.notPrescribedInvested} invested no sales · ${activityStats.notPrescribedNotInvested} no investment/no sales`,
+            },
+          ].map(cat => {
+            const active = activityFilter === cat.key;
+            return (
+              <button key={cat.key} onClick={() => selectActivityFilter(cat.key)}
+                style={{
+                  background: active ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.1)',
+                  border: active ? `1.5px solid ${cat.color}` : '1px solid rgba(255,255,255,0.15)',
+                  borderRadius: 10, padding: '9px 14px', minWidth: 170,
+                  cursor: 'pointer', color: '#fff', textAlign: 'left',
+                  boxShadow: active ? `0 0 0 1px ${cat.color}33` : 'none',
+                }}>
+                <div style={{ fontSize: 10, opacity: 0.58, marginBottom: 2 }}>{cat.label}</div>
+                <div style={{ fontSize: 20, fontWeight: 900, color: cat.color, lineHeight: 1 }}>{cat.count}</div>
+                <div style={{ fontSize: 9, opacity: 0.58, marginTop: 5, lineHeight: 1.35 }}>{cat.sub}</div>
+              </button>
+            );
+          })}
         </div>
 
         {/* Row 2 — Grade filter strip (visually separate from metrics) */}
@@ -1261,8 +1282,8 @@ export default function ROIDashboard() {
           </div>
 
           {/* ── INV vs SALES CHART (above cards) */}
-          {!loading && doctors.filter(d => d.total_invested > 0 || d.actual_sales > 0).length > 0 && (() => {
-            const chartDocs = [...doctors]
+          {!loading && displayDoctors.filter(d => d.total_invested > 0 || d.actual_sales > 0).length > 0 && (() => {
+            const chartDocs = [...displayDoctors]
               .filter(d => d.total_invested > 0 || d.actual_sales > 0)
               .sort(sortByActivity)
               .slice(0, 15);
@@ -1335,12 +1356,12 @@ export default function ROIDashboard() {
           {/* Doctor cards */}
           {loading ? (
             <div style={{ textAlign: 'center', padding: 48, color: '#888', fontSize: 13 }}>Loading…</div>
-          ) : doctors.length === 0 ? (
+          ) : displayDoctors.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 48, color: '#888', fontSize: 13 }}>No doctors found for this period.</div>
           ) : (() => {
             const PREVIEW = 6;
-            const visible = expandDoctors ? doctors : doctors.slice(0, PREVIEW);
-            const hidden  = doctors.length - PREVIEW;
+            const visible = expandDoctors ? displayDoctors : displayDoctors.slice(0, PREVIEW);
+            const hidden  = displayDoctors.length - PREVIEW;
             return (
               <div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
@@ -1350,7 +1371,7 @@ export default function ROIDashboard() {
                       onClick={doc => setSelectedDoctor(prev => prev?.doctor_id === doc.doctor_id ? null : doc)} />
                   ))}
                 </div>
-                {doctors.length > PREVIEW && (
+                {displayDoctors.length > PREVIEW && (
                   <button
                     onClick={() => setExpandDoctors(e => !e)}
                     style={{
@@ -1362,7 +1383,7 @@ export default function ROIDashboard() {
                     }}>
                     {expandDoctors
                       ? <><span style={{ fontSize: 14 }}>▲</span> Show less</>
-                      : <><span style={{ fontSize: 14 }}>▼</span> Show {hidden} more doctors<span style={{ fontWeight: 400, color: '#9ca3af' }}> · {doctors.length} total</span></>
+                      : <><span style={{ fontSize: 14 }}>▼</span> Show {hidden} more doctors<span style={{ fontWeight: 400, color: '#9ca3af' }}> · {displayDoctors.length} total</span></>
                     }
                   </button>
                 )}
