@@ -871,8 +871,11 @@ export default function Dashboard() {
                 }
               });
               const topROIDocs = [...displayDoctors]
-                .filter(d => (d.roi_multiple || 0) > 0)
-                .sort((a, b) => (b.roi_multiple || 0) - (a.roi_multiple || 0))
+                .filter(d => (d.actual_sales || 0) > 0 || (d.roi_multiple || 0) > 0)
+                .sort((a, b) =>
+                  (b.actual_sales || 0) - (a.actual_sales || 0) ||
+                  (b.roi_multiple || 0) - (a.roi_multiple || 0)
+                )
                 .slice(0, 5);
               return (
                 <div style={{ background: '#fff', borderRadius: 10, padding: '10px 14px', border: '1px solid #e0f2fe', marginBottom: 16 }}>
@@ -880,7 +883,7 @@ export default function Dashboard() {
                     <div style={{ fontSize: 12, fontWeight: 700, color: '#0369A1' }}>
                       ROI Breakdown{selRegion ? ` · ${selRegion}` : ''} <span style={{ fontWeight: 400, color: '#aaa', fontSize: 11 }}>· {overallROI}x overall · {displayDoctors.length} doctors</span>
                     </div>
-                    <button onClick={() => navigate('/roi')}
+                    <button onClick={() => navigate('/investment-roi')}
                       style={{ fontSize: 10, fontWeight: 700, color: '#0369A1', background: '#E0F2FE', border: 'none', borderRadius: 20, padding: '3px 10px', cursor: 'pointer' }}>
                       Full ROI →
                     </button>

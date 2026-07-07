@@ -638,6 +638,11 @@ const ALL_SUB_CATS = [
 const EMPTY_INV = { doctor_id: '', commercial_model_type: '', sub_category: '', week: 1, amount: '', purpose: '', expected_multiple: 5 };
 
 const toNum = value => Number(value || 0);
+const doctorActivityValue = doc => Math.max(toNum(doc.actual_sales), toNum(doc.total_invested), toNum(doc.expected_sales));
+const sortByActivity = (a, b) =>
+  doctorActivityValue(b) - doctorActivityValue(a) ||
+  toNum(b.actual_sales) - toNum(a.actual_sales) ||
+  toNum(b.total_invested) - toNum(a.total_invested);
 
 function normalizeSpendData(data = {}) {
   const byCategory = data.by_category || {};
@@ -724,7 +729,7 @@ export default function ROIDashboard() {
       roiAPI.allDoctors(year, month, params),
       roiAPI.gradeSummary(year, month, params),
     ]).then(([dr, sr]) => {
-      setDoctors(Array.isArray(dr.data) ? dr.data : []);
+      setDoctors(Array.isArray(dr.data) ? [...dr.data].sort(sortByActivity) : []);
       setSummary(Array.isArray(sr.data) ? sr.data : []);
       setLoading(false);
     }).catch(() => setLoading(false));
@@ -1250,10 +1255,10 @@ export default function ROIDashboard() {
           </div>
 
           {/* ── INV vs SALES CHART (above cards) */}
-          {!loading && doctors.filter(d => d.total_invested > 0).length > 0 && (() => {
+          {!loading && doctors.filter(d => d.total_invested > 0 || d.actual_sales > 0).length > 0 && (() => {
             const chartDocs = [...doctors]
-              .filter(d => d.total_invested > 0)
-              .sort((a, b) => b.total_invested - a.total_invested)
+              .filter(d => d.total_invested > 0 || d.actual_sales > 0)
+              .sort(sortByActivity)
               .slice(0, 15);
             const belowTarget = chartDocs.filter(d => d.actual_sales < d.total_invested).length;
             const maxVal = Math.max(...chartDocs.flatMap(d => [d.total_invested, d.actual_sales]), 1);
@@ -1263,10 +1268,10 @@ export default function ROIDashboard() {
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                   <div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: '#111' }}>
-                      Top Invested Doctors — Returns Tracker
+                      Top Active Doctors — Returns Tracker
                       {belowTarget > 0 && <span style={{ marginLeft: 10, fontSize: 11, fontWeight: 700, color: '#dc2626', background: '#fef2f2', padding: '2px 8px', borderRadius: 20 }}>⚠ {belowTarget} below break-even</span>}
                     </div>
-                    <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>Sorted by highest investment · orange line = break-even · click a doctor to drill in</div>
+                    <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>Sorted by sales and investment activity · orange line = break-even · click a doctor to drill in</div>
                   </div>
                   <div style={{ display: 'flex', gap: 14 }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#555' }}>
