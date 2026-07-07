@@ -899,12 +899,25 @@ export default function ROIDashboard() {
             { label: 'ROI',         val: fmtROIValue(summaryTotals.total_sales, summaryTotals.total_invested, summaryTotals.overall_roi_multiple), color: '#fbbf24' },
             { label: 'Achievement', val: `${summaryTotals.overall_ca_percent || 0}%`, color: summaryTotals.overall_ca_percent >= 100 ? '#4ade80' : summaryTotals.overall_ca_percent >= 80 ? '#fbbf24' : '#f87171' },
           ].map(chip => (
-            <div key={chip.label} style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 10, padding: '8px 14px', minWidth: 88 }}>
+            <div
+              key={chip.label}
+              style={{
+                background: 'rgba(255,255,255,0.08)',
+                border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 10,
+                padding: '8px 14px',
+                minWidth: 116,
+                cursor: 'default',
+              }}
+            >
               <div style={{ fontSize: 10, opacity: 0.55, marginBottom: 2 }}>{chip.label}</div>
               <div style={{ fontSize: 16, fontWeight: 800, color: chip.color }}>{chip.val}</div>
             </div>
           ))}
 
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'stretch', gap: 10, flexWrap: 'wrap', marginTop: 12 }}>
           {[
             {
               key: 'all',
