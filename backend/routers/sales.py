@@ -8,6 +8,7 @@ from datetime import datetime, date as date_type
 
 from ..database import get_db
 from ..models.models import SalesEntry, Doctor, Product
+from ..utils.hierarchy import get_subtree_ids
 
 router = APIRouter(prefix="/sales", tags=["Sales"])
 
@@ -194,11 +195,16 @@ def get_doctors_by_product(
 @router.get("/my-sales")
 def get_my_sales(associate_id: int, year: int, month: int, db: Session = Depends(get_db)):
     """All entries by this associate for a given month, grouped by date → doctor → products."""
-    rows = db.query(SalesEntry).filter(
-        SalesEntry.associate_id == associate_id,
+    visible_ids = get_subtree_ids(associate_id, db)
+
+    q = db.query(SalesEntry).filter(
         SalesEntry.year  == year,
         SalesEntry.month == month,
-    ).order_by(SalesEntry.sale_date.desc(), SalesEntry.doctor_id).all()
+    )
+    if visible_ids is not None:
+        q = q.filter(SalesEntry.associate_id.in_(visible_ids))
+
+    rows = q.order_by(SalesEntry.sale_date.desc(), SalesEntry.doctor_id).all()
 
     # Group by date → doctor
     from collections import OrderedDict

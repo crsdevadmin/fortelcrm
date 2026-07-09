@@ -1,12 +1,13 @@
 # backend/routers/investments.py
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from typing import Optional, List
 from datetime import datetime
 
 from ..database import get_db
-from ..models.models import Investment, InvestmentCategory, InvestmentSubCategory, Doctor, User
+from ..models.models import Investment, InvestmentCategory, InvestmentSubCategory, Doctor, User, SalesEntry
+from ..utils.hierarchy import get_subtree_ids
 from pydantic import BaseModel
 from ..core.config import settings
 
@@ -249,21 +250,101 @@ def spend_analysis(
     q = db.query(Investment)
     if year:  q = q.filter(Investment.year  == year)
     if month: q = q.filter(Investment.month == month)
+    if viewer_id:
+        visible_ids = get_subtree_ids(viewer_id, db)
+        if visible_ids is not None:
+            q = q.join(Doctor, Doctor.id == Investment.doctor_id).filter(
+                or_(
+                    Investment.associate_id.in_(visible_ids),
+                    Doctor.manager_id.in_(visible_ids),
+                )
+            )
     invs = q.all()
 
     by_cat = {}
+    cat_counts = {}
     by_model = {}
+    by_doctor = {}
     for i in invs:
         cat = _str_cat(i.category) or "PD"
         model = i.commercial_model_type or "N/A"
         by_cat[cat]   = by_cat.get(cat, 0) + i.amount
+        cat_counts[cat] = cat_counts.get(cat, 0) + 1
         by_model[model] = by_model.get(model, 0) + i.amount
+        if i.doctor_id not in by_doctor:
+            by_doctor[i.doctor_id] = {
+                "doctor_id": i.doctor_id,
+                "PD": 0.0,
+                "RD": 0.0,
+                "CS": 0.0,
+                "total": 0.0,
+                "commercial_model": model,
+            }
+        by_doctor[i.doctor_id][cat] = by_doctor[i.doctor_id].get(cat, 0.0) + (i.amount or 0)
+        by_doctor[i.doctor_id]["total"] += i.amount or 0
+        if model != "N/A":
+            by_doctor[i.doctor_id]["commercial_model"] = model
+
+    doctor_ids = list(by_doctor.keys())
+    doc_map = {}
+    if doctor_ids:
+        doc_map = {d.id: d for d in db.query(Doctor).filter(Doctor.id.in_(doctor_ids)).all()}
+
+    sales_map = {}
+    if doctor_ids and year and month:
+        sales_rows = db.query(
+            SalesEntry.doctor_id,
+            func.sum(SalesEntry.value).label("sales"),
+        ).filter(
+            SalesEntry.doctor_id.in_(doctor_ids),
+            SalesEntry.year == year,
+            SalesEntry.month == month,
+        ).group_by(SalesEntry.doctor_id).all()
+        sales_map = {r.doctor_id: float(r.sales or 0) for r in sales_rows}
+
+    def grade_for(sales, invested):
+        if invested <= 0:
+            return 0.0, "Bronze"
+        roi = sales / invested
+        if roi > 8:
+            grade = "Platinum"
+        elif roi >= 5:
+            grade = "Gold"
+        elif roi >= 3:
+            grade = "Silver"
+        else:
+            grade = "Bronze"
+        return round(roi, 2), grade
+
+    per_doctor_category = []
+    for doctor_id, row in by_doctor.items():
+        doc = doc_map.get(doctor_id)
+        sales = sales_map.get(doctor_id, 0.0)
+        roi_multiple, roi_grade = grade_for(sales, row["total"])
+        per_doctor_category.append({
+            "doctor_id": doctor_id,
+            "doctor_name": doc.name if doc else f"Doctor {doctor_id}",
+            "commercial_model": row["commercial_model"] or (doc.commercial_model if doc else "N/A"),
+            "PD": round(row.get("PD", 0.0), 2),
+            "RD": round(row.get("RD", 0.0), 2),
+            "CS": round(row.get("CS", 0.0), 2),
+            "total": round(row["total"], 2),
+            "sales": round(sales, 2),
+            "roi_multiple": roi_multiple,
+            "roi_grade": roi_grade,
+        })
+    per_doctor_category.sort(key=lambda r: r["total"], reverse=True)
 
     total = sum(by_cat.values())
     return {
         "total": round(total, 2),
         "by_category": {k: round(v, 2) for k, v in by_cat.items()},
+        "category_breakdown": {
+            cat: {"total": round(by_cat.get(cat, 0), 2), "count": cat_counts.get(cat, 0)}
+            for cat in ["PD", "RD", "CS"]
+        },
         "by_model": {k: round(v, 2) for k, v in by_model.items()},
+        "per_doctor_category": per_doctor_category,
     }
 
 
