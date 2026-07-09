@@ -137,7 +137,12 @@ export default function Layout({ children }) {
   const [profileOpen, setProfileOpen]       = useState(false);
 
   const role = user?.role || 'custom';
-  const navSections = NAV[role] || NAV.custom;
+  const navSections = (NAV[role] || NAV.custom)
+    .map(section => ({
+      ...section,
+      items: section.items.filter(item => item.to !== '/my-team'),
+    }))
+    .filter(section => section.items.length > 0);
   const pageTitle = PAGE_TITLES[location.pathname] || 'Fortel CRM';
 
   const handleLogout = () => { logout(); navigate('/login'); };
@@ -222,7 +227,7 @@ export default function Layout({ children }) {
         </nav>
 
         {/* Bottom */}
-        <div className="sidebar-bottom">
+        <div className="sidebar-bottom" style={{ display: 'none' }}>
           <button className="logout-btn" onClick={handleLogout}>
             <span style={{ fontSize: 13, flexShrink: 0 }}>→</span>
             <span className="link-label">Sign Out</span>
