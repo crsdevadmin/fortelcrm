@@ -237,6 +237,21 @@ export default function SalesScreen() {
   const weekHistData = histData.filter(d => selectedWeekDates.includes(d.date));
   const weekTotal = weekHistData.reduce((s, d) => s + d.day_total, 0);
   const weekDoctors = weekHistData.reduce((s, d) => s + d.doctors.length, 0);
+  const weekSummaries = [1, 2, 3, 4].map(w => {
+    const b = weekBounds(w);
+    const dates = Array.from(
+      { length: Math.max(0, Math.min(b.end, maxDay) - b.start + 1) },
+      (_, i) => dateForDay(year, month, b.start + i)
+    );
+    const rows = histData.filter(d => dates.includes(d.date));
+    return {
+      week: w,
+      daysLabel: `${b.start}-${Math.min(b.end, maxDay)}`,
+      total: rows.reduce((s, d) => s + d.day_total, 0),
+      daysFilled: rows.length,
+      doctors: rows.reduce((s, d) => s + d.doctors.length, 0),
+    };
+  });
 
   const chooseWeek = w => {
     setSelectedWeek(w);
@@ -328,7 +343,7 @@ export default function SalesScreen() {
           </div>
         )}
 
-        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 14, padding: 14, marginBottom: 16 }}>
+        {showForm && <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 14, padding: 14, marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
             <div>
               <div style={{ fontSize: 14, fontWeight: 800, color: '#111' }}>Weekly sales entry</div>
@@ -392,7 +407,7 @@ export default function SalesScreen() {
               )}
             </div>
           )}
-        </div>
+        </div>}
 
         {/* ══ ENTRY FORM (slide-down) ════════════════════════════════════════ */}
         {showForm && (
@@ -402,9 +417,9 @@ export default function SalesScreen() {
               Record a visit and products sold
             </div>
 
-            {/* Date + Doctor row */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 16, marginBottom: 16, alignItems: 'start' }}>
-              <div>
+            {/* Doctor row */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16, marginBottom: 16, alignItems: 'start' }}>
+              <div style={{ display: 'none' }}>
                 <label style={lbl}>Date</label>
                 <input type="date" value={saleDate} max={today()}
                   onChange={e => setSaleDate(e.target.value)}
@@ -622,6 +637,26 @@ export default function SalesScreen() {
 
         {/* ══ HISTORY ═══════════════════════════════════════════════════════ */}
         {histLoad && <div style={{ textAlign: 'center', padding: 40, color: '#aaa' }}>Loading…</div>}
+
+        {!histLoad && histData.length > 0 && (
+          <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 14, padding: 12, marginBottom: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 10 }}>History by week</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8 }}>
+              {weekSummaries.map(w => {
+                const active = selectedWeek === w.week;
+                return (
+                  <button key={w.week} onClick={() => setSelectedWeek(w.week)}
+                    style={{ border: active ? '1.5px solid #3D8C40' : '1px solid #e5e7eb', background: active ? '#EAF5EA' : '#fff', borderRadius: 10, padding: '9px 10px', cursor: 'pointer', textAlign: 'left' }}>
+                    <div style={{ fontSize: 12, fontWeight: 900, color: active ? '#1D5C20' : '#374151' }}>Week {w.week}</div>
+                    <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>Days {w.daysLabel}</div>
+                    <div style={{ fontSize: 13, fontWeight: 900, color: '#3D8C40', marginTop: 5 }}>{fmtV(w.total)}</div>
+                    <div style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>{w.daysFilled} days - {w.doctors} doctors</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {!histLoad && weekHistData.length === 0 && (
           <div style={{ textAlign: 'center', padding: '48px 0', color: '#bbb' }}>
