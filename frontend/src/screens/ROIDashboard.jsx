@@ -1491,14 +1491,12 @@ export default function ROIDashboard() {
                 'Invested + Sales',
                 'Doctors with investment and sales in this period'
               )}
-              {prescribedInvestedDoctors.length > 0 && renderDoctorCards(prescribedInvestedDoctors)}
 
               {renderReturnsTracker(
                 prescribedSalesOnlyDoctors,
                 'Not Invested + Sales',
                 'Doctors with sales but no investment in this period'
               )}
-              {prescribedSalesOnlyDoctors.length > 0 && renderDoctorCards(prescribedSalesOnlyDoctors)}
             </>
           )}
 
