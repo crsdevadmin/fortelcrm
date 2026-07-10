@@ -342,7 +342,19 @@ def get_all_doctors_roi(
     if manager_id:
         q = q.filter(Doctor.manager_id == manager_id)
     if commercial_model:
-        q = q.filter(Doctor.commercial_model == commercial_model)
+        inv_model_q = db.query(Investment.doctor_id).filter(
+            Investment.commercial_model_type == commercial_model
+        )
+        if eff_year and eff_month:
+            inv_model_q = inv_model_q.filter(
+                Investment.year == eff_year,
+                Investment.month == eff_month,
+            )
+        inv_model_doctor_ids = {r.doctor_id for r in inv_model_q.distinct().all()}
+        model_conditions = [Doctor.commercial_model == commercial_model]
+        if inv_model_doctor_ids:
+            model_conditions.append(Doctor.id.in_(inv_model_doctor_ids))
+        q = q.filter(or_(*model_conditions))
     doctors = q.all()
     if not doctors:
         return []
@@ -362,6 +374,18 @@ def get_all_doctors_roi(
         func.sum(Investment.amount).label("total"),
     ).filter(Investment.doctor_id.in_(doctor_ids)).group_by(Investment.doctor_id).all()
     inv_map = {r.doctor_id: float(r.total or 0) for r in inv_rows}
+
+    inv_model_q = db.query(
+        Investment.doctor_id,
+        Investment.commercial_model_type,
+    ).filter(Investment.doctor_id.in_(doctor_ids))
+    if eff_year and eff_month:
+        inv_model_q = inv_model_q.filter(Investment.year == eff_year, Investment.month == eff_month)
+    inv_model_map = {}
+    for r in inv_model_q.order_by(Investment.submitted_at.desc()).all():
+        model = _str_val(r.commercial_model_type)
+        if model and r.doctor_id not in inv_model_map:
+            inv_model_map[r.doctor_id] = model
 
     from ..models.models import User as UserModel
     mgr_ids = list({d.manager_id for d in doctors if d.manager_id})
@@ -388,7 +412,7 @@ def get_all_doctors_roi(
         if grade and roi_grade.value.lower() != grade.lower():
             continue
 
-        cm = _str_val(doc.commercial_model)
+        cm = _str_val(doc.commercial_model) or inv_model_map.get(doc.id, "")
         result.append({
             "doctor_id": doc.id,
             "doctor_name": doc.name,
