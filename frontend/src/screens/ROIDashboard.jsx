@@ -701,7 +701,6 @@ export default function ROIDashboard() {
   const [gradeFilter, setGradeFilter] = useState('All');
   const [modelFilter, setModelFilter] = useState('All');
   const [activityFilter, setActivityFilter] = useState('all');
-  const [prescribedDetailFilter, setPrescribedDetailFilter] = useState('all');
   const [selectedDoctor, setSelectedDoctor] = useState(null);
   const [addInvDoctor,  setAddInvDoctor]  = useState(null);
   const [addBizDoctor,  setAddBizDoctor]  = useState(null);
@@ -799,14 +798,7 @@ export default function ROIDashboard() {
   };
 
   const displayDoctors = doctors.filter(doc => {
-    if (activityFilter === 'prescribed') {
-      const hasSales = toNum(doc.actual_sales) > 0;
-      const hasInvestment = toNum(doc.total_invested) > 0;
-      if (!hasSales) return false;
-      if (prescribedDetailFilter === 'invested_sales') return hasInvestment;
-      if (prescribedDetailFilter === 'sales_only') return !hasInvestment;
-      return true;
-    }
+    if (activityFilter === 'prescribed') return toNum(doc.actual_sales) > 0;
     if (activityFilter === 'not_prescribed') return toNum(doc.actual_sales) <= 0;
     return true;
   });
@@ -848,9 +840,119 @@ export default function ROIDashboard() {
 
   const selectActivityFilter = (key) => {
     setActivityFilter(key);
-    setPrescribedDetailFilter('all');
     setExpandDoctors(false);
     setSelectedDoctor(null);
+  };
+
+  const prescribedInvestedDoctors = displayDoctors.filter(doc =>
+    toNum(doc.actual_sales) > 0 && toNum(doc.total_invested) > 0
+  );
+  const prescribedSalesOnlyDoctors = displayDoctors.filter(doc =>
+    toNum(doc.actual_sales) > 0 && toNum(doc.total_invested) <= 0
+  );
+
+  const renderReturnsTracker = (rows, title, subtitle) => {
+    const chartDocs = [...rows]
+      .filter(d => toNum(d.total_invested) > 0 || toNum(d.actual_sales) > 0)
+      .sort(sortByActivity)
+      .slice(0, 15);
+    if (!chartDocs.length) return null;
+
+    const belowTarget = chartDocs.filter(d => toNum(d.total_invested) > 0 && toNum(d.actual_sales) < toNum(d.total_invested)).length;
+    const maxVal = Math.max(...chartDocs.flatMap(d => [toNum(d.total_invested), toNum(d.actual_sales)]), 1);
+
+    return (
+      <div style={{ background: '#fff', borderRadius: 14, border: '0.5px solid #e5e7eb', padding: '14px 18px', marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#111' }}>
+              {title}
+              {belowTarget > 0 && <span style={{ marginLeft: 10, fontSize: 11, fontWeight: 700, color: '#dc2626', background: '#fef2f2', padding: '2px 8px', borderRadius: 20 }}>{belowTarget} below break-even</span>}
+            </div>
+            <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>{subtitle}</div>
+          </div>
+          <div style={{ display: 'flex', gap: 14 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#555' }}>
+              <span style={{ width: 12, height: 9, borderRadius: 2, background: '#f97316', display: 'inline-block' }} />Invested
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#555' }}>
+              <span style={{ width: 12, height: 9, borderRadius: 2, background: '#0F6E56', display: 'inline-block' }} />Sales
+            </span>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {chartDocs.map((doc, i) => {
+            const invested = toNum(doc.total_invested);
+            const sales = toNum(doc.actual_sales);
+            const invPct = (invested / maxVal) * 100;
+            const salesPct = (sales / maxVal) * 100;
+            const roi = fmtROIValue(sales, invested, doc.roi_multiple);
+            const good = invested <= 0 || sales >= invested;
+            return (
+              <div key={doc.doctor_id} style={{ cursor: 'pointer' }}
+                onClick={() => setSelectedDoctor(prev => prev?.doctor_id === doc.doctor_id ? null : doc)}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                  <span style={{ fontSize: 10, color: '#bbb', width: 16, textAlign: 'right', flexShrink: 0 }}>{i + 1}</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.doctor_name}</span>
+                  <GradeBadge grade={doc.roi_grade} />
+                  <span style={{ fontSize: 11, fontWeight: 700, color: good ? '#0F6E56' : '#dc2626', minWidth: 36, textAlign: 'right' }}>{roi}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                  <span style={{ fontSize: 9, color: '#f97316', width: 44, textAlign: 'right', flexShrink: 0 }}>Inv</span>
+                  <div style={{ flex: 1, height: 10, background: '#f9fafb', borderRadius: 3, overflow: 'hidden' }}>
+                    <div style={{ width: `${invPct}%`, height: '100%', background: '#f97316', borderRadius: 3 }} />
+                  </div>
+                  <span style={{ fontSize: 10, fontWeight: 600, color: '#f97316', width: 64, textAlign: 'right', flexShrink: 0 }}>{fmtInr(invested)}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 9, color: '#0F6E56', width: 44, textAlign: 'right', flexShrink: 0 }}>Sales</span>
+                  <div style={{ flex: 1, height: 10, background: '#f9fafb', borderRadius: 3, overflow: 'hidden', position: 'relative' }}>
+                    <div style={{ width: `${salesPct}%`, height: '100%', background: '#0F6E56', borderRadius: 3 }} />
+                    {invPct > 0 && <div style={{ position: 'absolute', left: `${invPct}%`, top: 0, bottom: 0, width: 1.5, background: '#f97316', opacity: 0.7 }} />}
+                  </div>
+                  <span style={{ fontSize: 10, fontWeight: 600, color: '#0F6E56', width: 64, textAlign: 'right', flexShrink: 0 }}>{fmtInr(sales)}</span>
+                </div>
+                {i < chartDocs.length - 1 && <div style={{ height: 1, background: '#f3f4f6', margin: '6px 0 0 22px' }} />}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderDoctorCards = (rows) => {
+    const PREVIEW = 6;
+    const visible = expandDoctors ? rows : rows.slice(0, PREVIEW);
+    const hidden = rows.length - PREVIEW;
+    return (
+      <div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
+          {visible.map(d => (
+            <DoctorCard key={d.doctor_id} d={d}
+              selected={selectedDoctor?.doctor_id === d.doctor_id}
+              onClick={doc => setSelectedDoctor(prev => prev?.doctor_id === doc.doctor_id ? null : doc)} />
+          ))}
+        </div>
+        {rows.length > PREVIEW && (
+          <button
+            onClick={() => setExpandDoctors(e => !e)}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              width: '100%', marginTop: 10, padding: '9px 0',
+              background: expandDoctors ? '#f9fafb' : 'linear-gradient(90deg,#f0fdf4,#eff6ff)',
+              border: '1px dashed #d1d5db', borderRadius: 10, cursor: 'pointer',
+              fontSize: 12, fontWeight: 600, color: '#374151',
+            }}>
+            {expandDoctors
+              ? <><span style={{ fontSize: 14 }}>▲</span> Show less</>
+              : <><span style={{ fontSize: 14 }}>▼</span> Show {hidden} more doctors<span style={{ fontWeight: 400, color: '#9ca3af' }}> · {rows.length} total</span></>
+            }
+          </button>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -969,38 +1071,6 @@ export default function ROIDashboard() {
         </div>
 
         {/* Row 2 — Grade filter strip (visually separate from metrics) */}
-        {activityFilter === 'prescribed' && (
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
-            {[
-              { key: 'all', label: 'All Prescribed', count: activityStats.prescribed, sub: 'All doctors with sales', color: '#e5e7eb' },
-              { key: 'invested_sales', label: 'Invested + Sales', count: activityStats.prescribedInvested, sub: 'Investment present and sales done', color: '#4ade80' },
-              { key: 'sales_only', label: 'Sales Only', count: activityStats.prescribedNotInvested, sub: 'Sales done without investment', color: '#60a5fa' },
-            ].map(tab => {
-              const active = prescribedDetailFilter === tab.key;
-              return (
-                <button
-                  key={tab.key}
-                  onClick={() => { setPrescribedDetailFilter(tab.key); setExpandDoctors(false); setSelectedDoctor(null); }}
-                  style={{
-                    background: active ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.09)',
-                    border: active ? `1.5px solid ${tab.color}` : '1px solid rgba(255,255,255,0.14)',
-                    borderRadius: 10,
-                    color: '#fff',
-                    cursor: 'pointer',
-                    minWidth: 160,
-                    padding: '8px 12px',
-                    textAlign: 'left',
-                  }}
-                >
-                  <div style={{ fontSize: 10, opacity: 0.58, marginBottom: 2 }}>{tab.label}</div>
-                  <div style={{ fontSize: 18, fontWeight: 900, color: tab.color, lineHeight: 1 }}>{tab.count}</div>
-                  <div style={{ fontSize: 9, opacity: 0.58, marginTop: 5, lineHeight: 1.35 }}>{tab.sub}</div>
-                </button>
-              );
-            })}
-          </div>
-        )}
-
         <div style={{ display: 'flex', alignItems: 'center', gap: 0, background: 'rgba(0,0,0,0.18)', borderRadius: 14, padding: '5px 6px', marginTop: 12, backdropFilter: 'blur(4px)' }}>
           <span style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 1, paddingLeft: 6, paddingRight: 10, flexShrink: 0, whiteSpace: 'nowrap' }}>Grade</span>
           {[
@@ -1336,7 +1406,7 @@ export default function ROIDashboard() {
           </div>
 
           {/* ── INV vs SALES CHART (above cards) */}
-          {!loading && displayDoctors.filter(d => d.total_invested > 0 || d.actual_sales > 0).length > 0 && (() => {
+          {!loading && activityFilter !== 'prescribed' && displayDoctors.filter(d => d.total_invested > 0 || d.actual_sales > 0).length > 0 && (() => {
             const chartDocs = [...displayDoctors]
               .filter(d => d.total_invested > 0 || d.actual_sales > 0)
               .sort(sortByActivity)
@@ -1408,7 +1478,31 @@ export default function ROIDashboard() {
           })()}
 
           {/* Doctor cards */}
-          {loading ? (
+          {activityFilter === 'prescribed' && loading && (
+            <div style={{ textAlign: 'center', padding: 48, color: '#888', fontSize: 13 }}>Loading...</div>
+          )}
+          {activityFilter === 'prescribed' && !loading && displayDoctors.length === 0 && (
+            <div style={{ textAlign: 'center', padding: 48, color: '#888', fontSize: 13 }}>No doctors found for this period.</div>
+          )}
+          {activityFilter === 'prescribed' && !loading && displayDoctors.length > 0 && (
+            <>
+              {renderReturnsTracker(
+                prescribedInvestedDoctors,
+                'Invested + Sales',
+                'Doctors with investment and sales in this period'
+              )}
+              {prescribedInvestedDoctors.length > 0 && renderDoctorCards(prescribedInvestedDoctors)}
+
+              {renderReturnsTracker(
+                prescribedSalesOnlyDoctors,
+                'Not Invested + Sales',
+                'Doctors with sales but no investment in this period'
+              )}
+              {prescribedSalesOnlyDoctors.length > 0 && renderDoctorCards(prescribedSalesOnlyDoctors)}
+            </>
+          )}
+
+          {activityFilter !== 'prescribed' && (loading ? (
             <div style={{ textAlign: 'center', padding: 48, color: '#888', fontSize: 13 }}>Loading…</div>
           ) : displayDoctors.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 48, color: '#888', fontSize: 13 }}>No doctors found for this period.</div>
@@ -1443,7 +1537,7 @@ export default function ROIDashboard() {
                 )}
               </div>
             );
-          })()}
+          })())}
         </div>
 
         {/* Drill panel */}
