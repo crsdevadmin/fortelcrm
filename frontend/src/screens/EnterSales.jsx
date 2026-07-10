@@ -13,6 +13,10 @@ const today   = () => new Date().toISOString().split('T')[0];
 const fmtD    = s => { if (!s) return ''; const [y,m,d]=s.split('-'); return `${+d} ${MN[+m]} ${y}`; };
 const fmtV    = v => { const n=parseFloat(v)||0; return n>=100000?`₹${(n/100000).toFixed(1)}L`:n>=1000?`₹${(n/1000).toFixed(1)}K`:`₹${Math.round(n)}`; };
 const dayName = s => { if (!s) return ''; return new Date(s).toLocaleDateString('en-IN',{weekday:'short'}); };
+const weekBounds = w => ({ start: [0,1,8,15,22][w] || 1, end: w === 4 ? 31 : ([0,1,8,15,22][w] || 1) + 6 });
+const weekOfDay = d => d <= 7 ? 1 : d <= 14 ? 2 : d <= 21 ? 3 : 4;
+const dateForDay = (y, m, d) => `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+const daysInMonth = (y, m) => new Date(y, m, 0).getDate();
 
 export default function SalesScreen() {
   const { user: me } = useAuth();
@@ -40,6 +44,10 @@ export default function SalesScreen() {
   const [histData, setHistData] = useState([]);
   const [histLoad, setHistLoad] = useState(false);
   const [expanded, setExpanded] = useState({});
+  const [selectedWeek, setSelectedWeek] = useState(weekOfDay(now.getDate()));
+  const [pdfCheck, setPdfCheck] = useState(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [reminder, setReminder] = useState('');
 
   /* ── outside-click refs ── */
   const docRef  = useRef(null);
@@ -82,6 +90,35 @@ export default function SalesScreen() {
   };
 
   useEffect(() => { loadHistory(year, month); }, [me?.id, year, month]);
+
+  useEffect(() => {
+    const current = new Date();
+    if (year === current.getFullYear() && month === current.getMonth() + 1) {
+      setSelectedWeek(weekOfDay(current.getDate()));
+    } else {
+      setSelectedWeek(1);
+    }
+  }, [year, month]);
+
+  useEffect(() => {
+    const tick = () => {
+      const d = new Date();
+      const minutes = d.getHours() * 60 + d.getMinutes();
+      const monday = d.getDay() === 1;
+      const reminderSlot = monday && minutes >= 720 && (minutes - 720) % 30 === 0;
+      const key = `sales-reminder-${d.toISOString().slice(0,10)}-${d.getHours()}-${d.getMinutes()}`;
+      if (reminderSlot && localStorage.getItem(key) !== 'sent') {
+        localStorage.setItem(key, 'sent');
+        setReminder('Reminder: please complete last week sales entry and validate with store PDF.');
+        if ('Notification' in window && Notification.permission === 'granted') {
+          new Notification('Fortel CRM sales reminder', { body: 'Complete last week sales entry and validate with store PDF.' });
+        }
+      }
+    };
+    tick();
+    const id = setInterval(tick, 60000);
+    return () => clearInterval(id);
+  }, []);
 
   const goMonth = delta => {
     let y = year, m = month + delta;
@@ -190,6 +227,46 @@ export default function SalesScreen() {
   const grandHistTotal = histData.reduce((s,d) => s + d.day_total, 0);
   const totalDocs      = histData.reduce((s,d) => s + d.doctors.length, 0);
   const totalVisits    = histData.length;
+  const wb = weekBounds(selectedWeek);
+  const maxDay = daysInMonth(year, month);
+  const weekDays = Array.from(
+    { length: Math.max(0, Math.min(wb.end, maxDay) - wb.start + 1) },
+    (_, i) => wb.start + i
+  );
+  const selectedWeekDates = weekDays.map(d => dateForDay(year, month, d));
+  const weekHistData = histData.filter(d => selectedWeekDates.includes(d.date));
+  const weekTotal = weekHistData.reduce((s, d) => s + d.day_total, 0);
+  const weekDoctors = weekHistData.reduce((s, d) => s + d.doctors.length, 0);
+
+  const chooseWeek = w => {
+    setSelectedWeek(w);
+    setPdfCheck(null);
+    const bounds = weekBounds(w);
+    const d = Math.min(bounds.start, daysInMonth(year, month));
+    setSaleDate(dateForDay(year, month, d));
+  };
+
+  const validatePdf = async file => {
+    if (!file || !me?.id) return;
+    setPdfBusy(true);
+    setPdfCheck(null);
+    const form = new FormData();
+    form.append('associate_id', me.id);
+    form.append('year', year);
+    form.append('month', month);
+    form.append('week', selectedWeek);
+    form.append('file', file);
+    try {
+      const r = await axios.post(`${API}/sales/validate-week-pdf`, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setPdfCheck(r.data);
+    } catch (e) {
+      setPdfCheck({ matches: false, message: e.response?.data?.detail || 'PDF validation failed' });
+    } finally {
+      setPdfBusy(false);
+    }
+  };
 
   if (loadingMaster) return <div style={{ padding: 60, textAlign: 'center', color: '#aaa' }}>Loading…</div>;
 
@@ -244,6 +321,78 @@ export default function SalesScreen() {
       </div>
 
       <div style={{ padding: '0 24px' }}>
+        {reminder && (
+          <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', color: '#92400E', borderRadius: 12, padding: '10px 14px', marginBottom: 14, display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', fontSize: 13, fontWeight: 700 }}>
+            <span>{reminder}</span>
+            <button onClick={() => setReminder('')} style={{ border: 'none', background: 'transparent', color: '#92400E', cursor: 'pointer', fontWeight: 900 }}>Close</button>
+          </div>
+        )}
+
+        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 14, padding: 14, marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: '#111' }}>Weekly sales entry</div>
+              <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>Select week, enter day-wise sales, then validate with store PDF</div>
+            </div>
+            <button
+              onClick={() => {
+                if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+                setReminder('Monday reminders enabled while this app is open.');
+              }}
+              style={{ background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 10, padding: '8px 12px', fontSize: 12, cursor: 'pointer', fontWeight: 700 }}>
+              Enable reminder
+            </button>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8, marginBottom: 12 }}>
+            {[1,2,3,4].map(w => {
+              const b = weekBounds(w);
+              const active = selectedWeek === w;
+              const days = `${b.start}-${Math.min(b.end, maxDay)}`;
+              return (
+                <button key={w} onClick={() => chooseWeek(w)}
+                  style={{ border: active ? '1.5px solid #3D8C40' : '1px solid #e5e7eb', background: active ? '#EAF5EA' : '#fff', borderRadius: 10, padding: '9px 10px', cursor: 'pointer', textAlign: 'left' }}>
+                  <div style={{ fontSize: 12, fontWeight: 900, color: active ? '#1D5C20' : '#374151' }}>Week {w}</div>
+                  <div style={{ fontSize: 10, color: '#888', marginTop: 2 }}>Days {days}</div>
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+            {weekDays.map(d => {
+              const ds = dateForDay(year, month, d);
+              const active = saleDate === ds;
+              return (
+                <button key={d} onClick={() => setSaleDate(ds)}
+                  style={{ minWidth: 42, padding: '7px 9px', borderRadius: 9, border: active ? '1.5px solid #F5B800' : '1px solid #e5e7eb', background: active ? '#FFFBEB' : '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 800 }}>
+                  {d}
+                </button>
+              );
+            })}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', padding: '10px 12px', background: '#f9fafb', borderRadius: 10 }}>
+            <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+              <div><div style={{ fontSize: 10, color: '#888', fontWeight: 700 }}>Week Total</div><div style={{ fontSize: 16, fontWeight: 900, color: '#3D8C40' }}>{fmtV(weekTotal)}</div></div>
+              <div><div style={{ fontSize: 10, color: '#888', fontWeight: 700 }}>Days Filled</div><div style={{ fontSize: 16, fontWeight: 900 }}>{weekHistData.length}</div></div>
+              <div><div style={{ fontSize: 10, color: '#888', fontWeight: 700 }}>Doctors</div><div style={{ fontSize: 16, fontWeight: 900 }}>{weekDoctors}</div></div>
+            </div>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#1A1A1A', color: '#fff', padding: '9px 12px', borderRadius: 10, cursor: 'pointer', fontSize: 12, fontWeight: 800 }}>
+              {pdfBusy ? 'Checking PDF...' : 'Upload PDF & Check'}
+              <input type="file" accept="application/pdf,.pdf" onChange={e => validatePdf(e.target.files?.[0])} style={{ display: 'none' }} />
+            </label>
+          </div>
+
+          {pdfCheck && (
+            <div style={{ marginTop: 10, borderRadius: 10, padding: '10px 12px', background: pdfCheck.matches ? '#ECFDF5' : '#FEF2F2', border: `1px solid ${pdfCheck.matches ? '#A7F3D0' : '#FECACA'}`, color: pdfCheck.matches ? '#065F46' : '#991B1B', fontSize: 12 }}>
+              <b>{pdfCheck.matches ? 'Matched' : 'Mismatch'}:</b> {pdfCheck.message}
+              {pdfCheck.pdf_total !== undefined && pdfCheck.pdf_total !== null && (
+                <span> · PDF {fmtV(pdfCheck.pdf_total)} · Entered {fmtV(pdfCheck.entered_total)} · Difference {fmtV(Math.abs(pdfCheck.difference || 0))}</span>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* ══ ENTRY FORM (slide-down) ════════════════════════════════════════ */}
         {showForm && (
@@ -474,15 +623,15 @@ export default function SalesScreen() {
         {/* ══ HISTORY ═══════════════════════════════════════════════════════ */}
         {histLoad && <div style={{ textAlign: 'center', padding: 40, color: '#aaa' }}>Loading…</div>}
 
-        {!histLoad && histData.length === 0 && (
+        {!histLoad && weekHistData.length === 0 && (
           <div style={{ textAlign: 'center', padding: '48px 0', color: '#bbb' }}>
             <div style={{ fontSize: 36, marginBottom: 10 }}>📭</div>
-            <div style={{ fontSize: 14, fontWeight: 600 }}>No entries for {MN[month]} {year}</div>
-            <div style={{ fontSize: 12, marginTop: 4 }}>Click "+ Add Entry" above to record a visit</div>
+            <div style={{ fontSize: 14, fontWeight: 600 }}>No entries for Week {selectedWeek}, {MN[month]} {year}</div>
+            <div style={{ fontSize: 12, marginTop: 4 }}>Choose a day in this week and click "+ Add Entry"</div>
           </div>
         )}
 
-        {!histLoad && histData.map(day => {
+        {!histLoad && weekHistData.map(day => {
           const open = !!expanded[day.date];
           return (
             <div key={day.date} style={{ background: '#fff', borderRadius: 14, border: '0.5px solid #e5e7eb', marginBottom: 10, overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>

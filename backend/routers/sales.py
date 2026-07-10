@@ -1,16 +1,24 @@
 # backend/routers/sales.py
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime, date as date_type
+import re
 
 from ..database import get_db
 from ..models.models import SalesEntry, Doctor, Product
 from ..utils.hierarchy import get_subtree_ids
 
 router = APIRouter(prefix="/sales", tags=["Sales"])
+
+
+def _week_bounds(week: int):
+    starts = {1: 1, 2: 8, 3: 15, 4: 22}
+    start = starts.get(week, 1)
+    end = 31 if week == 4 else start + 6
+    return start, end
 
 
 class DaySalesItem(BaseModel):
@@ -243,6 +251,75 @@ def get_my_sales(associate_id: int, year: int, month: int, db: Session = Depends
             "day_total": round(day_total, 2),
         })
     return result
+
+
+@router.post("/validate-week-pdf")
+async def validate_week_pdf(
+    associate_id: int = Form(...),
+    year: int = Form(...),
+    month: int = Form(...),
+    week: int = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """
+    Validate a weekly store/manufacturing PDF against entered sales.
+    The PDF parser extracts numeric values and compares the closest amount to the app total.
+    """
+    start_day, end_day = _week_bounds(week)
+    visible_ids = get_subtree_ids(associate_id, db)
+
+    q = db.query(func.sum(SalesEntry.value)).filter(
+        SalesEntry.year == year,
+        SalesEntry.month == month,
+        SalesEntry.week >= start_day,
+        SalesEntry.week <= end_day,
+    )
+    if visible_ids is not None:
+        q = q.filter(SalesEntry.associate_id.in_(visible_ids))
+    entered_total = float(q.scalar() or 0)
+
+    raw = await file.read()
+    text = ""
+    try:
+        from pypdf import PdfReader
+        import io
+        reader = PdfReader(io.BytesIO(raw))
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    except Exception:
+        text = raw.decode("latin-1", errors="ignore")
+
+    amounts = []
+    for token in re.findall(r"(?:Rs\.?|INR|₹)?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)", text, flags=re.IGNORECASE):
+        try:
+            value = float(token.replace(",", ""))
+            if value > 0:
+                amounts.append(value)
+        except ValueError:
+            pass
+
+    unique_amounts = sorted(set(round(v, 2) for v in amounts), reverse=True)
+    closest = None
+    if unique_amounts:
+        closest = min(unique_amounts, key=lambda v: abs(v - entered_total))
+
+    difference = round((closest or 0) - entered_total, 2) if closest is not None else None
+    tolerance = max(1.0, round(entered_total * 0.001, 2))
+
+    return {
+        "filename": file.filename,
+        "year": year,
+        "month": month,
+        "week": week,
+        "entered_total": round(entered_total, 2),
+        "pdf_total": closest,
+        "difference": difference,
+        "matches": closest is not None and abs(difference) <= tolerance,
+        "candidate_totals": unique_amounts[:10],
+        "message": "Matched" if closest is not None and abs(difference) <= tolerance
+                   else "PDF total does not match entered sales" if closest is not None
+                   else "Could not extract totals from PDF",
+    }
 
 
 @router.get("/my-today")
