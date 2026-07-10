@@ -701,6 +701,7 @@ export default function ROIDashboard() {
   const [gradeFilter, setGradeFilter] = useState('All');
   const [modelFilter, setModelFilter] = useState('All');
   const [activityFilter, setActivityFilter] = useState('all');
+  const [prescribedDetailFilter, setPrescribedDetailFilter] = useState('all');
   const [selectedDoctor, setSelectedDoctor] = useState(null);
   const [addInvDoctor,  setAddInvDoctor]  = useState(null);
   const [addBizDoctor,  setAddBizDoctor]  = useState(null);
@@ -798,7 +799,14 @@ export default function ROIDashboard() {
   };
 
   const displayDoctors = doctors.filter(doc => {
-    if (activityFilter === 'prescribed') return toNum(doc.actual_sales) > 0;
+    if (activityFilter === 'prescribed') {
+      const hasSales = toNum(doc.actual_sales) > 0;
+      const hasInvestment = toNum(doc.total_invested) > 0;
+      if (!hasSales) return false;
+      if (prescribedDetailFilter === 'invested_sales') return hasInvestment;
+      if (prescribedDetailFilter === 'sales_only') return !hasInvestment;
+      return true;
+    }
     if (activityFilter === 'not_prescribed') return toNum(doc.actual_sales) <= 0;
     return true;
   });
@@ -840,6 +848,7 @@ export default function ROIDashboard() {
 
   const selectActivityFilter = (key) => {
     setActivityFilter(key);
+    setPrescribedDetailFilter('all');
     setExpandDoctors(false);
     setSelectedDoctor(null);
   };
@@ -960,6 +969,38 @@ export default function ROIDashboard() {
         </div>
 
         {/* Row 2 — Grade filter strip (visually separate from metrics) */}
+        {activityFilter === 'prescribed' && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+            {[
+              { key: 'all', label: 'All Prescribed', count: activityStats.prescribed, sub: 'All doctors with sales', color: '#e5e7eb' },
+              { key: 'invested_sales', label: 'Invested + Sales', count: activityStats.prescribedInvested, sub: 'Investment present and sales done', color: '#4ade80' },
+              { key: 'sales_only', label: 'Sales Only', count: activityStats.prescribedNotInvested, sub: 'Sales done without investment', color: '#60a5fa' },
+            ].map(tab => {
+              const active = prescribedDetailFilter === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => { setPrescribedDetailFilter(tab.key); setExpandDoctors(false); setSelectedDoctor(null); }}
+                  style={{
+                    background: active ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.09)',
+                    border: active ? `1.5px solid ${tab.color}` : '1px solid rgba(255,255,255,0.14)',
+                    borderRadius: 10,
+                    color: '#fff',
+                    cursor: 'pointer',
+                    minWidth: 160,
+                    padding: '8px 12px',
+                    textAlign: 'left',
+                  }}
+                >
+                  <div style={{ fontSize: 10, opacity: 0.58, marginBottom: 2 }}>{tab.label}</div>
+                  <div style={{ fontSize: 18, fontWeight: 900, color: tab.color, lineHeight: 1 }}>{tab.count}</div>
+                  <div style={{ fontSize: 9, opacity: 0.58, marginTop: 5, lineHeight: 1.35 }}>{tab.sub}</div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         <div style={{ display: 'flex', alignItems: 'center', gap: 0, background: 'rgba(0,0,0,0.18)', borderRadius: 14, padding: '5px 6px', marginTop: 12, backdropFilter: 'blur(4px)' }}>
           <span style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 1, paddingLeft: 6, paddingRight: 10, flexShrink: 0, whiteSpace: 'nowrap' }}>Grade</span>
           {[
