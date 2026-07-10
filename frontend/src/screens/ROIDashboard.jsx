@@ -1485,19 +1485,22 @@ export default function ROIDashboard() {
             <div style={{ textAlign: 'center', padding: 48, color: '#888', fontSize: 13 }}>No doctors found for this period.</div>
           )}
           {activityFilter === 'prescribed' && !loading && displayDoctors.length > 0 && (
-            <>
-              {renderReturnsTracker(
-                prescribedInvestedDoctors,
-                'Invested + Sales',
-                'Doctors with investment and sales in this period'
-              )}
-
-              {renderReturnsTracker(
-                prescribedSalesOnlyDoctors,
-                'Not Invested + Sales',
-                'Doctors with sales but no investment in this period'
-              )}
-            </>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16, alignItems: 'start' }}>
+              <div>
+                {renderReturnsTracker(
+                  prescribedInvestedDoctors,
+                  'Invested + Sales',
+                  'Doctors with investment and sales in this period'
+                )}
+              </div>
+              <div>
+                {renderReturnsTracker(
+                  prescribedSalesOnlyDoctors,
+                  'Not Invested + Sales',
+                  'Doctors with sales but no investment in this period'
+                )}
+              </div>
+            </div>
           )}
 
           {activityFilter !== 'prescribed' && (loading ? (
