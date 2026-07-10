@@ -140,7 +140,12 @@ export default function Layout({ children }) {
   const navSections = (NAV[role] || NAV.custom)
     .map(section => ({
       ...section,
-      items: section.items.filter(item => item.to !== '/my-team'),
+      items: [
+        ...(role === 'md' && section.label === 'Performance'
+          ? [{ to: '/enter-sales', icon: 'S', label: 'My Sales' }]
+          : []),
+        ...section.items,
+      ].filter(item => item.to !== '/my-team'),
     }))
     .filter(section => section.items.length > 0);
   const pageTitle = PAGE_TITLES[location.pathname] || 'Fortel CRM';
