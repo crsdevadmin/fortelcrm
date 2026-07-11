@@ -234,3 +234,58 @@ def save_targets(payload: TargetSaveRequest, db: Session = Depends(get_db)):
 
     db.commit()
     return {"status": "saved", "targets_saved": saved}
+
+
+@router.get("/summary")
+def get_target_summary(
+    user_id: int,
+    year: Optional[int] = None,
+    month: Optional[int] = None,
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.id == user_id, User.is_active == True).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    now = datetime.utcnow()
+    eff_year = year or now.year
+    eff_month = month or now.month
+    sales_user_ids = _owner_sales_user_ids(user_id, db)
+
+    target = db.query(
+        func.sum(ProductTarget.target_units).label("units"),
+        func.sum(ProductTarget.target_value).label("value"),
+    ).filter(
+        ProductTarget.owner_user_id == user_id,
+        ProductTarget.year == eff_year,
+        ProductTarget.month == eff_month,
+    ).first()
+
+    actual = db.query(
+        func.sum(SalesEntry.qty).label("units"),
+        func.sum(SalesEntry.value).label("value"),
+    ).filter(
+        SalesEntry.associate_id.in_(sales_user_ids),
+        SalesEntry.year == eff_year,
+        SalesEntry.month == eff_month,
+    ).first()
+
+    target_units = float(target.units or 0)
+    target_value = float(target.value or 0)
+    actual_units = float(actual.units or 0)
+    actual_value = float(actual.value or 0)
+    remaining_value = max(target_value - actual_value, 0)
+    achievement_pct = round((actual_value / target_value) * 100, 1) if target_value > 0 else 0
+
+    return {
+        "user_id": user_id,
+        "year": eff_year,
+        "month": eff_month,
+        "target_units": round(target_units, 2),
+        "target_value": round(target_value, 2),
+        "actual_units": round(actual_units, 2),
+        "actual_value": round(actual_value, 2),
+        "remaining_value": round(remaining_value, 2),
+        "achievement_pct": achievement_pct,
+        "has_target": target_value > 0 or target_units > 0,
+    }

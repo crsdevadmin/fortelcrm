@@ -1,7 +1,8 @@
 import InstallBanner from './InstallBanner';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { targetsAPI } from '../api';
 
 // ── Nav config ───────────────────────────────────
 const NAV = {
@@ -130,6 +131,13 @@ function initials(name) {
   return (name || '').split(' ').filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase();
 }
 
+function fmtCompactInr(value) {
+  const n = Number(value) || 0;
+  if (Math.abs(n) >= 100000) return `₹${(n / 100000).toFixed(1)}L`;
+  if (Math.abs(n) >= 1000) return `₹${(n / 1000).toFixed(1)}K`;
+  return `₹${Math.round(n).toLocaleString('en-IN')}`;
+}
+
 export default function Layout({ children }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -137,6 +145,7 @@ export default function Layout({ children }) {
   const [sidebarOpen, setSidebarOpen]       = useState(false);   // mobile drawer
   const [collapsed, setCollapsed]           = useState(false);   // desktop collapse
   const [profileOpen, setProfileOpen]       = useState(false);
+  const [targetSummary, setTargetSummary]   = useState(null);
 
   const role = user?.role || 'custom';
   const navSections = (NAV[role] || NAV.custom)
@@ -151,8 +160,21 @@ export default function Layout({ children }) {
     }))
     .filter(section => section.items.length > 0);
   const pageTitle = PAGE_TITLES[location.pathname] || 'Fortel CRM';
+  const showTargetSummary = user?.id && !['admin', 'md'].includes(role);
+  const targetPct = Math.min(Number(targetSummary?.achievement_pct) || 0, 100);
 
   const handleLogout = () => { logout(); navigate('/login'); };
+
+  useEffect(() => {
+    if (!showTargetSummary) {
+      setTargetSummary(null);
+      return;
+    }
+    const now = new Date();
+    targetsAPI.summary(user.id, now.getFullYear(), now.getMonth() + 1)
+      .then(res => setTargetSummary(res.data))
+      .catch(() => setTargetSummary(null));
+  }, [showTargetSummary, user?.id, location.pathname]);
 
   return (
     <>
@@ -274,7 +296,41 @@ export default function Layout({ children }) {
             <span style={{ fontWeight: 700, fontSize: 13, color: 'rgba(255,255,255,0.9)' }}>{pageTitle}</span>
           </div>
 
-          <div className="header-right" style={{ position: 'relative' }}>
+          <div className="header-right" style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 10 }}>
+            {showTargetSummary && (
+              <div
+                className="target-summary-card"
+                title={targetSummary?.has_target
+                  ? `Target ${fmtCompactInr(targetSummary.target_value)} · Sales ${fmtCompactInr(targetSummary.actual_value)} · Balance ${fmtCompactInr(targetSummary.remaining_value)}`
+                  : 'No target set for this month'}
+                onClick={() => navigate('/enter-sales')}
+                style={{
+                  minWidth: 210,
+                  maxWidth: 260,
+                  background: 'rgba(255,255,255,0.08)',
+                  border: '1px solid rgba(255,255,255,0.14)',
+                  borderRadius: 12,
+                  padding: '7px 10px',
+                  color: '#fff',
+                  cursor: 'pointer',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)', fontWeight: 800, textTransform: 'uppercase' }}>Target</span>
+                  <span style={{ fontSize: 11, color: targetSummary?.has_target ? '#F5B800' : 'rgba(255,255,255,0.45)', fontWeight: 900 }}>
+                    {targetSummary?.has_target ? `${targetSummary.achievement_pct}%` : 'Not set'}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 2, whiteSpace: 'nowrap' }}>
+                  <span style={{ fontSize: 13, fontWeight: 900 }}>{fmtCompactInr(targetSummary?.actual_value)}</span>
+                  <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)' }}>of {fmtCompactInr(targetSummary?.target_value)}</span>
+                  <span style={{ marginLeft: 'auto', fontSize: 10, color: 'rgba(255,255,255,0.62)' }}>{fmtCompactInr(targetSummary?.remaining_value)} left</span>
+                </div>
+                <div style={{ height: 4, background: 'rgba(255,255,255,0.14)', borderRadius: 999, overflow: 'hidden', marginTop: 6 }}>
+                  <div style={{ width: `${targetPct}%`, height: '100%', background: targetPct >= 100 ? '#22c55e' : '#F5B800', borderRadius: 999 }} />
+                </div>
+              </div>
+            )}
             <button
               onClick={() => setProfileOpen(o => !o)}
               style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px', borderRadius: 10 }}

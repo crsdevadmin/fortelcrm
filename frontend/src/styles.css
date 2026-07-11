@@ -357,6 +357,9 @@ body {
   font-weight: 700;
   border: 1px solid var(--amber-border);
 }
+.target-summary-card {
+  flex-shrink: 0;
+}
 .menu-toggle {
   background: none; border: none;
   color: rgba(255,255,255,0.8); cursor: pointer;
@@ -847,4 +850,18 @@ tbody tr:hover td { background: var(--gold-light); }
   .desktop-collapse-toggle { display: none !important; }
   .sidebar.collapsed { width: var(--sidebar-w); }
   .main-content.sidebar-collapsed { margin-left: 0; }
+  .target-summary-card {
+    min-width: 150px !important;
+    max-width: 160px !important;
+    padding: 6px 8px !important;
+  }
+  .target-summary-card span {
+    font-size: 9px !important;
+  }
+}
+
+@media (max-width: 520px) {
+  .target-summary-card {
+    display: none;
+  }
 }

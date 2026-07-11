@@ -81,6 +81,8 @@ export const targetsAPI = {
   assignees: (actorId) => client.get('/targets/assignees', { params: { actor_id: actorId } }),
   context: (actorId, ownerUserId, year, month) =>
     client.get('/targets/context', { params: { actor_id: actorId, owner_user_id: ownerUserId, year, month } }),
+  summary: (userId, year, month) =>
+    client.get('/targets/summary', { params: { user_id: userId, year, month } }),
   save: (payload) => client.post('/targets/', payload),
 };
 
