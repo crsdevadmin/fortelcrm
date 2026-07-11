@@ -145,6 +145,7 @@ export default function Layout({ children }) {
   const [sidebarOpen, setSidebarOpen]       = useState(false);   // mobile drawer
   const [collapsed, setCollapsed]           = useState(false);   // desktop collapse
   const [profileOpen, setProfileOpen]       = useState(false);
+  const [targetOpen, setTargetOpen]         = useState(false);
   const [targetSummary, setTargetSummary]   = useState(null);
 
   const role = user?.role || 'custom';
@@ -162,18 +163,31 @@ export default function Layout({ children }) {
   const pageTitle = PAGE_TITLES[location.pathname] || 'Fortel CRM';
   const showTargetSummary = user?.id && !['admin', 'md'].includes(role);
   const targetPct = Math.min(Number(targetSummary?.achievement_pct) || 0, 100);
+  const rawTargetPct = Number(targetSummary?.achievement_pct) || 0;
+  const targetStatusText = !targetSummary?.has_target
+    ? 'Not set'
+    : rawTargetPct >= 100
+      ? '100%+'
+      : `${rawTargetPct}%`;
+  const targetBalanceText = !targetSummary?.has_target
+    ? 'Target not set'
+    : Number(targetSummary?.remaining_value) <= 0
+      ? 'Target achieved'
+      : `${fmtCompactInr(targetSummary?.remaining_value)} to go`;
 
   const handleLogout = () => { logout(); navigate('/login'); };
 
   useEffect(() => {
     if (!showTargetSummary) {
       setTargetSummary(null);
+      setTargetOpen(false);
       return;
     }
     const now = new Date();
     targetsAPI.summary(user.id, now.getFullYear(), now.getMonth() + 1)
       .then(res => setTargetSummary(res.data))
       .catch(() => setTargetSummary(null));
+    setTargetOpen(false);
   }, [showTargetSummary, user?.id, location.pathname]);
 
   return (
@@ -301,9 +315,9 @@ export default function Layout({ children }) {
               <div
                 className="target-summary-card"
                 title={targetSummary?.has_target
-                  ? `Target ${fmtCompactInr(targetSummary.target_value)} · Sales ${fmtCompactInr(targetSummary.actual_value)} · Balance ${fmtCompactInr(targetSummary.remaining_value)}`
+                  ? `Monthly target ${fmtCompactInr(targetSummary.target_value)} · Sales done ${fmtCompactInr(targetSummary.actual_value)} · ${targetBalanceText}`
                   : 'No target set for this month'}
-                onClick={() => navigate('/enter-sales')}
+                onClick={() => setTargetOpen(o => !o)}
                 style={{
                   minWidth: 210,
                   maxWidth: 260,
@@ -316,20 +330,83 @@ export default function Layout({ children }) {
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                  <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)', fontWeight: 800, textTransform: 'uppercase' }}>Target</span>
+                  <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)', fontWeight: 800, textTransform: 'uppercase' }}>Monthly Target</span>
                   <span style={{ fontSize: 11, color: targetSummary?.has_target ? '#F5B800' : 'rgba(255,255,255,0.45)', fontWeight: 900 }}>
-                    {targetSummary?.has_target ? `${targetSummary.achievement_pct}%` : 'Not set'}
+                    {targetStatusText}
                   </span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginTop: 2, whiteSpace: 'nowrap' }}>
                   <span style={{ fontSize: 13, fontWeight: 900 }}>{fmtCompactInr(targetSummary?.actual_value)}</span>
                   <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)' }}>of {fmtCompactInr(targetSummary?.target_value)}</span>
-                  <span style={{ marginLeft: 'auto', fontSize: 10, color: 'rgba(255,255,255,0.62)' }}>{fmtCompactInr(targetSummary?.remaining_value)} left</span>
+                  <span style={{ marginLeft: 'auto', fontSize: 10, color: 'rgba(255,255,255,0.62)' }}>{targetBalanceText}</span>
                 </div>
                 <div style={{ height: 4, background: 'rgba(255,255,255,0.14)', borderRadius: 999, overflow: 'hidden', marginTop: 6 }}>
                   <div style={{ width: `${targetPct}%`, height: '100%', background: targetPct >= 100 ? '#22c55e' : '#F5B800', borderRadius: 999 }} />
                 </div>
               </div>
+            )}
+            {targetOpen && showTargetSummary && (
+              <>
+                <div style={{ position: 'fixed', inset: 0, zIndex: 498 }} onClick={() => setTargetOpen(false)} />
+                <div style={{
+                  position: 'absolute', top: 'calc(100% + 8px)', right: 132, zIndex: 500,
+                  width: 420, maxWidth: 'calc(100vw - 24px)', maxHeight: '70vh', overflowY: 'auto',
+                  background: '#fff', borderRadius: 14, boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+                  border: '1px solid #e5e7eb',
+                }}>
+                  <div style={{ padding: '14px 16px', borderBottom: '1px solid #f3f4f6' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                      <div>
+                        <div style={{ fontSize: 14, fontWeight: 900, color: '#111827' }}>Product Targets</div>
+                        <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>This month target vs sales done</div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: 16, fontWeight: 900, color: rawTargetPct >= 100 ? '#15803d' : '#92400e' }}>{targetStatusText}</div>
+                        <div style={{ fontSize: 10, color: '#6b7280' }}>{targetBalanceText}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {!targetSummary?.has_target ? (
+                    <div style={{ padding: 22, textAlign: 'center', color: '#6b7280', fontSize: 13 }}>
+                      No target has been set for this month yet.
+                    </div>
+                  ) : (
+                    <div>
+                      {(targetSummary.products || []).slice(0, 12).map(product => {
+                        const pct = Math.min(Number(product.achievement_pct) || 0, 100);
+                        const done = Number(product.remaining_value) <= 0;
+                        return (
+                          <div key={product.product_id} style={{ padding: '11px 14px', borderBottom: '1px solid #f3f4f6' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontSize: 12, fontWeight: 800, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{product.product_name}</div>
+                                <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>
+                                  Sales {fmtCompactInr(product.actual_value)} of {fmtCompactInr(product.target_value)}
+                                </div>
+                              </div>
+                              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                                <div style={{ fontSize: 11, fontWeight: 900, color: done ? '#15803d' : '#b45309' }}>
+                                  {done ? 'Achieved' : `${fmtCompactInr(product.remaining_value)} to go`}
+                                </div>
+                                <div style={{ fontSize: 10, color: '#9ca3af' }}>{Number(product.achievement_pct) >= 100 ? '100%+' : `${product.achievement_pct}%`}</div>
+                              </div>
+                            </div>
+                            <div style={{ height: 5, background: '#f3f4f6', borderRadius: 999, overflow: 'hidden', marginTop: 8 }}>
+                              <div style={{ width: `${pct}%`, height: '100%', background: done ? '#22c55e' : '#F5B800', borderRadius: 999 }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {(targetSummary.products || []).length > 12 && (
+                        <div style={{ padding: 10, textAlign: 'center', color: '#6b7280', fontSize: 11 }}>
+                          Showing top 12 products with pending target first.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </>
             )}
             <button
               onClick={() => setProfileOpen(o => !o)}

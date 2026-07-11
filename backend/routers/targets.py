@@ -277,6 +277,47 @@ def get_target_summary(
     remaining_value = max(target_value - actual_value, 0)
     achievement_pct = round((actual_value / target_value) * 100, 1) if target_value > 0 else 0
 
+    target_rows = db.query(ProductTarget).filter(
+        ProductTarget.owner_user_id == user_id,
+        ProductTarget.year == eff_year,
+        ProductTarget.month == eff_month,
+    ).all()
+
+    actual_rows = db.query(
+        SalesEntry.product_id,
+        func.sum(SalesEntry.qty).label("units"),
+        func.sum(SalesEntry.value).label("value"),
+    ).filter(
+        SalesEntry.associate_id.in_(sales_user_ids),
+        SalesEntry.year == eff_year,
+        SalesEntry.month == eff_month,
+    ).group_by(SalesEntry.product_id).all()
+
+    actual_by_product = {
+        row.product_id: {
+            "units": float(row.units or 0),
+            "value": float(row.value or 0),
+        }
+        for row in actual_rows
+    }
+
+    product_rows = []
+    for target_row in target_rows:
+        actual_product = actual_by_product.get(target_row.product_id, {"units": 0.0, "value": 0.0})
+        row_target_value = float(target_row.target_value or 0)
+        row_actual_value = float(actual_product["value"] or 0)
+        product_rows.append({
+            "product_id": target_row.product_id,
+            "product_name": target_row.product.name if target_row.product else f"Product {target_row.product_id}",
+            "target_units": round(float(target_row.target_units or 0), 2),
+            "target_value": round(row_target_value, 2),
+            "actual_units": round(float(actual_product["units"] or 0), 2),
+            "actual_value": round(row_actual_value, 2),
+            "remaining_value": round(max(row_target_value - row_actual_value, 0), 2),
+            "achievement_pct": round((row_actual_value / row_target_value) * 100, 1) if row_target_value > 0 else 0,
+        })
+    product_rows.sort(key=lambda row: (row["remaining_value"] <= 0, -row["remaining_value"], row["product_name"]))
+
     return {
         "user_id": user_id,
         "year": eff_year,
@@ -288,4 +329,5 @@ def get_target_summary(
         "remaining_value": round(remaining_value, 2),
         "achievement_pct": achievement_pct,
         "has_target": target_value > 0 or target_units > 0,
+        "products": product_rows,
     }
