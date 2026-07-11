@@ -234,6 +234,34 @@ class SalesEntry(Base):
     )
 
 
+# PRODUCT TARGET
+
+class ProductTarget(Base):
+    __tablename__ = "product_targets"
+
+    id             = Column(Integer,  primary_key=True, index=True)
+    owner_user_id  = Column(Integer,  ForeignKey("users.id"), nullable=False)
+    product_id     = Column(Integer,  ForeignKey("products.id"), nullable=False)
+    year           = Column(Integer,  nullable=False)
+    month          = Column(Integer,  nullable=False)
+    target_units   = Column(Float,    nullable=False, default=0)
+    target_value   = Column(Float,    nullable=False, default=0)
+    created_by_id  = Column(Integer,  ForeignKey("users.id"), nullable=False)
+    updated_by_id  = Column(Integer,  ForeignKey("users.id"), nullable=True)
+    created_at     = Column(DateTime, default=datetime.utcnow)
+    updated_at     = Column(DateTime, default=datetime.utcnow)
+
+    owner      = relationship("User",    foreign_keys=[owner_user_id])
+    product    = relationship("Product", foreign_keys=[product_id])
+    created_by = relationship("User",    foreign_keys=[created_by_id])
+    updated_by = relationship("User",    foreign_keys=[updated_by_id])
+
+    __table_args__ = (
+        UniqueConstraint("owner_user_id", "product_id", "year", "month",
+                         name="uq_product_target_user_product_month"),
+    )
+
+
 # INVESTMENT
 
 class Investment(Base):

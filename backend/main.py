@@ -14,6 +14,7 @@ from .routers.regions import router as regions_router
 from .routers.doctors import router as doctors_router
 from .routers.products import router as products_router
 from .routers.visits import router as visits_router
+from .routers.targets import router as targets_router
 
 Base.metadata.create_all(bind=engine)
 
@@ -42,6 +43,7 @@ app.include_router(regions_router)
 app.include_router(doctors_router)
 app.include_router(products_router)
 app.include_router(visits_router)
+app.include_router(targets_router)
 
 
 @app.get("/")

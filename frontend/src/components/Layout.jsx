@@ -30,6 +30,7 @@ const NAV = {
     { label: 'Performance', items: [
       { to: '/investment-roi',             icon: '◈', label: 'Investment & ROI' },
       { to: '/product-sales',   icon: '◇', label: 'Product Sales' },
+      { to: '/target-setting',  icon: 'T', label: 'Target Setting' },
       { to: '/rep-activity',    icon: '📊', label: 'Rep Activity' },
     ]},
     { label: 'Organisation', items: [
@@ -119,6 +120,7 @@ const PAGE_TITLES = {
   '/enter-sales':   'My Sales',
   '/visit-log':     'Visit Log',
   '/product-sales':  'Sales by Product',
+  '/target-setting': 'Target Setting',
   '/rep-activity':   'Rep Activity',
   '/users':         'User Management',
   '/admin-doctors': 'Customer Master',

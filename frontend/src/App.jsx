@@ -19,6 +19,7 @@ import MyCustomers from './screens/MyCustomers';
 import ProductSales from './screens/ProductSales';
 import VisitLog from './screens/VisitLog';
 import RepActivity from './screens/RepActivity';
+import TargetSetting from './screens/TargetSetting';
 
 // Route guard — redirects to / if role not allowed
 function RoleGuard({ children, allowedRoles }) {
@@ -52,6 +53,11 @@ function PrivateRoutes() {
         <Route path="/my-customers"     element={<MyCustomers />} />
         <Route path="/my-sales"         element={<Navigate to="/enter-sales" replace />} />
         <Route path="/product-sales"    element={<ProductSales />} />
+        <Route path="/target-setting"   element={
+          <RoleGuard allowedRoles={['md']}>
+            <TargetSetting />
+          </RoleGuard>
+        } />
 
         {/* Admin + MD only */}
         <Route path="/users"            element={

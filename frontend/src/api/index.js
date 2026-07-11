@@ -77,6 +77,13 @@ export const productsAPI = {
   deactivate: (id) => client.delete(`/products/${id}`),
 };
 
+export const targetsAPI = {
+  assignees: (actorId) => client.get('/targets/assignees', { params: { actor_id: actorId } }),
+  context: (actorId, ownerUserId, year, month) =>
+    client.get('/targets/context', { params: { actor_id: actorId, owner_user_id: ownerUserId, year, month } }),
+  save: (payload) => client.post('/targets/', payload),
+};
+
 // ── EXPORTS ───────────────────────────────────
 const API_BASE = process.env.REACT_APP_API_URL || '';
 
