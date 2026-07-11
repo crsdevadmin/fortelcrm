@@ -1,10 +1,10 @@
 # backend/routers/sales.py
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from typing import List, Optional
 from pydantic import BaseModel
-from datetime import datetime, date as date_type
+from datetime import datetime, date as date_type, timedelta
 import re
 
 from ..database import get_db
@@ -354,6 +354,52 @@ def get_my_today(associate_id: int, sale_date: str, db: Session = Depends(get_db
         doctors_map[did]["total"] += r.value or 0
 
     return list(doctors_map.values())
+
+
+@router.get("/weekly-reminder-status")
+def get_weekly_reminder_status(user_id: int, today: Optional[str] = None, db: Session = Depends(get_db)):
+    """
+    Checks whether the previous Monday-Sunday sales week has any submitted entries
+    for the user or their visible team.
+    """
+    try:
+        ref_date = datetime.strptime(today, "%Y-%m-%d").date() if today else date_type.today()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="today must be YYYY-MM-DD")
+
+    this_monday = ref_date - timedelta(days=ref_date.weekday())
+    week_start = this_monday - timedelta(days=7)
+    week_end = week_start + timedelta(days=6)
+    dates = [week_start + timedelta(days=i) for i in range(7)]
+    date_keys = [d.isoformat() for d in dates]
+
+    visible_ids = get_subtree_ids(user_id, db)
+    if visible_ids is None:
+        visible_ids = {user_id}
+
+    date_conditions = [
+        (SalesEntry.year == d.year) & (SalesEntry.month == d.month) & (SalesEntry.week == d.day)
+        for d in dates
+    ]
+
+    q = db.query(
+        func.count(SalesEntry.id).label("entries"),
+        func.sum(SalesEntry.value).label("value"),
+    ).filter(
+        SalesEntry.associate_id.in_(visible_ids),
+        or_(SalesEntry.sale_date.in_(date_keys), *date_conditions),
+    ).first()
+
+    entries = int(q.entries or 0)
+    total_value = float(q.value or 0)
+    return {
+        "user_id": user_id,
+        "week_start": week_start.isoformat(),
+        "week_end": week_end.isoformat(),
+        "entries_count": entries,
+        "total_value": round(total_value, 2),
+        "completed": entries > 0,
+    }
 
 
 @router.post("/{entry_id}/approve")

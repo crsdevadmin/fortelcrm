@@ -29,6 +29,8 @@ export const salesAPI = {
   regionMonthly: (managerId, year, month) =>
     client.get(`/sales/region/${managerId}/monthly`, { params: { year, month } }),
   byProduct: (year, month) => client.get('/sales/by-product', { params: { year, month } }),
+  weeklyReminderStatus: (userId, today) =>
+    client.get('/sales/weekly-reminder-status', { params: { user_id: userId, today } }),
   approveEntry: (id, approverId) =>
     client.post(`/sales/${id}/approve`, null, { params: { approver_id: approverId } }),
 };

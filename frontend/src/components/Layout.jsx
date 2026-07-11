@@ -2,7 +2,7 @@ import InstallBanner from './InstallBanner';
 import React, { useEffect, useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { targetsAPI } from '../api';
+import { salesAPI, targetsAPI } from '../api';
 
 // ── Nav config ───────────────────────────────────
 const NAV = {
@@ -138,6 +138,26 @@ function fmtCompactInr(value) {
   return `₹${Math.round(n).toLocaleString('en-IN')}`;
 }
 
+function isoToday() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function shouldCheckSalesReminder(now = new Date()) {
+  const day = now.getDay();
+  if (day === 1) return now.getHours() >= 12;
+  return day === 0 || day >= 2;
+}
+
+function fmtDateLabel(value) {
+  if (!value) return '';
+  const d = new Date(`${value}T00:00:00`);
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+}
+
 export default function Layout({ children }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -147,6 +167,8 @@ export default function Layout({ children }) {
   const [profileOpen, setProfileOpen]       = useState(false);
   const [targetOpen, setTargetOpen]         = useState(false);
   const [targetSummary, setTargetSummary]   = useState(null);
+  const [salesReminder, setSalesReminder]   = useState(null);
+  const [salesReminderHiddenUntil, setSalesReminderHiddenUntil] = useState(0);
 
   const role = user?.role || 'custom';
   const navSections = (NAV[role] || NAV.custom)
@@ -162,6 +184,7 @@ export default function Layout({ children }) {
     .filter(section => section.items.length > 0);
   const pageTitle = PAGE_TITLES[location.pathname] || 'Fortel CRM';
   const showTargetSummary = user?.id && !['admin', 'md'].includes(role);
+  const showSalesReminderForRole = user?.id && !['admin', 'md'].includes(role);
   const targetPct = Math.min(Number(targetSummary?.achievement_pct) || 0, 100);
   const rawTargetPct = Number(targetSummary?.achievement_pct) || 0;
   const targetStatusText = !targetSummary?.has_target
@@ -174,6 +197,7 @@ export default function Layout({ children }) {
     : Number(targetSummary?.remaining_value) <= 0
       ? 'Target achieved'
       : `${fmtCompactInr(targetSummary?.remaining_value)} to go`;
+  const showSalesReminderBanner = salesReminder && !salesReminder.completed && Date.now() >= salesReminderHiddenUntil;
 
   const handleLogout = () => { logout(); navigate('/login'); };
 
@@ -189,6 +213,45 @@ export default function Layout({ children }) {
       .catch(() => setTargetSummary(null));
     setTargetOpen(false);
   }, [showTargetSummary, user?.id, location.pathname]);
+
+  useEffect(() => {
+    if (!showSalesReminderForRole) {
+      setSalesReminder(null);
+      return undefined;
+    }
+
+    const checkReminder = async () => {
+      if (!shouldCheckSalesReminder()) {
+        setSalesReminder(null);
+        return;
+      }
+      try {
+        const res = await salesAPI.weeklyReminderStatus(user.id, isoToday());
+        const status = res.data;
+        if (status?.completed) {
+          setSalesReminder(null);
+          return;
+        }
+        setSalesReminder(status);
+
+        const notificationKey = `fortel_sales_notice_${user.id}_${status.week_start}`;
+        const lastSent = Number(localStorage.getItem(notificationKey) || 0);
+        if (Date.now() - lastSent >= 30 * 60 * 1000 && window.Notification?.permission === 'granted') {
+          new Notification('Fortel CRM sales update pending', {
+            body: `Please update sales for ${fmtDateLabel(status.week_start)}-${fmtDateLabel(status.week_end)}.`,
+            tag: notificationKey,
+          });
+          localStorage.setItem(notificationKey, String(Date.now()));
+        }
+      } catch (_) {
+        setSalesReminder(null);
+      }
+    };
+
+    checkReminder();
+    const timer = setInterval(checkReminder, 30 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, [showSalesReminderForRole, user?.id, location.pathname]);
 
   return (
     <>
@@ -477,6 +540,47 @@ export default function Layout({ children }) {
         </div>
 
         {/* Page content */}
+        {showSalesReminderBanner && (
+          <div style={{
+            margin: '14px 24px 0',
+            background: '#fffbeb',
+            border: '1px solid #fde68a',
+            borderRadius: 12,
+            padding: '12px 14px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            flexWrap: 'wrap',
+            color: '#78350f',
+          }}>
+            <div style={{ flex: 1, minWidth: 260 }}>
+              <div style={{ fontSize: 13, fontWeight: 900 }}>Sales update pending</div>
+              <div style={{ fontSize: 12, marginTop: 2, color: '#92400e' }}>
+                Please update last week sales for {fmtDateLabel(salesReminder.week_start)}-{fmtDateLabel(salesReminder.week_end)}. This reminder repeats every 30 minutes until sales are entered.
+              </div>
+            </div>
+            {window.Notification && Notification.permission === 'default' && (
+              <button
+                onClick={() => Notification.requestPermission()}
+                style={{ border: '1px solid #f59e0b', background: '#fff7ed', color: '#92400e', borderRadius: 8, padding: '8px 10px', fontWeight: 800, cursor: 'pointer' }}
+              >
+                Enable Alerts
+              </button>
+            )}
+            <button
+              onClick={() => { navigate('/enter-sales'); setSalesReminderHiddenUntil(Date.now() + 30 * 60 * 1000); }}
+              style={{ border: 'none', background: '#0F6E56', color: '#fff', borderRadius: 8, padding: '8px 12px', fontWeight: 900, cursor: 'pointer' }}
+            >
+              Update Sales
+            </button>
+            <button
+              onClick={() => setSalesReminderHiddenUntil(Date.now() + 30 * 60 * 1000)}
+              style={{ border: '1px solid #fcd34d', background: '#fff', color: '#92400e', borderRadius: 8, padding: '8px 10px', fontWeight: 800, cursor: 'pointer' }}
+            >
+              Remind Later
+            </button>
+          </div>
+        )}
         <div className="page-content">
           {children}
         </div>
