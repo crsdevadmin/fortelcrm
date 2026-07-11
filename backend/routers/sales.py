@@ -147,8 +147,12 @@ def get_sales_by_product(year: int, month: int,
         func.sum(SalesEntry.value).label("total_value"),
         func.sum(SalesEntry.qty).label("total_qty"),
     )
-    # Use year/month (sale_date is NULL on imported records)
-    q = q.filter(SalesEntry.year == year, SalesEntry.month == month)
+    if start_date and end_date:
+        q = q.filter(SalesEntry.sale_date >= start_date, SalesEntry.sale_date <= end_date)
+    elif year and month:
+        q = q.filter(SalesEntry.year == year, SalesEntry.month == month)
+    else:
+        raise HTTPException(status_code=400, detail="year/month or start_date/end_date required")
     rows = q.group_by(SalesEntry.product_id).all()
 
     result = []
@@ -179,8 +183,9 @@ def get_doctors_by_product(
         func.sum(SalesEntry.qty).label("total_qty"),
     ).filter(SalesEntry.product_id == product_id)
 
-    # Use year/month (sale_date is NULL on imported records)
-    if year and month:
+    if start_date and end_date:
+        q = q.filter(SalesEntry.sale_date >= start_date, SalesEntry.sale_date <= end_date)
+    elif year and month:
         q = q.filter(SalesEntry.year == year, SalesEntry.month == month)
 
     rows = q.group_by(SalesEntry.doctor_id).order_by(func.sum(SalesEntry.value).desc()).all()

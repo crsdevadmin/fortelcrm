@@ -4,6 +4,9 @@ import axios from 'axios';
 
 const API = process.env.REACT_APP_API_URL || '';
 const MN  = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const NOW = new Date();
+const CUR_YEAR = NOW.getFullYear();
+const CUR_MONTH = NOW.getMonth() + 1;
 
 const fmtV = v => {
   const n = parseFloat(v) || 0;
@@ -25,8 +28,8 @@ export default function ProductSales() {
   const [params] = useSearchParams();
   const startDate = params.get('start') || '';
   const endDate   = params.get('end')   || '';
-  const year      = parseInt(params.get('year')  || '0');
-  const month     = parseInt(params.get('month') || '0');
+  const year      = parseInt(params.get('year')  || String(CUR_YEAR));
+  const month     = parseInt(params.get('month') || String(CUR_MONTH));
 
   const [products,    setProducts]    = useState([]);   // [{product_id, product_name, total_sales, total_qty}]
   const [selProduct,  setSelProduct]  = useState(null); // selected product object
@@ -38,7 +41,7 @@ export default function ProductSales() {
   useEffect(() => {
     setLoadingP(true);
     const p = startDate && endDate
-      ? { year: 0, month: 0, start_date: startDate, end_date: endDate }
+      ? { year, month, start_date: startDate, end_date: endDate }
       : { year, month };
     axios.get(`${API}/sales/by-product`, { params: p })
       .then(r => { setProducts(r.data || []); setLoadingP(false); })
@@ -53,7 +56,7 @@ export default function ProductSales() {
     setSelProduct(prod);
     setLoadingD(true);
     const p = startDate && endDate
-      ? { year: 0, month: 0, start_date: startDate, end_date: endDate }
+      ? { year, month, start_date: startDate, end_date: endDate }
       : { year, month };
     axios.get(`${API}/sales/product/${prod.product_id}/doctors`, { params: p })
       .then(r => { setDoctors(r.data || []); setLoadingD(false); })
