@@ -12,7 +12,20 @@ from ..models.models import Product, ProductTarget, SalesEntry, User
 from ..utils.hierarchy import get_subtree_ids
 
 router = APIRouter(prefix="/targets", tags=["Targets"])
-PLACEHOLDER_PRODUCT_NAMES = {"PRODUCT A", "PRODUCT B", "PRODUCT C", "PROVIA HEPATIC"}
+PLACEHOLDER_PRODUCT_NAMES = {
+    "PRODUCT A",
+    "PRODUCT B",
+    "PRODUCT C",
+    "PROVIA HEPATIC",
+    "AMTRIOS SOFTGEL CAP 30S",
+    "CAXIMEG ORAL SUS 60ML",
+    "FUEL ONE",
+    "HEXAMUNE",
+    "LYCOTURM 200ML SYRUP",
+    "NUNEXA 400GM",
+    "XEROWET MD BOTTLE",
+    "AMTRIOS INJ",
+}
 
 
 def _require_md(actor_id: int, db: Session) -> User:
