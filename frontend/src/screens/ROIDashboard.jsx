@@ -25,6 +25,20 @@ const STATE_NAMES = {
   dl: 'Delhi', delhi: 'Delhi',
 };
 const toStateName = code => STATE_NAMES[NORMALIZE_STATE(code)] || code || '';
+const CHENNAI_AREAS = new Set([
+  'adyar', 'alwarpet', 'aminjikarai', 'ayanambakkam', 'chetpet', 'chromepet',
+  'guindy', 'pallikaranai', 'porur', 'tambaram', 'velachery', 'vellore',
+]);
+const HYDERABAD_AREAS = new Set(['gachibowli', 'nallagandla', 'lakdikapul', 'redhills', 'red hills']);
+const groupedCityName = doctor => {
+  const rawCity = (doctor.city || '').trim();
+  const cityKey = rawCity.toLowerCase().replace(/\s+/g, ' ');
+  const stateName = toStateName(doctor.state_code || '');
+  const pincode = String(doctor.pincode || '').trim();
+  if (stateName === 'Tamil Nadu' && (pincode.startsWith('600') || CHENNAI_AREAS.has(cityKey))) return 'Chennai';
+  if (stateName === 'Telangana' && (pincode.startsWith('500') || HYDERABAD_AREAS.has(cityKey))) return 'Hyderabad';
+  return rawCity;
+};
 
 const GRADE_COLORS = {
   Platinum: { bg: '#E1F5EE', border: '#1D9E75', text: '#085041', dot: '#1D9E75' },
@@ -731,12 +745,14 @@ function RegionalSalesPanel({ year, month }) {
       const doctorList = doctorRes.data || [];
       const locationList = Object.values(doctorList.reduce((acc, doctor) => {
         const st = (doctor.state_code || me.state || '').trim();
-        const ct = (doctor.city || me.city || '').trim();
+        const ct = (groupedCityName(doctor) || me.city || '').trim();
         if (!st || !ct) return acc;
-        const key = `${st}__${ct}`.toLowerCase();
-        acc[key] = { state_code: st, city: ct };
+        const stateName = toStateName(st);
+        const key = `${stateName}__${ct}`.toLowerCase();
+        acc[key] = acc[key] || { state_code: st, state_name: stateName, city: ct, count: 0 };
+        acc[key].count += 1;
         return acc;
-      }, {})).sort((a, b) => `${a.state_code} ${a.city}`.localeCompare(`${b.state_code} ${b.city}`));
+      }, {})).sort((a, b) => `${a.state_name} ${a.city}`.localeCompare(`${b.state_name} ${b.city}`));
       setLocations(locationList);
       if ((!stateCode || !city) && locationList.length) {
         setStateCode(locationList[0].state_code);
@@ -785,11 +801,16 @@ function RegionalSalesPanel({ year, month }) {
   });
   const totalQty = entries.reduce((sum, row) => sum + row.quantity, 0);
   const totalValue = entries.reduce((sum, row) => sum + row.value, 0);
-  const stateOptions = [...new Set(locations.map(loc => loc.state_code))].sort();
+  const stateOptions = Object.values(locations.reduce((acc, loc) => {
+    const name = loc.state_name || toStateName(loc.state_code);
+    acc[name] = acc[name] || { state_code: loc.state_code, state_name: name, count: 0 };
+    acc[name].count += loc.count || 1;
+    return acc;
+  }, {})).sort((a, b) => a.state_name.localeCompare(b.state_name));
   const cityCounts = locations
-    .filter(loc => !stateCode || loc.state_code === stateCode)
+    .filter(loc => !stateCode || toStateName(loc.state_code) === toStateName(stateCode))
     .reduce((acc, loc) => {
-      if (loc.city) acc[loc.city] = (acc[loc.city] || 0) + 1;
+      if (loc.city) acc[loc.city] = (acc[loc.city] || 0) + (loc.count || 1);
       return acc;
     }, {});
   const cityEntries = Object.entries(cityCounts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
@@ -825,47 +846,54 @@ function RegionalSalesPanel({ year, month }) {
 
   return (
     <div style={{ padding: '16px 24px 40px' }}>
-      <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 16, marginBottom: 14 }}>
+      <div style={{
+        background: 'linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%)',
+        borderRadius: '0 0 20px 20px',
+        padding: '18px 22px 20px',
+        color: '#fff',
+        margin: '-16px -24px 14px',
+        boxShadow: '0 8px 28px rgba(15,32,39,0.32)',
+      }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <div>
-            <div style={{ fontSize: 18, fontWeight: 900, color: '#111827' }}>Regional Sales</div>
-            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 3 }}>Product-wise sales by state and city. Enter quantity and price week-wise.</div>
+            <div style={{ fontSize: 20, fontWeight: 900 }}>Regional Sales</div>
+            <div style={{ fontSize: 11, opacity: 0.55, marginTop: 3 }}>Product-wise sales by region · week-wise quantity and price</div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', maxWidth: 520 }}>
-              <span style={{ fontSize: 9, color: '#9ca3af', fontWeight: 900, letterSpacing: 1.5, textTransform: 'uppercase', marginRight: 2 }}>Region</span>
+              <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', fontWeight: 900, letterSpacing: 1.5, textTransform: 'uppercase', marginRight: 2 }}>Region</span>
               {stateOptions.map(st => {
-                const active = stateCode === st;
-                const label = toStateName(st);
-                const ac = active ? '#0F6E56' : '#6b7280';
+                const active = toStateName(stateCode) === st.state_name;
+                const regionAccents = { 'Tamil Nadu': '#F97316', 'Kerala': '#10B981', 'Telangana': '#8B5CF6', 'Karnataka': '#EF4444', 'Maharashtra': '#3B82F6' };
+                const ac = regionAccents[st.state_name] || '#F5B800';
                 return (
-                  <button key={st} onClick={() => {
-                    const firstCity = locations.find(loc => loc.state_code === st)?.city || '';
-                    setStateCode(st);
+                  <button key={st.state_name} onClick={() => {
+                    const firstCity = locations.find(loc => toStateName(loc.state_code) === st.state_name)?.city || '';
+                    setStateCode(st.state_code);
                     setCity(firstCity);
                   }}
                     style={{
-                      padding: '5px 13px', borderRadius: 20, fontSize: 11, fontWeight: 800, cursor: 'pointer',
-                      border: active ? `2px solid ${ac}` : '2px solid #e5e7eb',
-                      background: active ? ac : '#f9fafb',
-                      color: active ? '#fff' : '#4b5563',
-                      boxShadow: active ? '0 2px 10px rgba(15,110,86,0.22)' : 'none',
+                      padding: '5px 14px', borderRadius: 20, fontSize: 11, fontWeight: 800, cursor: 'pointer',
+                      border: active ? `2px solid ${ac}` : '2px solid rgba(255,255,255,0.15)',
+                      background: active ? ac : 'rgba(255,255,255,0.08)',
+                      color: active ? '#fff' : 'rgba(255,255,255,0.75)',
+                      boxShadow: active ? `0 2px 12px ${ac}55` : 'none',
                     }}>
-                    {label}
+                    {st.state_name}
                   </button>
                 );
               })}
               <span style={{ width: '100%' }} />
-              <span style={{ fontSize: 9, color: '#9ca3af', fontWeight: 900, letterSpacing: 1.5, textTransform: 'uppercase', marginRight: 2 }}>City</span>
+              <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', fontWeight: 900, letterSpacing: 1.5, textTransform: 'uppercase', marginRight: 2 }}>City</span>
               {topCities.map(([ct, count]) => {
                 const active = city === ct;
                 return (
                   <button key={ct} onClick={() => setCity(ct)}
                     style={{
                       padding: '4px 11px', borderRadius: 20, fontSize: 10, fontWeight: 800, cursor: 'pointer',
-                      border: active ? '2px solid #3D8C40' : '2px solid #e5e7eb',
-                      background: active ? '#3D8C40' : '#f9fafb',
-                      color: active ? '#fff' : '#4b5563',
+                      border: active ? '2px solid #3D8C40' : '2px solid rgba(255,255,255,0.12)',
+                      background: active ? '#3D8C40' : 'rgba(255,255,255,0.07)',
+                      color: active ? '#fff' : 'rgba(255,255,255,0.7)',
                     }}>
                     {ct} <span style={{ opacity: 0.65 }}>({count})</span>
                   </button>
@@ -873,9 +901,9 @@ function RegionalSalesPanel({ year, month }) {
               })}
               {extraCities.length > 0 && (
                 <select value="" onChange={e => { if (e.target.value) setCity(e.target.value); }}
-                  style={{ padding: '4px 10px', borderRadius: 20, fontSize: 10, fontWeight: 800, cursor: 'pointer', background: '#f9fafb', color: '#4b5563', border: '2px solid #e5e7eb' }}>
-                  <option value="">+{extraCities.length} more...</option>
-                  {extraCities.map(([ct, count]) => <option key={ct} value={ct}>{ct} ({count})</option>)}
+                  style={{ padding: '4px 10px', borderRadius: 20, fontSize: 10, fontWeight: 800, cursor: 'pointer', background: 'rgba(255,255,255,0.1)', color: '#fff', border: '2px solid rgba(255,255,255,0.15)' }}>
+                  <option value="" style={{ color: '#000' }}>+{extraCities.length} more...</option>
+                  {extraCities.map(([ct, count]) => <option key={ct} value={ct} style={{ color: '#000' }}>{ct} ({count})</option>)}
                 </select>
               )}
             </div>
