@@ -1206,6 +1206,14 @@ export default function ROIDashboard() {
               }}>
               {showForm ? '✕ Cancel' : '+ Add Investment'}
             </button>
+            <button onClick={() => { setShowForm(false); setWorkTab('my_sales'); }}
+              style={{
+                background: '#F5B800',
+                color: '#111827', border: 'none', borderRadius: 12, padding: '10px 20px',
+                fontSize: 13, fontWeight: 900, cursor: 'pointer',
+              }}>
+              + Add Sales
+            </button>
             <button onClick={() => setShowGuide(s => !s)}
               style={{
                 background: showGuide ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.1)',
