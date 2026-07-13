@@ -110,6 +110,10 @@ def _target_products(db: Session):
     return [p for p in products if _normalize_product_name(p.name) not in PLACEHOLDER_PRODUCT_NAMES]
 
 
+def _display_product_name(product: Product) -> str:
+    return (product.name or f"Product {product.id}").upper()
+
+
 def _owner_sales_user_ids(owner_id: int, db: Session):
     owner = db.query(User).filter(User.id == owner_id, User.is_active == True).first()
     if not owner:
@@ -255,7 +259,7 @@ def get_target_context(
 
         rows.append({
             "product_id": product.id,
-            "product_name": product.name,
+            "product_name": _display_product_name(product),
             "rate": default_rate,
             "target_rate": round(target_rate, 2),
             "last_3_months": history,
@@ -415,7 +419,7 @@ def get_target_summary(
         row_actual_value = sum(float(actual_by_product.get(product_id, {"value": 0.0})["value"] or 0) for product_id in product_ids)
         product_rows.append({
             "product_id": product.id,
-            "product_name": product.name if product else f"Product {product.id}",
+            "product_name": _display_product_name(product),
             "target_units": round(row_target_units, 2),
             "target_value": round(row_target_value, 2),
             "actual_units": round(row_actual_units, 2),
