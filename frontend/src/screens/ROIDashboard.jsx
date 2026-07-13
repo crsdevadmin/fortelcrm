@@ -1137,21 +1137,24 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
   if (workTab === 'my_sales') {
     return (
       <div style={{ minHeight: '100vh', background: 'var(--color-background-tertiary,#f7f7f5)' }}>
-        <div style={{ padding: '16px 24px 0' }}>
+        <div style={{ padding: '16px 24px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 900, color: '#111827' }}>My Sales</div>
+            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>Daily product sales entry</div>
+          </div>
           <button
             onClick={() => navigate('/investment-roi')}
             style={{
-              border: '1px solid #d1d5db',
-              background: '#fff',
-              color: '#111827',
-              borderRadius: 10,
-              padding: '9px 14px',
-              fontSize: 13,
-              fontWeight: 800,
+              border: 'none',
+              background: 'transparent',
+              color: '#0F6E56',
+              padding: '6px 0',
+              fontSize: 12,
+              fontWeight: 900,
               cursor: 'pointer',
             }}
           >
-            ← Back to Investment & ROI
+            Investment & ROI
           </button>
         </div>
         <EnterSales />
