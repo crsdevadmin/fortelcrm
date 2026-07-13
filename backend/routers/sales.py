@@ -109,8 +109,8 @@ def submit_sales(payload: SalesEntryRequest, db: Session = Depends(get_db)):
 def submit_regional_sales(payload: RegionalSalesRequest, db: Session = Depends(get_db)):
     if payload.month < 1 or payload.month > 12:
         raise HTTPException(status_code=400, detail="Invalid month")
-    if payload.week < 0 or payload.week > 4:
-        raise HTTPException(status_code=400, detail="Invalid period")
+    if payload.week < 1 or payload.week > 4:
+        raise HTTPException(status_code=400, detail="Invalid week")
     state_code = (payload.state_code or "").strip()
     city = (payload.city or "").strip()
     if not state_code or not city:
