@@ -60,7 +60,7 @@ export default function MyCustomers() {
     if (!isAdmin && !myUserId) return;
     setApiError('');
     const params = { include_inactive: true };
-    if (!isAdmin && myUserId) params.manager_id = myUserId;
+    if (!isAdmin && myUserId) params.viewer_id = myUserId;
     axios.get(`${API}/doctors/`, { params })
       .then(r => { setDocs(r.data); setLoading(false); })
       .catch(() => { setApiError('Could not load customers.'); setLoading(false); });
@@ -139,7 +139,7 @@ export default function MyCustomers() {
           <div>
             <div style={{ fontSize: 20, fontWeight: 900 }}>✦ {isAdmin ? 'Customer Management' : 'My Customers'}</div>
             <div style={{ fontSize: 11, opacity: 0.55, marginTop: 2 }}>
-              {isAdmin ? 'All customers across all users' : `Mapped to ${me?.name}`}
+              {isAdmin ? 'All customers across all users' : `Mapped to ${me?.name} and team`}
             </div>
           </div>
           <button onClick={() => { setShowForm(f => !f); setEditId(null); setForm(EMPTY_FORM); setError(''); }}
