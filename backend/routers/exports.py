@@ -281,7 +281,110 @@ def export_doctor_master(
     return _xlsx_response(wb, "Fortel_DoctorMaster.xlsx")
 
 
-# ── 4. Rep Activity JSON (for dashboard screen) ───────────────────────────────
+# ── 4. Weekly Sales JSON (for Regional Sales screen) ─────────────────────────
+
+@router.get("/weekly-sales")
+def get_weekly_sales(
+    doctor_id: int           = Query(...),
+    year:      int           = Query(...),
+    month:     int           = Query(...),
+    db:        Session       = Depends(get_db),
+):
+    """Returns product-week grid for one doctor+month. Days 1-7=W1, 8-14=W2, 15-21=W3, 22+=W4."""
+    entries = db.query(SalesEntry).filter(
+        SalesEntry.doctor_id == doctor_id,
+        SalesEntry.year      == year,
+        SalesEntry.month     == month,
+    ).all()
+
+    def day_to_week(day):
+        d = day or 1
+        if d <= 7:  return 1
+        if d <= 14: return 2
+        if d <= 21: return 3
+        return 4
+
+    result = {}
+    for e in entries:
+        pid = e.product_id
+        if pid not in result:
+            prod = e.product
+            result[pid] = {
+                "product_id":   pid,
+                "product_name": prod.name if prod else f"Product {pid}",
+                "gst":          prod.gst  if prod else "5%",
+                "rate":         (prod.price or prod.rate or 0) if prod else 0,
+                "mrp":          prod.mrp  if prod else 0,
+                "w1": 0.0, "w2": 0.0, "w3": 0.0, "w4": 0.0,
+            }
+        wk = day_to_week(e.week)
+        result[pid][f"w{wk}"] += round(e.value or 0, 2)
+
+    products = list(result.values())
+    for p in products:
+        p["total"] = round(p["w1"] + p["w2"] + p["w3"] + p["w4"], 2)
+
+    grand_total = round(sum(p["total"] for p in products), 2)
+    return {"doctor_id": doctor_id, "year": year, "month": month,
+            "products": products, "grand_total": grand_total}
+
+
+# ── 5. Regional Monthly Summary (all doctors for a viewer) ───────────────────
+
+@router.get("/regional-summary")
+def get_regional_summary(
+    year:      int           = Query(...),
+    month:     int           = Query(...),
+    viewer_id: Optional[int] = Query(None),
+    db:        Session       = Depends(get_db),
+):
+    """Summary of all doctors that have sales entries for the month, for a given viewer."""
+    from ..models.models import Doctor, RepDoctorMapping
+
+    q = db.query(SalesEntry).filter(
+        SalesEntry.year  == year,
+        SalesEntry.month == month,
+    )
+    if viewer_id:
+        visible = _subordinate_ids(db, viewer_id)
+        q = q.filter(SalesEntry.associate_id.in_(visible))
+
+    rows = q.all()
+
+    def day_to_week(day):
+        d = day or 1
+        if d <= 7:  return 1
+        if d <= 14: return 2
+        if d <= 21: return 3
+        return 4
+
+    # Group by doctor
+    docs_map = {}
+    for e in rows:
+        did = e.doctor_id
+        if did not in docs_map:
+            doc = e.doctor
+            docs_map[did] = {
+                "doctor_id":   did,
+                "doctor_name": doc.name     if doc else f"Doctor {did}",
+                "hospital":    doc.hospital if doc else "",
+                "city":        doc.city     if doc else "",
+                "w1": 0.0, "w2": 0.0, "w3": 0.0, "w4": 0.0,
+            }
+        wk = day_to_week(e.week)
+        docs_map[did][f"w{wk}"] += round(e.value or 0, 2)
+
+    result = []
+    for d in docs_map.values():
+        d["total"] = round(d["w1"] + d["w2"] + d["w3"] + d["w4"], 2)
+        result.append(d)
+
+    result.sort(key=lambda x: x["total"], reverse=True)
+    grand = round(sum(d["total"] for d in result), 2)
+    return {"year": year, "month": month, "doctors": result, "grand_total": grand}
+
+
+# ── 6. Rep Activity JSON (for dashboard screen) ─────────────────────────────── (for dashboard screen) ───────────────────────────────
 
 @router.get("/rep-activity-data")
 def get_rep_activity_data(
