@@ -816,6 +816,16 @@ function RegionalSalesPanel({ year, month }) {
   const cityEntries = Object.entries(cityCounts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   const topCities = cityEntries.slice(0, 5);
   const extraCities = cityEntries.slice(5);
+  const selectedStateName = toStateName(stateCode);
+  const selectedRegionAccent = {
+    'Tamil Nadu': '#F97316',
+    'Kerala': '#10B981',
+    'Telangana': '#8B5CF6',
+    'Karnataka': '#EF4444',
+    'Maharashtra': '#3B82F6',
+  }[selectedStateName] || '#F5B800';
+  const dateStart = `${year}-${String(month).padStart(2, '0')}-01`;
+  const dateEnd = `${year}-${String(month).padStart(2, '0')}-${String(new Date(year, month, 0).getDate()).padStart(2, '0')}`;
 
   const saveRegionalSales = async () => {
     if (!me?.id) return;
@@ -853,13 +863,29 @@ function RegionalSalesPanel({ year, month }) {
         color: '#fff',
         margin: '-16px -24px 14px',
         boxShadow: '0 8px 28px rgba(15,32,39,0.32)',
+        position: 'relative',
+        overflow: 'hidden',
       }}>
+        <div style={{ position: 'absolute', top: -44, right: -40, width: 180, height: 180,
+          borderRadius: '50%', background: 'rgba(61,140,64,0.18)', pointerEvents: 'none' }} />
+        <div style={{ position: 'absolute', top: 8, right: 126, width: 78, height: 78,
+          borderRadius: '50%', background: 'rgba(245,184,0,0.12)', pointerEvents: 'none' }} />
+        <div style={{ position: 'relative', zIndex: 1 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <div>
             <div style={{ fontSize: 20, fontWeight: 900 }}>Regional Sales</div>
             <div style={{ fontSize: 11, opacity: 0.55, marginTop: 3 }}>Product-wise sales by region · week-wise quantity and price</div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(255,255,255,0.12)', borderRadius: 10, padding: '7px 12px', border: '1px solid rgba(255,255,255,0.2)', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)', fontWeight: 800, letterSpacing: 0.5 }}>MONTH</span>
+              <span style={{ color: '#fff', fontSize: 12, fontWeight: 800 }}>{MONTHS[month]} {year}</span>
+              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', fontWeight: 800, letterSpacing: 0.5 }}>FROM</span>
+              <span style={{ color: '#fff', fontSize: 12, padding: '2px 4px', borderBottom: '1px solid rgba(255,255,255,0.3)' }}>{dateStart}</span>
+              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', fontWeight: 800, letterSpacing: 0.5 }}>TO</span>
+              <span style={{ color: '#fff', fontSize: 12, padding: '2px 4px', borderBottom: '1px solid rgba(255,255,255,0.3)' }}>{dateEnd}</span>
+            </div>
+            <span style={{ width: '100%' }} />
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', maxWidth: 520 }}>
               <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', fontWeight: 900, letterSpacing: 1.5, textTransform: 'uppercase', marginRight: 2 }}>Region</span>
               {stateOptions.map(st => {
@@ -907,9 +933,11 @@ function RegionalSalesPanel({ year, month }) {
                 </select>
               )}
             </div>
+            <span style={{ width: '100%' }} />
+            <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', fontWeight: 900, letterSpacing: 1.5, textTransform: 'uppercase', marginRight: 2 }}>Week</span>
             {[1, 2, 3, 4].map(w => (
               <button key={w} onClick={() => setWeek(w)}
-                style={{ padding: '8px 12px', borderRadius: 8, border: week === w ? '1.5px solid #0F6E56' : '1px solid #d1d5db', background: week === w ? '#E1F5EE' : '#fff', cursor: 'pointer', fontWeight: 800, color: week === w ? '#085041' : '#374151' }}>
+                style={{ padding: '5px 14px', borderRadius: 20, fontSize: 11, border: week === w ? '2px solid #F5B800' : '2px solid rgba(255,255,255,0.12)', background: week === w ? '#F5B800' : 'rgba(255,255,255,0.07)', cursor: 'pointer', fontWeight: 800, color: week === w ? '#0B1E10' : 'rgba(255,255,255,0.72)', boxShadow: week === w ? '0 2px 12px rgba(245,184,0,0.3)' : 'none' }}>
                 Week {w}
               </button>
             ))}
@@ -921,16 +949,28 @@ function RegionalSalesPanel({ year, month }) {
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14 }}>
           {[
-            ['Region', city && stateCode ? `${city}, ${stateCode}` : 'Select', '#111827'],
-            ['Products', products.length, '#111827'],
-            ['Total Qty', totalQty.toLocaleString('en-IN'), '#111827'],
-            ['Total Value', fmtInr(totalValue), '#0F6E56'],
+            ['Region', city && stateCode ? `${city}, ${selectedStateName || stateCode}` : 'Select', selectedRegionAccent],
+            ['Products', products.length, '#3B82F6'],
+            ['Total Qty', totalQty.toLocaleString('en-IN'), '#10B981'],
+            ['Total Value', fmtInr(totalValue), '#F59E0B'],
           ].map(([label, value, color]) => (
-            <div key={label} style={{ background: '#f9fafb', border: '1px solid #eef2f7', borderRadius: 10, padding: '10px 12px', minWidth: 130 }}>
-              <div style={{ fontSize: 10, color: '#6b7280', fontWeight: 800, textTransform: 'uppercase' }}>{label}</div>
-              <div style={{ fontSize: 18, fontWeight: 900, color }}>{value}</div>
+            <div key={label} style={{
+              background: `linear-gradient(135deg, ${color}ee 0%, ${color}bb 100%)`,
+              border: `1px solid ${color}44`,
+              borderRadius: 14,
+              padding: '13px 16px',
+              minWidth: 140,
+              color: '#fff',
+              boxShadow: `0 4px 20px ${color}55`,
+              position: 'relative',
+              overflow: 'hidden',
+            }}>
+              <div style={{ position: 'absolute', width: 52, height: 52, borderRadius: '50%', right: -14, top: -18, background: 'rgba(255,255,255,0.16)' }} />
+              <div style={{ fontSize: 10, opacity: 0.78, fontWeight: 800, textTransform: 'uppercase', position: 'relative' }}>{label}</div>
+              <div style={{ fontSize: 18, fontWeight: 900, position: 'relative' }}>{value}</div>
             </div>
           ))}
+        </div>
         </div>
       </div>
 
