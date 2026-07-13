@@ -109,7 +109,7 @@ def submit_sales(payload: SalesEntryRequest, db: Session = Depends(get_db)):
 def submit_regional_sales(payload: RegionalSalesRequest, db: Session = Depends(get_db)):
     if payload.month < 1 or payload.month > 12:
         raise HTTPException(status_code=400, detail="Invalid month")
-    if payload.week < 1 or payload.week > 4:
+    if payload.week < 0 or payload.week > 4:
         raise HTTPException(status_code=400, detail="Invalid week")
     state_code = (payload.state_code or "").strip()
     city = (payload.city or "").strip()
@@ -181,7 +181,7 @@ def get_regional_sales(
     )
     if visible_ids is not None:
         q = q.filter(RegionalSalesEntry.associate_id.in_(visible_ids))
-    if week:
+    if week is not None:
         q = q.filter(RegionalSalesEntry.week == week)
     if state_code:
         q = q.filter(RegionalSalesEntry.state_code.ilike(state_code.strip()))
