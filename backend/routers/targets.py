@@ -355,31 +355,6 @@ def get_target_summary(
     eff_month = month or now.month
     sales_user_ids = _owner_sales_user_ids(user_id, db)
 
-    target = db.query(
-        func.sum(ProductTarget.target_units).label("units"),
-        func.sum(ProductTarget.target_value).label("value"),
-    ).filter(
-        ProductTarget.owner_user_id == user_id,
-        ProductTarget.year == eff_year,
-        ProductTarget.month == eff_month,
-    ).first()
-
-    actual = db.query(
-        func.sum(SalesEntry.qty).label("units"),
-        func.sum(SalesEntry.value).label("value"),
-    ).filter(
-        SalesEntry.associate_id.in_(sales_user_ids),
-        SalesEntry.year == eff_year,
-        SalesEntry.month == eff_month,
-    ).first()
-
-    target_units = float(target.units or 0)
-    target_value = float(target.value or 0)
-    actual_units = float(actual.units or 0)
-    actual_value = float(actual.value or 0)
-    remaining_value = max(target_value - actual_value, 0)
-    achievement_pct = round((actual_value / target_value) * 100, 1) if target_value > 0 else 0
-
     target_rows = db.query(ProductTarget).filter(
         ProductTarget.owner_user_id == user_id,
         ProductTarget.year == eff_year,
@@ -428,6 +403,13 @@ def get_target_summary(
             "achievement_pct": round((row_actual_value / row_target_value) * 100, 1) if row_target_value > 0 else 0,
         })
     product_rows.sort(key=lambda row: (row["remaining_value"] <= 0, -row["remaining_value"], row["product_name"]))
+
+    target_units = sum(float(row["target_units"] or 0) for row in product_rows)
+    target_value = sum(float(row["target_value"] or 0) for row in product_rows)
+    actual_units = sum(float(row["actual_units"] or 0) for row in product_rows)
+    actual_value = sum(float(row["actual_value"] or 0) for row in product_rows)
+    remaining_value = max(target_value - actual_value, 0)
+    achievement_pct = round((actual_value / target_value) * 100, 1) if target_value > 0 else 0
 
     return {
         "user_id": user_id,
