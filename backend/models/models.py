@@ -234,6 +234,33 @@ class SalesEntry(Base):
     )
 
 
+# REGIONAL SALES ENTRY
+
+class RegionalSalesEntry(Base):
+    __tablename__ = "regional_sales_entries"
+
+    id             = Column(Integer,  primary_key=True, index=True)
+    associate_id   = Column(Integer,  ForeignKey("users.id"),    nullable=False)
+    product_id     = Column(Integer,  ForeignKey("products.id"), nullable=False)
+    year           = Column(Integer,  nullable=False)
+    month          = Column(Integer,  nullable=False)
+    week           = Column(Integer,  nullable=False)
+    qty            = Column('quantity', Float, nullable=True)
+    price          = Column(Float,    nullable=True)
+    value          = Column(Float,    nullable=True)
+    remarks        = Column(String(500), nullable=True)
+    submitted_at   = Column(DateTime, default=datetime.utcnow)
+    created_at     = Column(DateTime, default=datetime.utcnow)
+
+    associate = relationship("User",    foreign_keys=[associate_id])
+    product   = relationship("Product", foreign_keys=[product_id])
+
+    __table_args__ = (
+        UniqueConstraint("associate_id", "product_id", "year", "month", "week",
+                         name="uq_regional_sales_user_product_week"),
+    )
+
+
 # PRODUCT TARGET
 
 class ProductTarget(Base):

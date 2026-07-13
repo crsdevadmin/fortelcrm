@@ -8,7 +8,7 @@ from datetime import datetime, date as date_type, timedelta
 import re
 
 from ..database import get_db
-from ..models.models import SalesEntry, Doctor, Product
+from ..models.models import SalesEntry, RegionalSalesEntry, Doctor, Product
 from ..utils.hierarchy import get_subtree_ids
 
 router = APIRouter(prefix="/sales", tags=["Sales"])
@@ -33,6 +33,21 @@ class SalesEntryRequest(BaseModel):
     sale_date:    str              # 'YYYY-MM-DD' — actual date of visit
     entries:      List[DaySalesItem]
     remarks:      Optional[str] = None
+
+
+class RegionalSalesItem(BaseModel):
+    product_id: int
+    quantity: float = 0
+    price: float = 0
+
+
+class RegionalSalesRequest(BaseModel):
+    associate_id: int
+    year: int
+    month: int
+    week: int
+    entries: List[RegionalSalesItem]
+    remarks: Optional[str] = None
 
 
 @router.post("/submit")
@@ -86,6 +101,93 @@ def submit_sales(payload: SalesEntryRequest, db: Session = Depends(get_db)):
 
     db.commit()
     return {"status": "submitted", "entries_saved": saved, "sale_date": payload.sale_date}
+
+
+@router.post("/regional/submit")
+def submit_regional_sales(payload: RegionalSalesRequest, db: Session = Depends(get_db)):
+    if payload.month < 1 or payload.month > 12:
+        raise HTTPException(status_code=400, detail="Invalid month")
+    if payload.week < 1 or payload.week > 4:
+        raise HTTPException(status_code=400, detail="Invalid week")
+
+    product_ids = {p.id for p in db.query(Product.id).filter(Product.is_active == True).all()}
+    saved = 0
+    for item in payload.entries:
+        if item.product_id not in product_ids:
+            continue
+        qty = float(item.quantity or 0)
+        price = float(item.price or 0)
+        value = round(qty * price, 2) if qty > 0 and price > 0 else 0.0
+
+        existing = db.query(RegionalSalesEntry).filter(
+            RegionalSalesEntry.associate_id == payload.associate_id,
+            RegionalSalesEntry.product_id == item.product_id,
+            RegionalSalesEntry.year == payload.year,
+            RegionalSalesEntry.month == payload.month,
+            RegionalSalesEntry.week == payload.week,
+        ).first()
+        if existing:
+            existing.qty = qty
+            existing.price = price
+            existing.value = value
+            existing.remarks = payload.remarks
+            existing.submitted_at = datetime.utcnow()
+        elif qty > 0 or price > 0:
+            db.add(RegionalSalesEntry(
+                associate_id=payload.associate_id,
+                product_id=item.product_id,
+                year=payload.year,
+                month=payload.month,
+                week=payload.week,
+                qty=qty,
+                price=price,
+                value=value,
+                remarks=payload.remarks,
+                submitted_at=datetime.utcnow(),
+            ))
+        else:
+            continue
+        saved += 1
+
+    db.commit()
+    return {"status": "submitted", "entries_saved": saved}
+
+
+@router.get("/regional")
+def get_regional_sales(
+    associate_id: int,
+    year: int,
+    month: int,
+    week: Optional[int] = None,
+    db: Session = Depends(get_db),
+):
+    visible_ids = get_subtree_ids(associate_id, db)
+    if visible_ids is None:
+        visible_ids = {associate_id}
+
+    q = db.query(RegionalSalesEntry).filter(
+        RegionalSalesEntry.associate_id.in_(visible_ids),
+        RegionalSalesEntry.year == year,
+        RegionalSalesEntry.month == month,
+    )
+    if week:
+        q = q.filter(RegionalSalesEntry.week == week)
+
+    rows = q.order_by(RegionalSalesEntry.week, RegionalSalesEntry.product_id).all()
+    return [{
+        "id": row.id,
+        "associate_id": row.associate_id,
+        "associate_name": row.associate.name if row.associate else "",
+        "product_id": row.product_id,
+        "product_name": row.product.name if row.product else f"Product {row.product_id}",
+        "year": row.year,
+        "month": row.month,
+        "week": row.week,
+        "quantity": row.qty or 0,
+        "price": row.price or 0,
+        "value": row.value or 0,
+        "remarks": row.remarks or "",
+    } for row in rows]
 
 
 @router.get("/doctor/{doctor_id}/monthly")

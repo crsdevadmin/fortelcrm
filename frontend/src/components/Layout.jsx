@@ -44,7 +44,6 @@ const NAV = {
     ]},
     { label: 'My Work', items: [
       { to: '/my-customers',  icon: '✦', label: 'My Customers' },
-      { to: '/enter-sales',   icon: '📋', label: 'My Sales' },
       { to: '/visit-log',     icon: '📍', label: 'Visit Log' },
       { to: '/investment-roi',           icon: '◈', label: 'Investment & ROI' },
       { to: '/rep-activity',  icon: '📊', label: 'Rep Activity' },
@@ -59,7 +58,6 @@ const NAV = {
     ]},
     { label: 'My Work', items: [
       { to: '/my-customers',  icon: '✦', label: 'My Customers' },
-      { to: '/enter-sales',   icon: '📋', label: 'My Sales' },
       { to: '/visit-log',     icon: '📍', label: 'Visit Log' },
       { to: '/investment-roi',           icon: '◈', label: 'Investment & ROI' },
       { to: '/rep-activity',  icon: '📊', label: 'Rep Activity' },
@@ -74,7 +72,6 @@ const NAV = {
     ]},
     { label: 'My Work', items: [
       { to: '/my-customers',  icon: '✦', label: 'My Customers' },
-      { to: '/enter-sales',   icon: '📋', label: 'My Sales' },
       { to: '/visit-log',     icon: '📍', label: 'Visit Log' },
       { to: '/investment-roi',           icon: '◈', label: 'Investment & ROI' },
       { to: '/rep-activity',  icon: '📊', label: 'Rep Activity' },
@@ -89,7 +86,6 @@ const NAV = {
     ]},
     { label: 'My Work', items: [
       { to: '/my-customers',  icon: '✦', label: 'My Customers' },
-      { to: '/enter-sales',   icon: '📋', label: 'My Sales' },
       { to: '/visit-log',     icon: '📍', label: 'Visit Log' },
       { to: '/investment-roi',           icon: '◈', label: 'Investment & ROI' },
     ]},
@@ -103,7 +99,6 @@ const NAV = {
     ]},
     { label: 'My Work', items: [
       { to: '/my-customers',  icon: '✦', label: 'My Customers' },
-      { to: '/enter-sales',   icon: '📋', label: 'My Sales' },
       { to: '/visit-log',     icon: '📍', label: 'Visit Log' },
       { to: '/investment-roi',           icon: '◈', label: 'Investment & ROI' },
     ]},
@@ -175,9 +170,6 @@ export default function Layout({ children }) {
     .map(section => ({
       ...section,
       items: [
-        ...(role === 'md' && section.label === 'Performance'
-          ? [{ to: '/enter-sales', icon: 'S', label: 'My Sales' }]
-          : []),
         ...section.items,
       ].filter(item => item.to !== '/my-team'),
     }))
@@ -568,7 +560,7 @@ export default function Layout({ children }) {
               </button>
             )}
             <button
-              onClick={() => { navigate('/enter-sales'); setSalesReminderHiddenUntil(Date.now() + 30 * 60 * 1000); }}
+              onClick={() => { navigate('/investment-roi?tab=my_sales'); setSalesReminderHiddenUntil(Date.now() + 30 * 60 * 1000); }}
               style={{ border: 'none', background: '#0F6E56', color: '#fff', borderRadius: 8, padding: '8px 12px', fontWeight: 900, cursor: 'pointer' }}
             >
               Update Sales

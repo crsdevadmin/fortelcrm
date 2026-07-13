@@ -2,6 +2,8 @@ import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
 import { roiAPI, investmentsAPI, salesAPI } from '../api';
 import { useAuth } from '../context/AuthContext';
+import EnterSales from './EnterSales';
+import { useLocation } from 'react-router-dom';
 
 const API = process.env.REACT_APP_API_URL || '';
 
@@ -690,8 +692,174 @@ function normalizeRiskData(data = {}) {
   };
 }
 
+function RegionalSalesPanel({ year, month }) {
+  const { user: me } = useAuth();
+  const [week, setWeek] = useState(1);
+  const [products, setProducts] = useState([]);
+  const [rows, setRows] = useState({});
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  const loadRegional = useCallback(() => {
+    if (!me?.id) return;
+    setLoading(true);
+    setError('');
+    Promise.all([
+      axios.get(`${API}/products/`),
+      salesAPI.regional(me.id, year, month, week),
+    ]).then(([productRes, regionalRes]) => {
+      const productList = productRes.data || [];
+      const savedRows = regionalRes.data || [];
+      const byProduct = {};
+      savedRows.forEach(row => {
+        byProduct[row.product_id] = { quantity: row.quantity || '', price: row.price || '' };
+      });
+      setProducts(productList);
+      setRows(productList.reduce((acc, product) => {
+        const saved = byProduct[product.id];
+        acc[product.id] = {
+          quantity: saved?.quantity || '',
+          price: saved?.price || product.rate || '',
+        };
+        return acc;
+      }, {}));
+      setHistory(savedRows);
+    }).catch(() => setError('Unable to load regional sales.'))
+      .finally(() => setLoading(false));
+  }, [me?.id, year, month, week]);
+
+  useEffect(() => { loadRegional(); }, [loadRegional]);
+
+  const updateRow = (productId, field, value) => {
+    setRows(prev => ({
+      ...prev,
+      [productId]: { ...(prev[productId] || {}), [field]: value },
+    }));
+  };
+
+  const entries = products.map(product => {
+    const row = rows[product.id] || {};
+    const quantity = Number(row.quantity) || 0;
+    const price = Number(row.price) || 0;
+    return { product, quantity, price, value: quantity * price };
+  });
+  const totalQty = entries.reduce((sum, row) => sum + row.quantity, 0);
+  const totalValue = entries.reduce((sum, row) => sum + row.value, 0);
+
+  const saveRegionalSales = async () => {
+    if (!me?.id) return;
+    const payloadRows = entries
+      .filter(row => row.quantity > 0)
+      .map(row => ({ product_id: row.product.id, quantity: row.quantity, price: row.price }));
+    if (!payloadRows.length) {
+      setError('Enter quantity for at least one product.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      const res = await salesAPI.submitRegional({ associate_id: me.id, year, month, week, entries: payloadRows });
+      setMessage(`${res.data?.entries_saved || 0} regional sales rows saved.`);
+      loadRegional();
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'Failed to save regional sales.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ padding: '16px 24px 40px' }}>
+      <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 16, marginBottom: 14 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 900, color: '#111827' }}>Regional Sales</div>
+            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 3 }}>Product-wise sales done by rep to the region. Enter quantity and price week-wise.</div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            {[1, 2, 3, 4].map(w => (
+              <button key={w} onClick={() => setWeek(w)}
+                style={{ padding: '8px 12px', borderRadius: 8, border: week === w ? '1.5px solid #0F6E56' : '1px solid #d1d5db', background: week === w ? '#E1F5EE' : '#fff', cursor: 'pointer', fontWeight: 800, color: week === w ? '#085041' : '#374151' }}>
+                Week {w}
+              </button>
+            ))}
+            <button onClick={saveRegionalSales} disabled={saving || loading}
+              style={{ padding: '9px 15px', borderRadius: 9, border: 'none', background: saving ? '#9ca3af' : '#0F6E56', color: '#fff', cursor: saving ? 'default' : 'pointer', fontWeight: 900 }}>
+              {saving ? 'Saving...' : 'Save Regional Sales'}
+            </button>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14 }}>
+          {[
+            ['Products', products.length, '#111827'],
+            ['Total Qty', totalQty.toLocaleString('en-IN'), '#111827'],
+            ['Total Value', fmtInr(totalValue), '#0F6E56'],
+          ].map(([label, value, color]) => (
+            <div key={label} style={{ background: '#f9fafb', border: '1px solid #eef2f7', borderRadius: 10, padding: '10px 12px', minWidth: 130 }}>
+              <div style={{ fontSize: 10, color: '#6b7280', fontWeight: 800, textTransform: 'uppercase' }}>{label}</div>
+              <div style={{ fontSize: 18, fontWeight: 900, color }}>{value}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {error && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', borderRadius: 10, padding: 12, marginBottom: 12 }}>{error}</div>}
+      {message && <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534', borderRadius: 10, padding: 12, marginBottom: 12 }}>{message}</div>}
+
+      <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 120px 120px 130px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', fontSize: 11, fontWeight: 900, color: '#4b5563', textTransform: 'uppercase' }}>
+          {['Product', 'Qty', 'Price', 'Total'].map(label => <div key={label} style={{ padding: '10px 12px' }}>{label}</div>)}
+        </div>
+        {loading ? (
+          <div style={{ padding: 40, textAlign: 'center', color: '#6b7280' }}>Loading products...</div>
+        ) : products.map(product => {
+          const row = rows[product.id] || {};
+          const quantity = Number(row.quantity) || 0;
+          const price = Number(row.price) || 0;
+          return (
+            <div key={product.id} style={{ display: 'grid', gridTemplateColumns: '1.5fr 120px 120px 130px', alignItems: 'center', borderBottom: '1px solid #f3f4f6' }}>
+              <div style={{ padding: '10px 12px', minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{product.name}</div>
+                {(product.pack || product.composition) && <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>{[product.pack, product.composition].filter(Boolean).join(' | ')}</div>}
+              </div>
+              <div style={{ padding: '10px 12px' }}>
+                <input type="number" min="0" value={row.quantity || ''} onChange={e => updateRow(product.id, 'quantity', e.target.value)}
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '8px 9px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13 }} />
+              </div>
+              <div style={{ padding: '10px 12px' }}>
+                <input type="number" min="0" value={row.price || ''} onChange={e => updateRow(product.id, 'price', e.target.value)}
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '8px 9px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13 }} />
+              </div>
+              <div style={{ padding: '10px 12px', fontSize: 13, fontWeight: 900, color: quantity && price ? '#0F6E56' : '#9ca3af' }}>{fmtInr(quantity * price)}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {history.length > 0 && (
+        <div style={{ marginTop: 14, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 900, marginBottom: 10 }}>Saved rows for Week {week}</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {history.filter(row => Number(row.quantity) > 0).slice(0, 16).map(row => (
+              <div key={row.id} style={{ border: '1px solid #eef2f7', borderRadius: 8, padding: '8px 10px', background: '#f9fafb' }}>
+                <div style={{ fontSize: 12, fontWeight: 800 }}>{row.product_name}</div>
+                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{row.quantity} qty x {fmtInr(row.price)} = {fmtInr(row.value)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ROIDashboard() {
   const { user: me } = useAuth();
+  const location = useLocation();
   const [year, setYear]     = useState(CUR_YEAR);
   const [month, setMonth]   = useState(CUR_MONTH);
   const [doctors, setDoctors]   = useState([]);
@@ -705,6 +873,14 @@ export default function ROIDashboard() {
   const [addInvDoctor,  setAddInvDoctor]  = useState(null);
   const [addBizDoctor,  setAddBizDoctor]  = useState(null);
   const [refreshKey,    setRefreshKey]    = useState(0);
+  const [workTab,       setWorkTab]       = useState('roi');
+
+  useEffect(() => {
+    const tab = new URLSearchParams(location.search).get('tab');
+    if (['roi', 'my_sales', 'regional_sales'].includes(tab)) {
+      setWorkTab(tab);
+    }
+  }, [location.search]);
 
   // Inline investment form
   const [showForm,    setShowForm]    = useState(false);
@@ -955,8 +1131,48 @@ export default function ROIDashboard() {
     );
   };
 
+  const workTabs = [
+    { key: 'roi', label: 'ROI & Investment' },
+    { key: 'my_sales', label: 'My Sales' },
+    { key: 'regional_sales', label: 'Regional Sales' },
+  ];
+  const tabBar = (
+    <div style={{ padding: '14px 24px 0', background: 'var(--color-background-tertiary,#f7f7f5)' }}>
+      <div style={{ display: 'inline-flex', gap: 4, background: '#e5e7eb', borderRadius: 12, padding: 4, flexWrap: 'wrap' }}>
+        {workTabs.map(tab => {
+          const active = workTab === tab.key;
+          return (
+            <button key={tab.key} onClick={() => setWorkTab(tab.key)}
+              style={{ border: 'none', borderRadius: 9, padding: '8px 14px', background: active ? '#fff' : 'transparent', color: active ? '#111827' : '#6b7280', fontSize: 12, fontWeight: 900, cursor: 'pointer', boxShadow: active ? '0 1px 5px rgba(0,0,0,0.12)' : 'none' }}>
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  if (workTab === 'my_sales') {
+    return (
+      <div style={{ minHeight: '100vh', background: 'var(--color-background-tertiary,#f7f7f5)' }}>
+        {tabBar}
+        <EnterSales />
+      </div>
+    );
+  }
+
+  if (workTab === 'regional_sales') {
+    return (
+      <div style={{ minHeight: '100vh', background: 'var(--color-background-tertiary,#f7f7f5)' }}>
+        {tabBar}
+        <RegionalSalesPanel year={year} month={month} />
+      </div>
+    );
+  }
+
   return (
     <div style={{ minHeight: '100vh', background: 'var(--color-background-tertiary,#f7f7f5)' }}>
+      {tabBar}
 
       {/* ── HERO STRIP */}
       <div style={{

@@ -51,7 +51,7 @@ function PrivateRoutes() {
         <Route path="/visit-log"        element={<VisitLog />} />
         <Route path="/rep-activity"     element={<RepActivity />} />
         <Route path="/my-customers"     element={<MyCustomers />} />
-        <Route path="/my-sales"         element={<Navigate to="/enter-sales" replace />} />
+        <Route path="/my-sales"         element={<Navigate to="/investment-roi?tab=my_sales" replace />} />
         <Route path="/product-sales"    element={<ProductSales />} />
         <Route path="/target-setting"   element={
           <RoleGuard allowedRoles={['md']}>
