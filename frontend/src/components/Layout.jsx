@@ -46,6 +46,7 @@ const NAV = {
       { to: '/my-customers',  icon: '✦', label: 'My Customers' },
       { to: '/visit-log',     icon: '📍', label: 'Visit Log' },
       { to: '/investment-roi',           icon: '◈', label: 'Investment & ROI' },
+      { to: '/investment-roi?tab=regional_sales', icon: 'R', label: 'Regional Sales' },
       { to: '/rep-activity',  icon: '📊', label: 'Rep Activity' },
     ]},
     { label: 'Organisation', items: [
@@ -60,6 +61,7 @@ const NAV = {
       { to: '/my-customers',  icon: '✦', label: 'My Customers' },
       { to: '/visit-log',     icon: '📍', label: 'Visit Log' },
       { to: '/investment-roi',           icon: '◈', label: 'Investment & ROI' },
+      { to: '/investment-roi?tab=regional_sales', icon: 'R', label: 'Regional Sales' },
       { to: '/rep-activity',  icon: '📊', label: 'Rep Activity' },
     ]},
     { label: 'Organisation', items: [
@@ -74,6 +76,7 @@ const NAV = {
       { to: '/my-customers',  icon: '✦', label: 'My Customers' },
       { to: '/visit-log',     icon: '📍', label: 'Visit Log' },
       { to: '/investment-roi',           icon: '◈', label: 'Investment & ROI' },
+      { to: '/investment-roi?tab=regional_sales', icon: 'R', label: 'Regional Sales' },
       { to: '/rep-activity',  icon: '📊', label: 'Rep Activity' },
     ]},
     { label: 'Organisation', items: [
@@ -88,6 +91,7 @@ const NAV = {
       { to: '/my-customers',  icon: '✦', label: 'My Customers' },
       { to: '/visit-log',     icon: '📍', label: 'Visit Log' },
       { to: '/investment-roi',           icon: '◈', label: 'Investment & ROI' },
+      { to: '/investment-roi?tab=regional_sales', icon: 'R', label: 'Regional Sales' },
     ]},
     { label: 'Organisation', items: [
       { to: '/my-team',       icon: '⋮', label: 'My Hierarchy' },
@@ -101,6 +105,7 @@ const NAV = {
       { to: '/my-customers',  icon: '✦', label: 'My Customers' },
       { to: '/visit-log',     icon: '📍', label: 'Visit Log' },
       { to: '/investment-roi',           icon: '◈', label: 'Investment & ROI' },
+      { to: '/investment-roi?tab=regional_sales', icon: 'R', label: 'Regional Sales' },
     ]},
     { label: 'Organisation', items: [
       { to: '/my-team',       icon: '⋮', label: 'My Hierarchy' },
@@ -190,6 +195,7 @@ export default function Layout({ children }) {
       ? 'Target achieved'
       : `${fmtCompactInr(targetSummary?.remaining_value)} to go`;
   const showSalesReminderBanner = salesReminder && !salesReminder.completed && Date.now() >= salesReminderHiddenUntil;
+  const currentPathWithSearch = `${location.pathname}${location.search}`;
 
   const handleLogout = () => { logout(); navigate('/login'); };
 
@@ -313,7 +319,13 @@ export default function Layout({ children }) {
                   to={item.to}
                   end={item.to === '/'}
                   data-label={item.label}
-                  className={({ isActive }) => `sidebar-link${isActive ? ' active' : ''}`}
+                  className={({ isActive }) => {
+                    const hasQuery = item.to.includes('?');
+                    const active = hasQuery
+                      ? currentPathWithSearch === item.to
+                      : isActive && !location.search;
+                    return `sidebar-link${active ? ' active' : ''}`;
+                  }}
                   onClick={() => setSidebarOpen(false)}
                 >
                   <span className="icon" style={{ fontSize: 13, opacity: 0.9, flexShrink: 0 }}>{item.icon}</span>
