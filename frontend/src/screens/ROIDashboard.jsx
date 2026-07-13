@@ -14,6 +14,18 @@ const CUR_MONTH = NOW.getMonth() + 1;
 const MONTHS = ['', 'January','February','March','April','May','June',
                  'July','August','September','October','November','December'];
 
+const NORMALIZE_STATE = s => (s || '').replace(/\s+/g, '').toLowerCase();
+const STATE_NAMES = {
+  tn: 'Tamil Nadu', tamilnadu: 'Tamil Nadu',
+  kl: 'Kerala', kerala: 'Kerala',
+  ka: 'Karnataka', karnataka: 'Karnataka',
+  ts: 'Telangana', telangana: 'Telangana',
+  ap: 'Andhra Pradesh', andhrapradesh: 'Andhra Pradesh',
+  mh: 'Maharashtra', maharashtra: 'Maharashtra',
+  dl: 'Delhi', delhi: 'Delhi',
+};
+const toStateName = code => STATE_NAMES[NORMALIZE_STATE(code)] || code || '';
+
 const GRADE_COLORS = {
   Platinum: { bg: '#E1F5EE', border: '#1D9E75', text: '#085041', dot: '#1D9E75' },
   Gold:     { bg: '#FAEEDA', border: '#BA7517', text: '#412402', dot: '#BA7517' },
@@ -774,11 +786,15 @@ function RegionalSalesPanel({ year, month }) {
   const totalQty = entries.reduce((sum, row) => sum + row.quantity, 0);
   const totalValue = entries.reduce((sum, row) => sum + row.value, 0);
   const stateOptions = [...new Set(locations.map(loc => loc.state_code))].sort();
-  const cityOptions = locations
+  const cityCounts = locations
     .filter(loc => !stateCode || loc.state_code === stateCode)
-    .map(loc => loc.city)
-    .filter((value, index, arr) => value && arr.indexOf(value) === index)
-    .sort();
+    .reduce((acc, loc) => {
+      if (loc.city) acc[loc.city] = (acc[loc.city] || 0) + 1;
+      return acc;
+    }, {});
+  const cityEntries = Object.entries(cityCounts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const topCities = cityEntries.slice(0, 5);
+  const extraCities = cityEntries.slice(5);
 
   const saveRegionalSales = async () => {
     if (!me?.id) return;
@@ -816,21 +832,53 @@ function RegionalSalesPanel({ year, month }) {
             <div style={{ fontSize: 12, color: '#6b7280', marginTop: 3 }}>Product-wise sales by state and city. Enter quantity and price week-wise.</div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <select value={stateCode} onChange={e => {
-              const nextState = e.target.value;
-              const firstCity = locations.find(loc => loc.state_code === nextState)?.city || '';
-              setStateCode(nextState);
-              setCity(firstCity);
-            }}
-              style={{ padding: '8px 11px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontWeight: 800, minWidth: 120 }}>
-              <option value="">State</option>
-              {stateOptions.map(st => <option key={st} value={st}>{st}</option>)}
-            </select>
-            <select value={city} onChange={e => setCity(e.target.value)}
-              style={{ padding: '8px 11px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontWeight: 800, minWidth: 140 }}>
-              <option value="">City</option>
-              {cityOptions.map(ct => <option key={ct} value={ct}>{ct}</option>)}
-            </select>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', maxWidth: 520 }}>
+              <span style={{ fontSize: 9, color: '#9ca3af', fontWeight: 900, letterSpacing: 1.5, textTransform: 'uppercase', marginRight: 2 }}>Region</span>
+              {stateOptions.map(st => {
+                const active = stateCode === st;
+                const label = toStateName(st);
+                const ac = active ? '#0F6E56' : '#6b7280';
+                return (
+                  <button key={st} onClick={() => {
+                    const firstCity = locations.find(loc => loc.state_code === st)?.city || '';
+                    setStateCode(st);
+                    setCity(firstCity);
+                  }}
+                    style={{
+                      padding: '5px 13px', borderRadius: 20, fontSize: 11, fontWeight: 800, cursor: 'pointer',
+                      border: active ? `2px solid ${ac}` : '2px solid #e5e7eb',
+                      background: active ? ac : '#f9fafb',
+                      color: active ? '#fff' : '#4b5563',
+                      boxShadow: active ? '0 2px 10px rgba(15,110,86,0.22)' : 'none',
+                    }}>
+                    {label}
+                  </button>
+                );
+              })}
+              <span style={{ width: '100%' }} />
+              <span style={{ fontSize: 9, color: '#9ca3af', fontWeight: 900, letterSpacing: 1.5, textTransform: 'uppercase', marginRight: 2 }}>City</span>
+              {topCities.map(([ct, count]) => {
+                const active = city === ct;
+                return (
+                  <button key={ct} onClick={() => setCity(ct)}
+                    style={{
+                      padding: '4px 11px', borderRadius: 20, fontSize: 10, fontWeight: 800, cursor: 'pointer',
+                      border: active ? '2px solid #3D8C40' : '2px solid #e5e7eb',
+                      background: active ? '#3D8C40' : '#f9fafb',
+                      color: active ? '#fff' : '#4b5563',
+                    }}>
+                    {ct} <span style={{ opacity: 0.65 }}>({count})</span>
+                  </button>
+                );
+              })}
+              {extraCities.length > 0 && (
+                <select value="" onChange={e => { if (e.target.value) setCity(e.target.value); }}
+                  style={{ padding: '4px 10px', borderRadius: 20, fontSize: 10, fontWeight: 800, cursor: 'pointer', background: '#f9fafb', color: '#4b5563', border: '2px solid #e5e7eb' }}>
+                  <option value="">+{extraCities.length} more...</option>
+                  {extraCities.map(([ct, count]) => <option key={ct} value={ct}>{ct} ({count})</option>)}
+                </select>
+              )}
+            </div>
             {[1, 2, 3, 4].map(w => (
               <button key={w} onClick={() => setWeek(w)}
                 style={{ padding: '8px 12px', borderRadius: 8, border: week === w ? '1.5px solid #0F6E56' : '1px solid #d1d5db', background: week === w ? '#E1F5EE' : '#fff', cursor: 'pointer', fontWeight: 800, color: week === w ? '#085041' : '#374151' }}>
