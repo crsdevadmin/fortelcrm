@@ -746,7 +746,7 @@ export default function ROIDashboard() {
   // Load doctors for inline form
   useEffect(() => {
     if (!me?.id) return;
-    axios.get(`${API}/doctors/`, { params: { manager_id: me.id, include_inactive: false } })
+    axios.get(`${API}/doctors/`, { params: { viewer_id: me.id, include_inactive: false } })
       .then(r => setMyDoctors(r.data))
       .catch(() => axios.get(`${API}/doctors/`).then(r => setMyDoctors(r.data)));
   }, [me?.id]);
