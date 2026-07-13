@@ -1137,6 +1137,23 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
   if (workTab === 'my_sales') {
     return (
       <div style={{ minHeight: '100vh', background: 'var(--color-background-tertiary,#f7f7f5)' }}>
+        <div style={{ padding: '16px 24px 0' }}>
+          <button
+            onClick={() => navigate('/investment-roi')}
+            style={{
+              border: '1px solid #d1d5db',
+              background: '#fff',
+              color: '#111827',
+              borderRadius: 10,
+              padding: '9px 14px',
+              fontSize: 13,
+              fontWeight: 800,
+              cursor: 'pointer',
+            }}
+          >
+            ← Back to Investment & ROI
+          </button>
+        </div>
         <EnterSales />
       </div>
     );
