@@ -720,6 +720,8 @@ function normalizeRiskData(data = {}) {
 
 function RegionalSalesPanel({ year, month }) {
   const { user: me } = useAuth();
+  const [selectedYear, setSelectedYear] = useState(year);
+  const [selectedMonth, setSelectedMonth] = useState(month);
   const [week, setWeek] = useState(1);
   const [products, setProducts] = useState([]);
   const [locations, setLocations] = useState([]);
@@ -731,6 +733,9 @@ function RegionalSalesPanel({ year, month }) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const isPastMonth = selectedYear < CUR_YEAR || (selectedYear === CUR_YEAR && selectedMonth < CUR_MONTH);
+  const periodWeek = isPastMonth ? 0 : week;
+  const periodLabel = isPastMonth ? 'Full Month' : `Week ${week}`;
 
   const loadRegional = useCallback(() => {
     if (!me?.id) return;
@@ -739,7 +744,7 @@ function RegionalSalesPanel({ year, month }) {
     Promise.all([
       axios.get(`${API}/products/`),
       axios.get(`${API}/doctors/`, { params: { viewer_id: me.id, include_inactive: false } }),
-      salesAPI.regional(me.id, year, month, week, stateCode, city),
+      salesAPI.regional(me.id, selectedYear, selectedMonth, periodWeek, stateCode, city),
     ]).then(([productRes, doctorRes, regionalRes]) => {
       const productList = productRes.data || [];
       const doctorList = doctorRes.data || [];
@@ -782,7 +787,7 @@ function RegionalSalesPanel({ year, month }) {
       setHistory(savedRows);
     }).catch(() => setError('Unable to load regional sales.'))
       .finally(() => setLoading(false));
-  }, [me?.id, me?.state, me?.city, year, month, week, stateCode, city]);
+  }, [me?.id, me?.state, me?.city, selectedYear, selectedMonth, periodWeek, stateCode, city]);
 
   useEffect(() => { loadRegional(); }, [loadRegional]);
 
@@ -834,7 +839,7 @@ function RegionalSalesPanel({ year, month }) {
     setError('');
     setMessage('');
     try {
-      const res = await salesAPI.submitRegional({ associate_id: me.id, state_code: stateCode, city, year, month, week, entries: payloadRows });
+      const res = await salesAPI.submitRegional({ associate_id: me.id, state_code: stateCode, city, year: selectedYear, month: selectedMonth, week: periodWeek, entries: payloadRows });
       setMessage(`${res.data?.entries_saved || 0} regional sales rows saved.`);
       loadRegional();
     } catch (err) {
@@ -860,6 +865,14 @@ function RegionalSalesPanel({ year, month }) {
             <div style={{ fontSize: 11, opacity: 0.55, marginTop: 3 }}>Product-wise sales by region · week-wise quantity and price</div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <select value={selectedMonth} onChange={e => setSelectedMonth(+e.target.value)}
+              style={{ padding: '8px 11px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.1)', color: '#fff', fontWeight: 800 }}>
+              {MONTHS.slice(1).map((m, i) => <option key={i + 1} value={i + 1} style={{ color: '#111' }}>{m}</option>)}
+            </select>
+            <select value={selectedYear} onChange={e => setSelectedYear(+e.target.value)}
+              style={{ padding: '8px 11px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.1)', color: '#fff', fontWeight: 800 }}>
+              {[2024, 2025, 2026].map(y => <option key={y} value={y} style={{ color: '#111' }}>{y}</option>)}
+            </select>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', maxWidth: 520 }}>
               <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', fontWeight: 900, letterSpacing: 1.5, textTransform: 'uppercase', marginRight: 2 }}>Region</span>
               {stateOptions.map(st => {
@@ -907,12 +920,16 @@ function RegionalSalesPanel({ year, month }) {
                 </select>
               )}
             </div>
-            {[1, 2, 3, 4].map(w => (
-              <button key={w} onClick={() => setWeek(w)}
-                style={{ padding: '8px 12px', borderRadius: 8, border: week === w ? '1.5px solid #0F6E56' : '1px solid #d1d5db', background: week === w ? '#E1F5EE' : '#fff', cursor: 'pointer', fontWeight: 800, color: week === w ? '#085041' : '#374151' }}>
-                Week {w}
-              </button>
-            ))}
+            {isPastMonth ? (
+              <div style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.28)', background: 'rgba(255,255,255,0.12)', fontWeight: 900, color: '#fff' }}>
+                Full Month
+              </div>
+            ) : [1, 2, 3, 4].map(w => (
+                <button key={w} onClick={() => setWeek(w)}
+                  style={{ padding: '8px 12px', borderRadius: 8, border: week === w ? '1.5px solid #0F6E56' : '1px solid #d1d5db', background: week === w ? '#E1F5EE' : '#fff', cursor: 'pointer', fontWeight: 800, color: week === w ? '#085041' : '#374151' }}>
+                  Week {w}
+                </button>
+              ))}
             <button onClick={saveRegionalSales} disabled={saving || loading}
               style={{ padding: '9px 15px', borderRadius: 9, border: 'none', background: saving ? '#9ca3af' : '#0F6E56', color: '#fff', cursor: saving ? 'default' : 'pointer', fontWeight: 900 }}>
               {saving ? 'Saving...' : 'Save Regional Sales'}
@@ -922,6 +939,7 @@ function RegionalSalesPanel({ year, month }) {
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14 }}>
           {[
             ['Region', city && stateCode ? `${city}, ${stateCode}` : 'Select', '#111827'],
+            ['Period', `${MONTHS[selectedMonth]} ${selectedYear} · ${periodLabel}`, '#111827'],
             ['Products', products.length, '#111827'],
             ['Total Qty', totalQty.toLocaleString('en-IN'), '#111827'],
             ['Total Value', fmtInr(totalValue), '#0F6E56'],
@@ -974,7 +992,7 @@ function RegionalSalesPanel({ year, month }) {
 
       {history.length > 0 && (
         <div style={{ marginTop: 14, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 14 }}>
-          <div style={{ fontSize: 13, fontWeight: 900, marginBottom: 10 }}>Saved rows for {city || 'City'}, {stateCode || 'State'} · Week {week}</div>
+          <div style={{ fontSize: 13, fontWeight: 900, marginBottom: 10 }}>Saved rows for {city || 'City'}, {stateCode || 'State'} · {MONTHS[selectedMonth]} {selectedYear} · {periodLabel}</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {history.filter(row => Number(row.quantity) > 0).slice(0, 16).map(row => (
               <div key={row.id} style={{ border: '1px solid #eef2f7', borderRadius: 8, padding: '8px 10px', background: '#f9fafb' }}>
