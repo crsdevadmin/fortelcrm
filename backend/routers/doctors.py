@@ -1,5 +1,6 @@
 # backend/routers/doctors.py
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from typing import Optional
 from pydantic import BaseModel
@@ -120,7 +121,11 @@ def list_doctors(
     if viewer_id and not manager_id:
         subtree = get_subtree_ids(viewer_id, db)
         if subtree is not None:           # None = admin/md, sees all
-            q = q.filter(Doctor.manager_id.in_(subtree))
+            mapped_doctors = db.query(RepDoctorMapping.doctor_id).filter(
+                RepDoctorMapping.associate_id.in_(subtree),
+                RepDoctorMapping.is_active == True,
+            )
+            q = q.filter(or_(Doctor.manager_id.in_(subtree), Doctor.id.in_(mapped_doctors)))
 
     if state_code:     q = q.filter(Doctor.state_code.ilike(state_code))
     if manager_id:     q = q.filter(Doctor.manager_id == manager_id)

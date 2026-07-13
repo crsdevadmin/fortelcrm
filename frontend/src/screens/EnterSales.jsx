@@ -67,7 +67,7 @@ export default function SalesScreen() {
   useEffect(() => {
     if (!me?.id) return;
     Promise.all([
-      axios.get(`${API}/doctors/`, { params: { include_inactive: false } }),
+      axios.get(`${API}/doctors/`, { params: { viewer_id: me.id, include_inactive: false } }),
       axios.get(`${API}/products/`),
     ]).then(([dr, pr]) => {
       setDoctors(dr.data  || []);
