@@ -12,6 +12,7 @@ from ..models.models import Product, ProductTarget, SalesEntry, User
 from ..utils.hierarchy import get_subtree_ids
 
 router = APIRouter(prefix="/targets", tags=["Targets"])
+PLACEHOLDER_PRODUCT_NAMES = {"PRODUCT A", "PRODUCT B", "PRODUCT C"}
 
 
 def _require_md(actor_id: int, db: Session) -> User:
@@ -89,6 +90,11 @@ def _product_group_lookup(products: List[Product]):
         for product_id in ids:
             lookup[product_id] = ids
     return lookup
+
+
+def _target_products(db: Session):
+    products = db.query(Product).filter(Product.is_active == True).order_by(Product.name).all()
+    return [p for p in products if _normalize_product_name(p.name) not in PLACEHOLDER_PRODUCT_NAMES]
 
 
 def _owner_sales_user_ids(owner_id: int, db: Session):
@@ -195,7 +201,7 @@ def get_target_context(
         ).all()
     }
 
-    products = db.query(Product).filter(Product.is_active == True).order_by(Product.name).all()
+    products = _target_products(db)
     rows = []
     total_avg_value = total_target_value = 0.0
     total_avg_units = total_target_units = 0.0
@@ -271,7 +277,7 @@ def save_targets(payload: TargetSaveRequest, db: Session = Depends(get_db)):
     if payload.month < 1 or payload.month > 12:
         raise HTTPException(status_code=400, detail="Invalid month")
 
-    products = db.query(Product).filter(Product.is_active == True).order_by(Product.name).all()
+    products = _target_products(db)
     product_ids = {p.id for p in products}
     grouped_product_ids = _product_group_lookup(products)
     saved = 0
@@ -381,7 +387,7 @@ def get_target_summary(
         for row in actual_rows
     }
 
-    products = db.query(Product).filter(Product.is_active == True).order_by(Product.name).all()
+    products = _target_products(db)
     target_by_product = {target_row.product_id: target_row for target_row in target_rows}
     product_rows = []
     for product_group in _group_products(products):
