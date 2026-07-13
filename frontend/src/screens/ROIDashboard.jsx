@@ -821,13 +821,6 @@ function RegionalSalesPanel({ year, month }) {
   const topCities = cityEntries.slice(0, 5);
   const extraCities = cityEntries.slice(5);
   const selectedStateName = toStateName(stateCode);
-  const selectedRegionAccent = {
-    'Tamil Nadu': '#F97316',
-    'Kerala': '#10B981',
-    'Telangana': '#8B5CF6',
-    'Karnataka': '#EF4444',
-    'Maharashtra': '#3B82F6',
-  }[selectedStateName] || '#F5B800';
   const goSalesMonth = delta => {
     let y = salesYear;
     let m = salesMonth + delta;
@@ -979,7 +972,6 @@ function RegionalSalesPanel({ year, month }) {
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14 }}>
           {[
-            ['Region', city && stateCode ? `${city}, ${selectedStateName || stateCode}` : 'Select', selectedRegionAccent],
             ['Products', products.length, '#3B82F6'],
             ['Total Qty', totalQty.toLocaleString('en-IN'), '#10B981'],
             ['Total Value', fmtInr(totalValue), '#F59E0B'],
