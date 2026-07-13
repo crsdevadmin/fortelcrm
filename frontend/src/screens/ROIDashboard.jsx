@@ -720,6 +720,8 @@ function normalizeRiskData(data = {}) {
 
 function RegionalSalesPanel({ year, month }) {
   const { user: me } = useAuth();
+  const [salesYear, setSalesYear] = useState(year);
+  const [salesMonth, setSalesMonth] = useState(month);
   const [week, setWeek] = useState(1);
   const [products, setProducts] = useState([]);
   const [locations, setLocations] = useState([]);
@@ -739,7 +741,7 @@ function RegionalSalesPanel({ year, month }) {
     Promise.all([
       axios.get(`${API}/products/`),
       axios.get(`${API}/doctors/`, { params: { viewer_id: me.id, include_inactive: false } }),
-      salesAPI.regional(me.id, year, month, week, stateCode, city),
+      salesAPI.regional(me.id, salesYear, salesMonth, week, stateCode, city),
     ]).then(([productRes, doctorRes, regionalRes]) => {
       const productList = productRes.data || [];
       const doctorList = doctorRes.data || [];
@@ -782,7 +784,7 @@ function RegionalSalesPanel({ year, month }) {
       setHistory(savedRows);
     }).catch(() => setError('Unable to load regional sales.'))
       .finally(() => setLoading(false));
-  }, [me?.id, me?.state, me?.city, year, month, week, stateCode, city]);
+  }, [me?.id, me?.state, me?.city, salesYear, salesMonth, week, stateCode, city]);
 
   useEffect(() => { loadRegional(); }, [loadRegional]);
 
@@ -824,8 +826,15 @@ function RegionalSalesPanel({ year, month }) {
     'Karnataka': '#EF4444',
     'Maharashtra': '#3B82F6',
   }[selectedStateName] || '#F5B800';
-  const dateStart = `${year}-${String(month).padStart(2, '0')}-01`;
-  const dateEnd = `${year}-${String(month).padStart(2, '0')}-${String(new Date(year, month, 0).getDate()).padStart(2, '0')}`;
+  const goSalesMonth = delta => {
+    let y = salesYear;
+    let m = salesMonth + delta;
+    if (m < 1) { m = 12; y -= 1; }
+    if (m > 12) { m = 1; y += 1; }
+    if (y > CUR_YEAR || (y === CUR_YEAR && m > CUR_MONTH)) return;
+    setSalesYear(y);
+    setSalesMonth(m);
+  };
 
   const saveRegionalSales = async () => {
     if (!me?.id) return;
@@ -844,7 +853,7 @@ function RegionalSalesPanel({ year, month }) {
     setError('');
     setMessage('');
     try {
-      const res = await salesAPI.submitRegional({ associate_id: me.id, state_code: stateCode, city, year, month, week, entries: payloadRows });
+      const res = await salesAPI.submitRegional({ associate_id: me.id, state_code: stateCode, city, year: salesYear, month: salesMonth, week, entries: payloadRows });
       setMessage(`${res.data?.entries_saved || 0} regional sales rows saved.`);
       loadRegional();
     } catch (err) {
@@ -881,13 +890,22 @@ function RegionalSalesPanel({ year, month }) {
             {saving ? 'Saving...' : 'Save Regional Sales'}
           </button>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', width: '100%' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(255,255,255,0.12)', borderRadius: 10, padding: '7px 12px', border: '1px solid rgba(255,255,255,0.2)', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)', fontWeight: 800, letterSpacing: 0.5 }}>MONTH</span>
-              <span style={{ color: '#fff', fontSize: 12, fontWeight: 800 }}>{MONTHS[month]} {year}</span>
-              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', fontWeight: 800, letterSpacing: 0.5 }}>FROM</span>
-              <span style={{ color: '#fff', fontSize: 12, padding: '2px 4px', borderBottom: '1px solid rgba(255,255,255,0.3)' }}>{dateStart}</span>
-              <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', fontWeight: 800, letterSpacing: 0.5 }}>TO</span>
-              <span style={{ color: '#fff', fontSize: 12, padding: '2px 4px', borderBottom: '1px solid rgba(255,255,255,0.3)' }}>{dateEnd}</span>
+            <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.12)', borderRadius: 10, border: '1px solid rgba(255,255,255,0.2)', overflow: 'hidden' }}>
+              <button onClick={() => goSalesMonth(-1)}
+                style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 18, padding: '8px 14px', lineHeight: 1, opacity: 0.85 }}>
+                ‹
+              </button>
+              <span style={{ fontSize: 13, fontWeight: 800, color: '#fff', minWidth: 112, textAlign: 'center', padding: '0 4px' }}>
+                {MONTHS[salesMonth]} {salesYear}
+              </span>
+              <button onClick={() => goSalesMonth(1)}
+                disabled={salesYear === CUR_YEAR && salesMonth === CUR_MONTH}
+                style={{ background: 'none', border: 'none', color: '#fff',
+                  cursor: (salesYear === CUR_YEAR && salesMonth === CUR_MONTH) ? 'not-allowed' : 'pointer',
+                  fontSize: 18, padding: '8px 14px', lineHeight: 1,
+                  opacity: (salesYear === CUR_YEAR && salesMonth === CUR_MONTH) ? 0.25 : 0.85 }}>
+                ›
+              </button>
             </div>
             <span style={{ width: '100%' }} />
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', width: '100%', maxWidth: '100%' }}>
