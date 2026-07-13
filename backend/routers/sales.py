@@ -162,14 +162,13 @@ def get_regional_sales(
     db: Session = Depends(get_db),
 ):
     visible_ids = get_subtree_ids(associate_id, db)
-    if visible_ids is None:
-        visible_ids = {associate_id}
 
     q = db.query(RegionalSalesEntry).filter(
-        RegionalSalesEntry.associate_id.in_(visible_ids),
         RegionalSalesEntry.year == year,
         RegionalSalesEntry.month == month,
     )
+    if visible_ids is not None:
+        q = q.filter(RegionalSalesEntry.associate_id.in_(visible_ids))
     if week:
         q = q.filter(RegionalSalesEntry.week == week)
 

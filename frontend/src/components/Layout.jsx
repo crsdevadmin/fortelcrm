@@ -30,6 +30,7 @@ const NAV = {
     ]},
     { label: 'Performance', items: [
       { to: '/investment-roi',             icon: '◈', label: 'Investment & ROI' },
+      { to: '/regional-sales', icon: 'R', label: 'Regional Sales' },
       { to: '/product-sales',   icon: '◇', label: 'Product Sales' },
       { to: '/target-setting',  icon: 'T', label: 'Target Setting' },
       { to: '/rep-activity',    icon: '📊', label: 'Rep Activity' },
