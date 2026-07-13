@@ -3,7 +3,7 @@ import axios from 'axios';
 import { roiAPI, investmentsAPI, salesAPI } from '../api';
 import { useAuth } from '../context/AuthContext';
 import EnterSales from './EnterSales';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 const API = process.env.REACT_APP_API_URL || '';
 
@@ -857,9 +857,10 @@ function RegionalSalesPanel({ year, month }) {
   );
 }
 
-export default function ROIDashboard() {
+export default function ROIDashboard({ defaultTab = 'roi' }) {
   const { user: me } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [year, setYear]     = useState(CUR_YEAR);
   const [month, setMonth]   = useState(CUR_MONTH);
   const [doctors, setDoctors]   = useState([]);
@@ -873,14 +874,16 @@ export default function ROIDashboard() {
   const [addInvDoctor,  setAddInvDoctor]  = useState(null);
   const [addBizDoctor,  setAddBizDoctor]  = useState(null);
   const [refreshKey,    setRefreshKey]    = useState(0);
-  const [workTab,       setWorkTab]       = useState('roi');
+  const [workTab,       setWorkTab]       = useState(defaultTab);
 
   useEffect(() => {
     const tab = new URLSearchParams(location.search).get('tab');
     if (['roi', 'my_sales', 'regional_sales'].includes(tab)) {
       setWorkTab(tab);
+    } else {
+      setWorkTab(defaultTab);
     }
-  }, [location.search]);
+  }, [defaultTab, location.search]);
 
   // Inline investment form
   const [showForm,    setShowForm]    = useState(false);
@@ -1131,31 +1134,9 @@ export default function ROIDashboard() {
     );
   };
 
-  const workTabs = [
-    { key: 'roi', label: 'ROI & Investment' },
-    { key: 'my_sales', label: 'My Sales' },
-    { key: 'regional_sales', label: 'Regional Sales' },
-  ];
-  const tabBar = (
-    <div style={{ padding: '14px 24px 0', background: 'var(--color-background-tertiary,#f7f7f5)' }}>
-      <div style={{ display: 'inline-flex', gap: 4, background: '#e5e7eb', borderRadius: 12, padding: 4, flexWrap: 'wrap' }}>
-        {workTabs.map(tab => {
-          const active = workTab === tab.key;
-          return (
-            <button key={tab.key} onClick={() => setWorkTab(tab.key)}
-              style={{ border: 'none', borderRadius: 9, padding: '8px 14px', background: active ? '#fff' : 'transparent', color: active ? '#111827' : '#6b7280', fontSize: 12, fontWeight: 900, cursor: 'pointer', boxShadow: active ? '0 1px 5px rgba(0,0,0,0.12)' : 'none' }}>
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-
   if (workTab === 'my_sales') {
     return (
       <div style={{ minHeight: '100vh', background: 'var(--color-background-tertiary,#f7f7f5)' }}>
-        {tabBar}
         <EnterSales />
       </div>
     );
@@ -1164,7 +1145,6 @@ export default function ROIDashboard() {
   if (workTab === 'regional_sales') {
     return (
       <div style={{ minHeight: '100vh', background: 'var(--color-background-tertiary,#f7f7f5)' }}>
-        {tabBar}
         <RegionalSalesPanel year={year} month={month} />
       </div>
     );
@@ -1172,8 +1152,6 @@ export default function ROIDashboard() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--color-background-tertiary,#f7f7f5)' }}>
-      {tabBar}
-
       {/* ── HERO STRIP */}
       <div style={{
         background: 'linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%)',
@@ -1206,7 +1184,7 @@ export default function ROIDashboard() {
               }}>
               {showForm ? '✕ Cancel' : '+ Add Investment'}
             </button>
-            <button onClick={() => { setShowForm(false); setWorkTab('my_sales'); }}
+            <button onClick={() => { setShowForm(false); navigate('/my-sales'); }}
               style={{
                 background: '#F5B800',
                 color: '#111827', border: 'none', borderRadius: 12, padding: '10px 20px',

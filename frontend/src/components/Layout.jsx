@@ -46,7 +46,7 @@ const NAV = {
       { to: '/my-customers',  icon: '✦', label: 'My Customers' },
       { to: '/visit-log',     icon: '📍', label: 'Visit Log' },
       { to: '/investment-roi',           icon: '◈', label: 'Investment & ROI' },
-      { to: '/investment-roi?tab=regional_sales', icon: 'R', label: 'Regional Sales' },
+      { to: '/regional-sales', icon: 'R', label: 'Regional Sales' },
       { to: '/rep-activity',  icon: '📊', label: 'Rep Activity' },
     ]},
     { label: 'Organisation', items: [
@@ -61,7 +61,7 @@ const NAV = {
       { to: '/my-customers',  icon: '✦', label: 'My Customers' },
       { to: '/visit-log',     icon: '📍', label: 'Visit Log' },
       { to: '/investment-roi',           icon: '◈', label: 'Investment & ROI' },
-      { to: '/investment-roi?tab=regional_sales', icon: 'R', label: 'Regional Sales' },
+      { to: '/regional-sales', icon: 'R', label: 'Regional Sales' },
       { to: '/rep-activity',  icon: '📊', label: 'Rep Activity' },
     ]},
     { label: 'Organisation', items: [
@@ -76,7 +76,7 @@ const NAV = {
       { to: '/my-customers',  icon: '✦', label: 'My Customers' },
       { to: '/visit-log',     icon: '📍', label: 'Visit Log' },
       { to: '/investment-roi',           icon: '◈', label: 'Investment & ROI' },
-      { to: '/investment-roi?tab=regional_sales', icon: 'R', label: 'Regional Sales' },
+      { to: '/regional-sales', icon: 'R', label: 'Regional Sales' },
       { to: '/rep-activity',  icon: '📊', label: 'Rep Activity' },
     ]},
     { label: 'Organisation', items: [
@@ -91,7 +91,7 @@ const NAV = {
       { to: '/my-customers',  icon: '✦', label: 'My Customers' },
       { to: '/visit-log',     icon: '📍', label: 'Visit Log' },
       { to: '/investment-roi',           icon: '◈', label: 'Investment & ROI' },
-      { to: '/investment-roi?tab=regional_sales', icon: 'R', label: 'Regional Sales' },
+      { to: '/regional-sales', icon: 'R', label: 'Regional Sales' },
     ]},
     { label: 'Organisation', items: [
       { to: '/my-team',       icon: '⋮', label: 'My Hierarchy' },
@@ -105,7 +105,7 @@ const NAV = {
       { to: '/my-customers',  icon: '✦', label: 'My Customers' },
       { to: '/visit-log',     icon: '📍', label: 'Visit Log' },
       { to: '/investment-roi',           icon: '◈', label: 'Investment & ROI' },
-      { to: '/investment-roi?tab=regional_sales', icon: 'R', label: 'Regional Sales' },
+      { to: '/regional-sales', icon: 'R', label: 'Regional Sales' },
     ]},
     { label: 'Organisation', items: [
       { to: '/my-team',       icon: '⋮', label: 'My Hierarchy' },
@@ -116,6 +116,8 @@ const NAV = {
 const PAGE_TITLES = {
   '/':              'Dashboard',
   '/investment-roi':           'Investment & ROI',
+  '/regional-sales': 'Regional Sales',
+  '/my-sales': 'My Sales',
   '/my-team':       'My Hierarchy',
   '/my-customers':  'My Customers',
   '/enter-sales':   'My Sales',
@@ -572,7 +574,7 @@ export default function Layout({ children }) {
               </button>
             )}
             <button
-              onClick={() => { navigate('/investment-roi?tab=my_sales'); setSalesReminderHiddenUntil(Date.now() + 30 * 60 * 1000); }}
+              onClick={() => { navigate('/my-sales'); setSalesReminderHiddenUntil(Date.now() + 30 * 60 * 1000); }}
               style={{ border: 'none', background: '#0F6E56', color: '#fff', borderRadius: 8, padding: '8px 12px', fontWeight: 900, cursor: 'pointer' }}
             >
               Update Sales

@@ -41,6 +41,7 @@ function PrivateRoutes() {
         <Route path="/enter-sales"      element={<EnterSales />} />
         <Route path="/enter-investment" element={<Navigate to="/investment-roi" replace />} />
         <Route path="/investment-roi"   element={<ROIDashboard />} />
+        <Route path="/regional-sales"   element={<ROIDashboard defaultTab="regional_sales" />} />
         <Route path="/roi-product"      element={<Navigate to="/product-sales" replace />} />
         <Route path="/control-tower"    element={<Navigate to="/" replace />} />
         <Route path="/business"         element={<Navigate to="/" replace />} />
@@ -51,7 +52,7 @@ function PrivateRoutes() {
         <Route path="/visit-log"        element={<VisitLog />} />
         <Route path="/rep-activity"     element={<RepActivity />} />
         <Route path="/my-customers"     element={<MyCustomers />} />
-        <Route path="/my-sales"         element={<Navigate to="/investment-roi?tab=my_sales" replace />} />
+        <Route path="/my-sales"         element={<ROIDashboard defaultTab="my_sales" />} />
         <Route path="/product-sales"    element={<ProductSales />} />
         <Route path="/target-setting"   element={
           <RoleGuard allowedRoles={['md']}>
