@@ -43,6 +43,8 @@ class RegionalSalesItem(BaseModel):
 
 class RegionalSalesRequest(BaseModel):
     associate_id: int
+    state_code: Optional[str] = None
+    city: Optional[str] = None
     year: int
     month: int
     week: int
@@ -109,6 +111,10 @@ def submit_regional_sales(payload: RegionalSalesRequest, db: Session = Depends(g
         raise HTTPException(status_code=400, detail="Invalid month")
     if payload.week < 1 or payload.week > 4:
         raise HTTPException(status_code=400, detail="Invalid week")
+    state_code = (payload.state_code or "").strip()
+    city = (payload.city or "").strip()
+    if not state_code or not city:
+        raise HTTPException(status_code=400, detail="State and city are required")
 
     product_ids = {p.id for p in db.query(Product.id).filter(Product.is_active == True).all()}
     saved = 0
@@ -121,6 +127,8 @@ def submit_regional_sales(payload: RegionalSalesRequest, db: Session = Depends(g
 
         existing = db.query(RegionalSalesEntry).filter(
             RegionalSalesEntry.associate_id == payload.associate_id,
+            RegionalSalesEntry.state_code == state_code,
+            RegionalSalesEntry.city == city,
             RegionalSalesEntry.product_id == item.product_id,
             RegionalSalesEntry.year == payload.year,
             RegionalSalesEntry.month == payload.month,
@@ -135,6 +143,8 @@ def submit_regional_sales(payload: RegionalSalesRequest, db: Session = Depends(g
         elif qty > 0 or price > 0:
             db.add(RegionalSalesEntry(
                 associate_id=payload.associate_id,
+                state_code=state_code,
+                city=city,
                 product_id=item.product_id,
                 year=payload.year,
                 month=payload.month,
@@ -159,6 +169,8 @@ def get_regional_sales(
     year: int,
     month: int,
     week: Optional[int] = None,
+    state_code: Optional[str] = None,
+    city: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     visible_ids = get_subtree_ids(associate_id, db)
@@ -171,12 +183,18 @@ def get_regional_sales(
         q = q.filter(RegionalSalesEntry.associate_id.in_(visible_ids))
     if week:
         q = q.filter(RegionalSalesEntry.week == week)
+    if state_code:
+        q = q.filter(RegionalSalesEntry.state_code.ilike(state_code.strip()))
+    if city:
+        q = q.filter(RegionalSalesEntry.city.ilike(city.strip()))
 
-    rows = q.order_by(RegionalSalesEntry.week, RegionalSalesEntry.product_id).all()
+    rows = q.order_by(RegionalSalesEntry.week, RegionalSalesEntry.state_code, RegionalSalesEntry.city, RegionalSalesEntry.product_id).all()
     return [{
         "id": row.id,
         "associate_id": row.associate_id,
         "associate_name": row.associate.name if row.associate else "",
+        "state_code": row.state_code or "",
+        "city": row.city or "",
         "product_id": row.product_id,
         "product_name": row.product.name if row.product else f"Product {row.product_id}",
         "year": row.year,

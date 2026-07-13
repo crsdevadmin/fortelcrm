@@ -242,6 +242,8 @@ class RegionalSalesEntry(Base):
     id             = Column(Integer,  primary_key=True, index=True)
     associate_id   = Column(Integer,  ForeignKey("users.id"),    nullable=False)
     product_id     = Column(Integer,  ForeignKey("products.id"), nullable=False)
+    state_code     = Column(String(50), nullable=False, default="")
+    city           = Column(String(100), nullable=False, default="")
     year           = Column(Integer,  nullable=False)
     month          = Column(Integer,  nullable=False)
     week           = Column(Integer,  nullable=False)
@@ -256,8 +258,8 @@ class RegionalSalesEntry(Base):
     product   = relationship("Product", foreign_keys=[product_id])
 
     __table_args__ = (
-        UniqueConstraint("associate_id", "product_id", "year", "month", "week",
-                         name="uq_regional_sales_user_product_week"),
+        UniqueConstraint("associate_id", "state_code", "city", "product_id", "year", "month", "week",
+                         name="uq_regional_sales_region_product_week"),
     )
 
 

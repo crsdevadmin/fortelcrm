@@ -696,6 +696,9 @@ function RegionalSalesPanel({ year, month }) {
   const { user: me } = useAuth();
   const [week, setWeek] = useState(1);
   const [products, setProducts] = useState([]);
+  const [locations, setLocations] = useState([]);
+  const [stateCode, setStateCode] = useState('');
+  const [city, setCity] = useState('');
   const [rows, setRows] = useState({});
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -709,9 +712,31 @@ function RegionalSalesPanel({ year, month }) {
     setError('');
     Promise.all([
       axios.get(`${API}/products/`),
-      salesAPI.regional(me.id, year, month, week),
-    ]).then(([productRes, regionalRes]) => {
+      axios.get(`${API}/doctors/`, { params: { viewer_id: me.id, include_inactive: false } }),
+      salesAPI.regional(me.id, year, month, week, stateCode, city),
+    ]).then(([productRes, doctorRes, regionalRes]) => {
       const productList = productRes.data || [];
+      const doctorList = doctorRes.data || [];
+      const locationList = Object.values(doctorList.reduce((acc, doctor) => {
+        const st = (doctor.state_code || me.state || '').trim();
+        const ct = (doctor.city || me.city || '').trim();
+        if (!st || !ct) return acc;
+        const key = `${st}__${ct}`.toLowerCase();
+        acc[key] = { state_code: st, city: ct };
+        return acc;
+      }, {})).sort((a, b) => `${a.state_code} ${a.city}`.localeCompare(`${b.state_code} ${b.city}`));
+      setLocations(locationList);
+      if ((!stateCode || !city) && locationList.length) {
+        setStateCode(locationList[0].state_code);
+        setCity(locationList[0].city);
+        setProducts(productList);
+        setRows(productList.reduce((acc, product) => {
+          acc[product.id] = { quantity: '', price: product.rate || '' };
+          return acc;
+        }, {}));
+        setHistory([]);
+        return;
+      }
       const savedRows = regionalRes.data || [];
       const byProduct = {};
       savedRows.forEach(row => {
@@ -729,7 +754,7 @@ function RegionalSalesPanel({ year, month }) {
       setHistory(savedRows);
     }).catch(() => setError('Unable to load regional sales.'))
       .finally(() => setLoading(false));
-  }, [me?.id, year, month, week]);
+  }, [me?.id, me?.state, me?.city, year, month, week, stateCode, city]);
 
   useEffect(() => { loadRegional(); }, [loadRegional]);
 
@@ -748,9 +773,19 @@ function RegionalSalesPanel({ year, month }) {
   });
   const totalQty = entries.reduce((sum, row) => sum + row.quantity, 0);
   const totalValue = entries.reduce((sum, row) => sum + row.value, 0);
+  const stateOptions = [...new Set(locations.map(loc => loc.state_code))].sort();
+  const cityOptions = locations
+    .filter(loc => !stateCode || loc.state_code === stateCode)
+    .map(loc => loc.city)
+    .filter((value, index, arr) => value && arr.indexOf(value) === index)
+    .sort();
 
   const saveRegionalSales = async () => {
     if (!me?.id) return;
+    if (!stateCode || !city) {
+      setError('Select state and city before saving regional sales.');
+      return;
+    }
     const payloadRows = entries
       .filter(row => row.quantity > 0)
       .map(row => ({ product_id: row.product.id, quantity: row.quantity, price: row.price }));
@@ -762,7 +797,7 @@ function RegionalSalesPanel({ year, month }) {
     setError('');
     setMessage('');
     try {
-      const res = await salesAPI.submitRegional({ associate_id: me.id, year, month, week, entries: payloadRows });
+      const res = await salesAPI.submitRegional({ associate_id: me.id, state_code: stateCode, city, year, month, week, entries: payloadRows });
       setMessage(`${res.data?.entries_saved || 0} regional sales rows saved.`);
       loadRegional();
     } catch (err) {
@@ -778,9 +813,24 @@ function RegionalSalesPanel({ year, month }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <div>
             <div style={{ fontSize: 18, fontWeight: 900, color: '#111827' }}>Regional Sales</div>
-            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 3 }}>Product-wise sales done by rep to the region. Enter quantity and price week-wise.</div>
+            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 3 }}>Product-wise sales by state and city. Enter quantity and price week-wise.</div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <select value={stateCode} onChange={e => {
+              const nextState = e.target.value;
+              const firstCity = locations.find(loc => loc.state_code === nextState)?.city || '';
+              setStateCode(nextState);
+              setCity(firstCity);
+            }}
+              style={{ padding: '8px 11px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontWeight: 800, minWidth: 120 }}>
+              <option value="">State</option>
+              {stateOptions.map(st => <option key={st} value={st}>{st}</option>)}
+            </select>
+            <select value={city} onChange={e => setCity(e.target.value)}
+              style={{ padding: '8px 11px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', fontWeight: 800, minWidth: 140 }}>
+              <option value="">City</option>
+              {cityOptions.map(ct => <option key={ct} value={ct}>{ct}</option>)}
+            </select>
             {[1, 2, 3, 4].map(w => (
               <button key={w} onClick={() => setWeek(w)}
                 style={{ padding: '8px 12px', borderRadius: 8, border: week === w ? '1.5px solid #0F6E56' : '1px solid #d1d5db', background: week === w ? '#E1F5EE' : '#fff', cursor: 'pointer', fontWeight: 800, color: week === w ? '#085041' : '#374151' }}>
@@ -795,6 +845,7 @@ function RegionalSalesPanel({ year, month }) {
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14 }}>
           {[
+            ['Region', city && stateCode ? `${city}, ${stateCode}` : 'Select', '#111827'],
             ['Products', products.length, '#111827'],
             ['Total Qty', totalQty.toLocaleString('en-IN'), '#111827'],
             ['Total Value', fmtInr(totalValue), '#0F6E56'],
@@ -809,6 +860,11 @@ function RegionalSalesPanel({ year, month }) {
 
       {error && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', borderRadius: 10, padding: 12, marginBottom: 12 }}>{error}</div>}
       {message && <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534', borderRadius: 10, padding: 12, marginBottom: 12 }}>{message}</div>}
+      {!loading && !locations.length && (
+        <div style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', borderRadius: 10, padding: 12, marginBottom: 12 }}>
+          No state/city found in the customer master for your visible doctors.
+        </div>
+      )}
 
       <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 120px 120px 130px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', fontSize: 11, fontWeight: 900, color: '#4b5563', textTransform: 'uppercase' }}>
@@ -842,12 +898,12 @@ function RegionalSalesPanel({ year, month }) {
 
       {history.length > 0 && (
         <div style={{ marginTop: 14, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 14 }}>
-          <div style={{ fontSize: 13, fontWeight: 900, marginBottom: 10 }}>Saved rows for Week {week}</div>
+          <div style={{ fontSize: 13, fontWeight: 900, marginBottom: 10 }}>Saved rows for {city || 'City'}, {stateCode || 'State'} · Week {week}</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {history.filter(row => Number(row.quantity) > 0).slice(0, 16).map(row => (
               <div key={row.id} style={{ border: '1px solid #eef2f7', borderRadius: 8, padding: '8px 10px', background: '#f9fafb' }}>
                 <div style={{ fontSize: 12, fontWeight: 800 }}>{row.product_name}</div>
-                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{row.quantity} qty x {fmtInr(row.price)} = {fmtInr(row.value)}</div>
+                <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{row.city}, {row.state_code} · {row.quantity} qty x {fmtInr(row.price)} = {fmtInr(row.value)}</div>
               </div>
             ))}
           </div>
