@@ -245,6 +245,7 @@ class ProductTarget(Base):
     year           = Column(Integer,  nullable=False)
     month          = Column(Integer,  nullable=False)
     target_units   = Column(Float,    nullable=False, default=0)
+    target_rate    = Column(Float,    nullable=True)
     target_value   = Column(Float,    nullable=False, default=0)
     created_by_id  = Column(Integer,  ForeignKey("users.id"), nullable=False)
     updated_by_id  = Column(Integer,  ForeignKey("users.id"), nullable=True)

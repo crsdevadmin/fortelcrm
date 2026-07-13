@@ -1,4 +1,5 @@
 from datetime import datetime
+import re
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -34,6 +35,62 @@ def _previous_months(year: int, month: int, count: int = 3):
     return pairs
 
 
+def _normalize_product_name(name: str) -> str:
+    text = (name or "").upper().replace("'S", "S")
+    text = re.sub(r"[^A-Z0-9]+", " ", text)
+    replacements = {
+        r"\bCAPSULES?\b|\bCAPS\b": "CAP",
+        r"\bTABLETS?\b|\bTABS?\b": "TAB",
+        r"\bSACHETS?\b": "SACHET",
+        r"\bINJECTIONS?\b": "INJ",
+        r"\bGRAMS?\b|\bGMS?\b": "GM",
+        r"\bM L\b": "ML",
+    }
+    for pattern, replacement in replacements.items():
+        text = re.sub(pattern, replacement, text)
+    text = re.sub(r"\b(\d+)\s+(ML|MG|GM|G|S)\b", r"\1\2", text)
+    text = re.sub(r"\b1\s*X?\s*10S\b", "10S", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _product_base_key(normalized_name: str) -> str:
+    text = re.sub(r"\b\d+(?:ML|MG|GM|G|S)\b", " ", normalized_name)
+    text = re.sub(r"\b\d+\s*X\s*\d+\b", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _group_products(products: List[Product]):
+    by_base = {}
+    metadata = {}
+    for product in products:
+        normalized = _normalize_product_name(product.name)
+        base = _product_base_key(normalized)
+        by_base.setdefault(base, set()).add(normalized)
+        metadata[product.id] = {"normalized": normalized, "base": base}
+
+    groups = {}
+    for product in products:
+        meta = metadata[product.id]
+        variants = by_base.get(meta["base"], set())
+        has_unsized_variant = meta["base"] in variants
+        group_key = meta["base"] if len(variants) <= 1 or (has_unsized_variant and len(variants) <= 2) else meta["normalized"]
+        groups.setdefault(group_key, []).append(product)
+
+    return [
+        sorted(group, key=lambda p: (not bool(p.price or p.rate), p.name or "", p.id))
+        for group in groups.values()
+    ]
+
+
+def _product_group_lookup(products: List[Product]):
+    lookup = {}
+    for group in _group_products(products):
+        ids = [p.id for p in group]
+        for product_id in ids:
+            lookup[product_id] = ids
+    return lookup
+
+
 def _owner_sales_user_ids(owner_id: int, db: Session):
     owner = db.query(User).filter(User.id == owner_id, User.is_active == True).first()
     if not owner:
@@ -60,6 +117,7 @@ def _user_dict(u: User):
 class TargetItem(BaseModel):
     product_id: int
     target_units: float = 0
+    target_rate: Optional[float] = None
     target_value: float = 0
 
 
@@ -142,25 +200,34 @@ def get_target_context(
     total_avg_value = total_target_value = 0.0
     total_avg_units = total_target_units = 0.0
 
-    for product in products:
+    for product_group in _group_products(products):
+        product = product_group[0]
+        product_ids = [p.id for p in product_group]
         history = []
         units_sum = value_sum = 0.0
         for y, m in prev_months:
-            cell = product_month_sales.get((product.id, y, m), {"units": 0.0, "value": 0.0})
-            units_sum += cell["units"]
-            value_sum += cell["value"]
+            cell_units = cell_value = 0.0
+            for product_id in product_ids:
+                cell = product_month_sales.get((product_id, y, m), {"units": 0.0, "value": 0.0})
+                cell_units += cell["units"]
+                cell_value += cell["value"]
+            units_sum += cell_units
+            value_sum += cell_value
             history.append({
                 "year": y,
                 "month": m,
-                "units": round(cell["units"], 2),
-                "value": round(cell["value"], 2),
+                "units": round(cell_units, 2),
+                "value": round(cell_value, 2),
             })
 
-        target = existing_targets.get(product.id)
+        group_targets = [existing_targets[product_id] for product_id in product_ids if product_id in existing_targets]
         avg_units = units_sum / 3
         avg_value = value_sum / 3
-        target_units = float(target.target_units if target else 0)
-        target_value = float(target.target_value if target else 0)
+        target_units = sum(float(target.target_units or 0) for target in group_targets)
+        target_value = sum(float(target.target_value or 0) for target in group_targets)
+        stored_rate = next((float(target.target_rate) for target in group_targets if target.target_rate), None)
+        default_rate = next((float(p.price or p.rate) for p in product_group if p.price or p.rate), 0.0)
+        target_rate = stored_rate if stored_rate is not None else default_rate
 
         total_avg_units += avg_units
         total_avg_value += avg_value
@@ -170,7 +237,8 @@ def get_target_context(
         rows.append({
             "product_id": product.id,
             "product_name": product.name,
-            "rate": float(product.price or product.rate or 0),
+            "rate": default_rate,
+            "target_rate": round(target_rate, 2),
             "last_3_months": history,
             "avg_units": round(avg_units, 2),
             "avg_value": round(avg_value, 2),
@@ -203,11 +271,21 @@ def save_targets(payload: TargetSaveRequest, db: Session = Depends(get_db)):
     if payload.month < 1 or payload.month > 12:
         raise HTTPException(status_code=400, detail="Invalid month")
 
-    product_ids = {p.id for p in db.query(Product.id).filter(Product.is_active == True).all()}
+    products = db.query(Product).filter(Product.is_active == True).order_by(Product.name).all()
+    product_ids = {p.id for p in products}
+    grouped_product_ids = _product_group_lookup(products)
     saved = 0
     for item in payload.items:
         if item.product_id not in product_ids:
             continue
+        duplicate_ids = [pid for pid in grouped_product_ids.get(item.product_id, [item.product_id]) if pid != item.product_id]
+        if duplicate_ids:
+            db.query(ProductTarget).filter(
+                ProductTarget.owner_user_id == payload.owner_user_id,
+                ProductTarget.product_id.in_(duplicate_ids),
+                ProductTarget.year == payload.year,
+                ProductTarget.month == payload.month,
+            ).delete(synchronize_session=False)
         target = db.query(ProductTarget).filter(
             ProductTarget.owner_user_id == payload.owner_user_id,
             ProductTarget.product_id == item.product_id,
@@ -216,6 +294,7 @@ def save_targets(payload: TargetSaveRequest, db: Session = Depends(get_db)):
         ).first()
         if target:
             target.target_units = float(item.target_units or 0)
+            target.target_rate = float(item.target_rate or 0) if item.target_rate is not None else None
             target.target_value = float(item.target_value or 0)
             target.updated_by_id = actor.id
             target.updated_at = datetime.utcnow()
@@ -226,6 +305,7 @@ def save_targets(payload: TargetSaveRequest, db: Session = Depends(get_db)):
                 year=payload.year,
                 month=payload.month,
                 target_units=float(item.target_units or 0),
+                target_rate=float(item.target_rate or 0) if item.target_rate is not None else None,
                 target_value=float(item.target_value or 0),
                 created_by_id=actor.id,
                 updated_by_id=actor.id,
@@ -301,17 +381,25 @@ def get_target_summary(
         for row in actual_rows
     }
 
+    products = db.query(Product).filter(Product.is_active == True).order_by(Product.name).all()
+    target_by_product = {target_row.product_id: target_row for target_row in target_rows}
     product_rows = []
-    for target_row in target_rows:
-        actual_product = actual_by_product.get(target_row.product_id, {"units": 0.0, "value": 0.0})
-        row_target_value = float(target_row.target_value or 0)
-        row_actual_value = float(actual_product["value"] or 0)
+    for product_group in _group_products(products):
+        group_targets = [target_by_product[p.id] for p in product_group if p.id in target_by_product]
+        if not group_targets:
+            continue
+        product = product_group[0]
+        product_ids = [p.id for p in product_group]
+        row_target_value = sum(float(target_row.target_value or 0) for target_row in group_targets)
+        row_target_units = sum(float(target_row.target_units or 0) for target_row in group_targets)
+        row_actual_units = sum(float(actual_by_product.get(product_id, {"units": 0.0})["units"] or 0) for product_id in product_ids)
+        row_actual_value = sum(float(actual_by_product.get(product_id, {"value": 0.0})["value"] or 0) for product_id in product_ids)
         product_rows.append({
-            "product_id": target_row.product_id,
-            "product_name": target_row.product.name if target_row.product else f"Product {target_row.product_id}",
-            "target_units": round(float(target_row.target_units or 0), 2),
+            "product_id": product.id,
+            "product_name": product.name if product else f"Product {product.id}",
+            "target_units": round(row_target_units, 2),
             "target_value": round(row_target_value, 2),
-            "actual_units": round(float(actual_product["units"] or 0), 2),
+            "actual_units": round(row_actual_units, 2),
             "actual_value": round(row_actual_value, 2),
             "remaining_value": round(max(row_target_value - row_actual_value, 0), 2),
             "achievement_pct": round((row_actual_value / row_target_value) * 100, 1) if row_target_value > 0 else 0,

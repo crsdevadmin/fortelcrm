@@ -57,6 +57,7 @@ export default function TargetSetting() {
         setContext(res.data);
         setRows((res.data?.products || []).map(row => ({
           ...row,
+          target_rate: row.target_rate || row.rate || '',
           target_units: row.target_units || '',
           target_value: row.target_value || '',
         })));
@@ -77,9 +78,9 @@ export default function TargetSetting() {
     setRows(prev => prev.map(row => {
       if (row.product_id !== productId) return row;
       const next = { ...row, [field]: value };
-      if (field === 'target_units') {
-        const units = Number(value) || 0;
-        const rate = Number(row.rate) || 0;
+      if (field === 'target_units' || field === 'target_rate') {
+        const units = Number(field === 'target_units' ? value : row.target_units) || 0;
+        const rate = Number(field === 'target_rate' ? value : row.target_rate) || 0;
         next.target_value = units && rate ? Math.round(units * rate) : '';
       }
       return next;
@@ -90,14 +91,15 @@ export default function TargetSetting() {
     setRows(prev => prev.map(row => ({
       ...row,
       target_units: row.avg_units ? Math.round(Number(row.avg_units)) : '',
-      target_value: row.avg_value ? Math.round(Number(row.avg_value)) : '',
+      target_value: row.avg_units && row.target_rate ? Math.round(Number(row.avg_units) * Number(row.target_rate)) : (row.avg_value ? Math.round(Number(row.avg_value)) : ''),
     })));
   };
 
   const increaseBy = (pct) => {
     setRows(prev => prev.map(row => {
       const units = Math.round((Number(row.avg_units) || 0) * (1 + pct / 100));
-      const value = Math.round((Number(row.avg_value) || 0) * (1 + pct / 100));
+      const rate = Number(row.target_rate) || 0;
+      const value = units && rate ? Math.round(units * rate) : Math.round((Number(row.avg_value) || 0) * (1 + pct / 100));
       return { ...row, target_units: units || '', target_value: value || '' };
     }));
   };
@@ -116,6 +118,7 @@ export default function TargetSetting() {
         items: rows.map(row => ({
           product_id: row.product_id,
           target_units: Number(row.target_units) || 0,
+          target_rate: Number(row.target_rate) || 0,
           target_value: Number(row.target_value) || 0,
         })),
       };
@@ -223,7 +226,12 @@ export default function TargetSetting() {
                 {(row.last_3_months || []).map(m => `${MONTHS[m.month]} ${fmtNum(m.units)}u`).join(' | ')}
               </div>
             </div>
-            <div style={{ padding: '10px 12px', fontSize: 12, color: '#4b5563' }}>{fmtInr(row.rate)}</div>
+            <div style={{ padding: '10px 12px' }}>
+              <input type="number" min="0" value={row.target_rate}
+                onChange={e => updateRow(row.product_id, 'target_rate', e.target.value)}
+                placeholder={row.rate ? String(row.rate) : '0'}
+                style={{ width: '100%', boxSizing: 'border-box', padding: '8px 9px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13 }} />
+            </div>
             <div style={{ padding: '10px 12px', fontSize: 12, fontWeight: 700 }}>{fmtNum(row.avg_units)}</div>
             <div style={{ padding: '10px 12px', fontSize: 12, fontWeight: 700 }}>{fmtInr(row.avg_value)}</div>
             <div style={{ padding: '10px 12px' }}>
