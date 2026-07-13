@@ -876,7 +876,11 @@ function RegionalSalesPanel({ year, month }) {
             <div style={{ fontSize: 20, fontWeight: 900 }}>Regional Sales</div>
             <div style={{ fontSize: 11, opacity: 0.55, marginTop: 3 }}>Product-wise sales by region · week-wise quantity and price</div>
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button onClick={saveRegionalSales} disabled={saving || loading}
+            style={{ padding: '9px 15px', borderRadius: 9, border: 'none', background: saving ? '#9ca3af' : '#0F6E56', color: '#fff', cursor: saving ? 'default' : 'pointer', fontWeight: 900, marginLeft: 'auto' }}>
+            {saving ? 'Saving...' : 'Save Regional Sales'}
+          </button>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', width: '100%' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(255,255,255,0.12)', borderRadius: 10, padding: '7px 12px', border: '1px solid rgba(255,255,255,0.2)', flexWrap: 'wrap' }}>
               <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)', fontWeight: 800, letterSpacing: 0.5 }}>MONTH</span>
               <span style={{ color: '#fff', fontSize: 12, fontWeight: 800 }}>{MONTHS[month]} {year}</span>
@@ -886,7 +890,7 @@ function RegionalSalesPanel({ year, month }) {
               <span style={{ color: '#fff', fontSize: 12, padding: '2px 4px', borderBottom: '1px solid rgba(255,255,255,0.3)' }}>{dateEnd}</span>
             </div>
             <span style={{ width: '100%' }} />
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', maxWidth: 520 }}>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', width: '100%', maxWidth: '100%' }}>
               <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', fontWeight: 900, letterSpacing: 1.5, textTransform: 'uppercase', marginRight: 2 }}>Region</span>
               {stateOptions.map(st => {
                 const active = toStateName(stateCode) === st.state_name;
@@ -909,29 +913,31 @@ function RegionalSalesPanel({ year, month }) {
                   </button>
                 );
               })}
-              <span style={{ width: '100%' }} />
-              <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', fontWeight: 900, letterSpacing: 1.5, textTransform: 'uppercase', marginRight: 2 }}>City</span>
-              {topCities.map(([ct, count]) => {
-                const active = city === ct;
-                return (
-                  <button key={ct} onClick={() => setCity(ct)}
-                    style={{
-                      padding: '4px 11px', borderRadius: 20, fontSize: 10, fontWeight: 800, cursor: 'pointer',
-                      border: active ? '2px solid #3D8C40' : '2px solid rgba(255,255,255,0.12)',
-                      background: active ? '#3D8C40' : 'rgba(255,255,255,0.07)',
-                      color: active ? '#fff' : 'rgba(255,255,255,0.7)',
-                    }}>
-                    {ct} <span style={{ opacity: 0.65 }}>({count})</span>
-                  </button>
-                );
-              })}
-              {extraCities.length > 0 && (
-                <select value="" onChange={e => { if (e.target.value) setCity(e.target.value); }}
-                  style={{ padding: '4px 10px', borderRadius: 20, fontSize: 10, fontWeight: 800, cursor: 'pointer', background: 'rgba(255,255,255,0.1)', color: '#fff', border: '2px solid rgba(255,255,255,0.15)' }}>
-                  <option value="" style={{ color: '#000' }}>+{extraCities.length} more...</option>
-                  {extraCities.map(([ct, count]) => <option key={ct} value={ct} style={{ color: '#000' }}>{ct} ({count})</option>)}
-                </select>
-              )}
+              <div style={{ display: 'flex', gap: 5, flexWrap: 'nowrap', alignItems: 'center', overflowX: 'auto', whiteSpace: 'nowrap', width: '100%', paddingBottom: 2 }}>
+                <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', fontWeight: 900, letterSpacing: 1.5, textTransform: 'uppercase', marginRight: 2, flex: '0 0 auto' }}>City</span>
+                {topCities.map(([ct, count]) => {
+                  const active = city === ct;
+                  return (
+                    <button key={ct} onClick={() => setCity(ct)}
+                      style={{
+                        padding: '4px 11px', borderRadius: 20, fontSize: 10, fontWeight: 800, cursor: 'pointer',
+                        border: active ? '2px solid #3D8C40' : '2px solid rgba(255,255,255,0.12)',
+                        background: active ? '#3D8C40' : 'rgba(255,255,255,0.07)',
+                        color: active ? '#fff' : 'rgba(255,255,255,0.7)',
+                        flex: '0 0 auto',
+                      }}>
+                      {ct} <span style={{ opacity: 0.65 }}>({count})</span>
+                    </button>
+                  );
+                })}
+                {extraCities.length > 0 && (
+                  <select value="" onChange={e => { if (e.target.value) setCity(e.target.value); }}
+                    style={{ padding: '4px 10px', borderRadius: 20, fontSize: 10, fontWeight: 800, cursor: 'pointer', background: 'rgba(255,255,255,0.1)', color: '#fff', border: '2px solid rgba(255,255,255,0.15)', flex: '0 0 auto' }}>
+                    <option value="" style={{ color: '#000' }}>+{extraCities.length} more...</option>
+                    {extraCities.map(([ct, count]) => <option key={ct} value={ct} style={{ color: '#000' }}>{ct} ({count})</option>)}
+                  </select>
+                )}
+              </div>
             </div>
             <span style={{ width: '100%' }} />
             <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', fontWeight: 900, letterSpacing: 1.5, textTransform: 'uppercase', marginRight: 2 }}>Week</span>
@@ -941,10 +947,6 @@ function RegionalSalesPanel({ year, month }) {
                 Week {w}
               </button>
             ))}
-            <button onClick={saveRegionalSales} disabled={saving || loading}
-              style={{ padding: '9px 15px', borderRadius: 9, border: 'none', background: saving ? '#9ca3af' : '#0F6E56', color: '#fff', cursor: saving ? 'default' : 'pointer', fontWeight: 900 }}>
-              {saving ? 'Saving...' : 'Save Regional Sales'}
-            </button>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14 }}>
