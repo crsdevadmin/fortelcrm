@@ -7,6 +7,7 @@ Excel export endpoints.
 """
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import Optional
@@ -20,6 +21,8 @@ try:
     HAS_OPENPYXL = True
 except ImportError:
     HAS_OPENPYXL = False
+
+from sqlalchemy import text
 
 from ..database import get_db
 from ..models.models import SalesEntry, Doctor, Product, User, VisitLog
@@ -466,3 +469,140 @@ def get_rep_activity_data(
         })
 
     return result
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# REGIONAL / WEEKLY SALES  (no doctor dimension — rep-level product entry)
+# ══════════════════════════════════════════════════════════════════════════════
+
+_WEEKLY_TABLE_CREATED = False
+
+def _ensure_weekly_table(db: Session):
+    global _WEEKLY_TABLE_CREATED
+    if _WEEKLY_TABLE_CREATED:
+        return
+    db.execute(text("""
+        CREATE TABLE IF NOT EXISTS rep_weekly_sales (
+            id           SERIAL PRIMARY KEY,
+            associate_id INTEGER NOT NULL,
+            product_id   INTEGER NOT NULL,
+            year         INTEGER NOT NULL,
+            month        INTEGER NOT NULL,
+            week         INTEGER NOT NULL,
+            qty          FLOAT   DEFAULT 0,
+            price        FLOAT   DEFAULT 0,
+            value        FLOAT   DEFAULT 0,
+            submitted_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE (associate_id, product_id, year, month, week)
+        )
+    """))
+    db.commit()
+    _WEEKLY_TABLE_CREATED = True
+
+
+class WeeklyItem(BaseModel):
+    product_id: int
+    w1_qty:   float = 0; w1_price: float = 0
+    w2_qty:   float = 0; w2_price: float = 0
+    w3_qty:   float = 0; w3_price: float = 0
+    w4_qty:   float = 0; w4_price: float = 0
+    gst_rate: float = 0.05
+
+
+class WeeklyEntryPayload(BaseModel):
+    associate_id: int
+    year:         int
+    month:        int
+    items:        list[WeeklyItem]
+
+
+@router.post("/weekly-entry")
+def save_weekly_entry(payload: WeeklyEntryPayload, db: Session = Depends(get_db)):
+    """Upsert rep weekly product sales (no doctor required)."""
+    _ensure_weekly_table(db)
+
+    for item in payload.items:
+        for wk in range(1, 5):
+            qty   = getattr(item, f"w{wk}_qty",   0) or 0
+            price = getattr(item, f"w{wk}_price", 0) or 0
+            value = round(qty * price * (1 + item.gst_rate), 2)
+            db.execute(text("""
+                INSERT INTO rep_weekly_sales
+                    (associate_id, product_id, year, month, week, qty, price, value, submitted_at)
+                VALUES
+                    (:aid, :pid, :yr, :mo, :wk, :qty, :price, :val, NOW())
+                ON CONFLICT (associate_id, product_id, year, month, week)
+                DO UPDATE SET qty=:qty, price=:price, value=:val, submitted_at=NOW()
+            """), {"aid": payload.associate_id, "pid": item.product_id,
+                   "yr": payload.year, "mo": payload.month, "wk": wk,
+                   "qty": qty, "price": price, "val": value})
+    db.commit()
+    return {"status": "saved", "items": len(payload.items)}
+
+
+@router.get("/my-weekly")
+def get_my_weekly(
+    associate_id: int          = Query(...),
+    year:         int          = Query(...),
+    month:        int          = Query(...),
+    db:           Session      = Depends(get_db),
+):
+    """Load existing weekly sales for a rep+month."""
+    _ensure_weekly_table(db)
+
+    rows = db.execute(text("""
+        SELECT r.product_id, p.name AS product_name, p.price AS rate, p.gst, p.mrp,
+               r.week, r.qty, r.price, r.value
+        FROM   rep_weekly_sales r
+        JOIN   products p ON p.id = r.product_id
+        WHERE  r.associate_id = :aid AND r.year = :yr AND r.month = :mo
+        ORDER  BY p.name, r.week
+    """), {"aid": associate_id, "yr": year, "mo": month}).fetchall()
+
+    products_map = {}
+    for row in rows:
+        pid = row.product_id
+        if pid not in products_map:
+            products_map[pid] = {
+                "product_id":   pid,
+                "product_name": row.product_name,
+                "rate":  row.rate  or 0,
+                "gst":   row.gst   or "5%",
+                "mrp":   row.mrp   or 0,
+                "w1_qty": 0, "w1_price": 0,
+                "w2_qty": 0, "w2_price": 0,
+                "w3_qty": 0, "w3_price": 0,
+                "w4_qty": 0, "w4_price": 0,
+            }
+        wk = row.week
+        if 1 <= wk <= 4:
+            products_map[pid][f"w{wk}_qty"]   = row.qty   or 0
+            products_map[pid][f"w{wk}_price"] = row.price or 0
+
+    result = []
+    for p in products_map.values():
+        total = 0
+        for wk in range(1, 5):
+            total += (p[f"w{wk}_qty"] or 0) * (p[f"w{wk}_price"] or 0)
+        p["total"] = round(total, 2)
+        result.append(p)
+
+    return {"associate_id": associate_id, "year": year, "month": month,
+            "products": result, "grand_total": round(sum(p["total"] for p in result), 2)}
+
+
+@router.get("/weekly-history")
+def get_weekly_history(
+    associate_id: int     = Query(...),
+    db:           Session = Depends(get_db),
+):
+    """List months that have weekly sales data for this rep."""
+    _ensure_weekly_table(db)
+    rows = db.execute(text("""
+        SELECT year, month, SUM(value) AS total
+        FROM   rep_weekly_sales
+        WHERE  associate_id = :aid
+        GROUP  BY year, month
+        ORDER  BY year DESC, month DESC
+    """), {"aid": associate_id}).fetchall()
+    return [{"year": r.year, "month": r.month, "total": round(r.total or 0, 2)} for r in rows]
