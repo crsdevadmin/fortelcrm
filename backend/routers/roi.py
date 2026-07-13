@@ -130,9 +130,6 @@ def get_doctor_roi(doctor_id: int, year: int, month: int, db: Session = Depends(
     roi_multiple, grade = compute_roi_grade(actual, total_invested)
     ca_percent = compute_ca_percent(actual, expected_sales)
 
-    doctor.roi_grade = grade.value
-    db.commit()
-
     cm = _str_val(doctor.commercial_model)
     return {
         "doctor_id": doctor_id,
@@ -181,9 +178,6 @@ def get_doctor_roi_full(doctor_id: int, year: int, month: int, db: Session = Dep
     expected_sales = total_invested * em
     roi_multiple, grade = compute_roi_grade(actual, total_invested)
     ca_percent = compute_ca_percent(actual, expected_sales)
-
-    doctor.roi_grade = grade.value
-    db.commit()
 
     inv_rows = db.query(
         Investment.commercial_model_type,

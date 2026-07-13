@@ -109,11 +109,16 @@ function Breadcrumb({ crumbs, onGo }) {
 
 function ProductView({ doctor, repUser, year, month }) {
   const [data, setData] = useState(null);
+  const [error, setError] = useState('');
   useEffect(() => {
+    setData(null);
+    setError('');
     roiAPI.doctorFull(doctor.doctor_id || doctor.id, year, month)
-      .then(r => setData(r.data)).catch(() => {});
+      .then(r => setData(r.data))
+      .catch(() => setError('Unable to load doctor product details.'));
   }, [doctor, year, month]);
 
+  if (error) return <div style={{ padding: 32, textAlign: 'center', color: '#dc2626' }}>{error}</div>;
   if (!data) return <div style={{ padding: 60, textAlign: 'center', color: '#aaa' }}>Loading...</div>;
 
   const trendMax = Math.max(...(data.monthly_trend || []).map(t => t.sales), 1);
