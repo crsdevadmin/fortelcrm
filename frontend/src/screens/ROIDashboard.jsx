@@ -748,7 +748,7 @@ function RegionalSalesPanel({ year, month }) {
       axios.get(`${API}/products/`),
       axios.get(`${API}/doctors/`, { params: { viewer_id: me.id, include_inactive: false } }),
       salesAPI.regional(me.id, salesYear, salesMonth, activeSalesWeek, regionalStateFilter, regionalCityFilter),
-      salesAPI.regional(me.id, salesYear, salesMonth, activeSalesWeek, '', ''),
+      salesAPI.regional(me.id),
     ]).then(([productRes, doctorRes, regionalRes, consolidatedRes]) => {
       const productList = productRes.data || [];
       const doctorList = doctorRes.data || [];

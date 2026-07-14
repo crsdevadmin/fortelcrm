@@ -166,8 +166,8 @@ def submit_regional_sales(payload: RegionalSalesRequest, db: Session = Depends(g
 @router.get("/regional")
 def get_regional_sales(
     associate_id: int,
-    year: int,
-    month: int,
+    year: Optional[int] = None,
+    month: Optional[int] = None,
     week: Optional[int] = None,
     state_code: Optional[str] = None,
     city: Optional[str] = None,
@@ -175,10 +175,11 @@ def get_regional_sales(
 ):
     visible_ids = get_subtree_ids(associate_id, db)
 
-    q = db.query(RegionalSalesEntry).filter(
-        RegionalSalesEntry.year == year,
-        RegionalSalesEntry.month == month,
-    )
+    q = db.query(RegionalSalesEntry)
+    if year is not None:
+        q = q.filter(RegionalSalesEntry.year == year)
+    if month is not None:
+        q = q.filter(RegionalSalesEntry.month == month)
     if visible_ids is not None:
         q = q.filter(RegionalSalesEntry.associate_id.in_(visible_ids))
     if week is not None:
@@ -188,7 +189,7 @@ def get_regional_sales(
     if city:
         q = q.filter(RegionalSalesEntry.city.ilike(city.strip()))
 
-    rows = q.order_by(RegionalSalesEntry.week, RegionalSalesEntry.state_code, RegionalSalesEntry.city, RegionalSalesEntry.product_id).all()
+    rows = q.order_by(RegionalSalesEntry.year, RegionalSalesEntry.month, RegionalSalesEntry.week, RegionalSalesEntry.state_code, RegionalSalesEntry.city, RegionalSalesEntry.product_id).all()
     return [{
         "id": row.id,
         "associate_id": row.associate_id,

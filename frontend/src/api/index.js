@@ -33,8 +33,15 @@ export const salesAPI = {
     client.get('/sales/weekly-reminder-status', { params: { user_id: userId, today } }),
   approveEntry: (id, approverId) =>
     client.post(`/sales/${id}/approve`, null, { params: { approver_id: approverId } }),
-  regional: (associateId, year, month, week, stateCode, city) =>
-    client.get('/sales/regional', { params: { associate_id: associateId, year, month, week, state_code: stateCode, city } }),
+  regional: (associateId, year, month, week, stateCode, city) => {
+    const params = { associate_id: associateId };
+    if (year !== undefined && year !== null) params.year = year;
+    if (month !== undefined && month !== null) params.month = month;
+    if (week !== undefined && week !== null) params.week = week;
+    if (stateCode) params.state_code = stateCode;
+    if (city) params.city = city;
+    return client.get('/sales/regional', { params });
+  },
   submitRegional: (payload) => client.post('/sales/regional/submit', payload),
 };
 
