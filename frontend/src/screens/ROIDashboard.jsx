@@ -729,6 +729,7 @@ function RegionalSalesPanel({ year, month }) {
   const [city, setCity] = useState('');
   const [rows, setRows] = useState({});
   const [history, setHistory] = useState([]);
+  const [consolidated, setConsolidated] = useState({ qty: 0, value: 0 });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -744,9 +745,15 @@ function RegionalSalesPanel({ year, month }) {
       axios.get(`${API}/products/`),
       axios.get(`${API}/doctors/`, { params: { viewer_id: me.id, include_inactive: false } }),
       salesAPI.regional(me.id, salesYear, salesMonth, activeSalesWeek, stateCode, city),
-    ]).then(([productRes, doctorRes, regionalRes]) => {
+      salesAPI.regional(me.id, salesYear, salesMonth, activeSalesWeek, '', ''),
+    ]).then(([productRes, doctorRes, regionalRes, consolidatedRes]) => {
       const productList = productRes.data || [];
       const doctorList = doctorRes.data || [];
+      const consolidatedRows = consolidatedRes.data || [];
+      setConsolidated({
+        qty: consolidatedRows.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0),
+        value: consolidatedRows.reduce((sum, row) => sum + (Number(row.value) || 0), 0),
+      });
       const locationList = Object.values(doctorList.reduce((acc, doctor) => {
         const st = (doctor.state_code || me.state || '').trim();
         const ct = (groupedCityName(doctor) || me.city || '').trim();
@@ -972,6 +979,7 @@ function RegionalSalesPanel({ year, month }) {
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14 }}>
           {[
+            ['Consolidated Sales', fmtInr(consolidated.value), '#8B5CF6'],
             ['Products', products.length, '#3B82F6'],
             ['Total Qty', totalQty.toLocaleString('en-IN'), '#10B981'],
             ['Total Value', fmtInr(totalValue), '#F59E0B'],
