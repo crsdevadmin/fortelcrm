@@ -725,8 +725,8 @@ function RegionalSalesPanel({ year, month }) {
   const [week, setWeek] = useState(1);
   const [products, setProducts] = useState([]);
   const [locations, setLocations] = useState([]);
-  const [stateCode, setStateCode] = useState('');
-  const [city, setCity] = useState('');
+  const [stateCode, setStateCode] = useState('ALL');
+  const [city, setCity] = useState('ALL');
   const [rows, setRows] = useState({});
   const [history, setHistory] = useState([]);
   const [consolidated, setConsolidated] = useState({ qty: 0, value: 0 });
@@ -736,6 +736,9 @@ function RegionalSalesPanel({ year, month }) {
   const [error, setError] = useState('');
   const isCurrentSalesMonth = salesYear === CUR_YEAR && salesMonth === CUR_MONTH;
   const activeSalesWeek = isCurrentSalesMonth ? week : 0;
+  const regionalStateFilter = stateCode === 'ALL' ? '' : stateCode;
+  const regionalCityFilter = city === 'ALL' ? '' : city;
+  const isAggregateRegionalView = stateCode === 'ALL' || city === 'ALL';
 
   const loadRegional = useCallback(() => {
     if (!me?.id) return;
@@ -744,7 +747,7 @@ function RegionalSalesPanel({ year, month }) {
     Promise.all([
       axios.get(`${API}/products/`),
       axios.get(`${API}/doctors/`, { params: { viewer_id: me.id, include_inactive: false } }),
-      salesAPI.regional(me.id, salesYear, salesMonth, activeSalesWeek, stateCode, city),
+      salesAPI.regional(me.id, salesYear, salesMonth, activeSalesWeek, regionalStateFilter, regionalCityFilter),
       salesAPI.regional(me.id, salesYear, salesMonth, activeSalesWeek, '', ''),
     ]).then(([productRes, doctorRes, regionalRes, consolidatedRes]) => {
       const productList = productRes.data || [];
@@ -765,35 +768,29 @@ function RegionalSalesPanel({ year, month }) {
         return acc;
       }, {})).sort((a, b) => `${a.state_name} ${a.city}`.localeCompare(`${b.state_name} ${b.city}`));
       setLocations(locationList);
-      if ((!stateCode || !city) && locationList.length) {
-        setStateCode(locationList[0].state_code);
-        setCity(locationList[0].city);
-        setProducts(productList);
-        setRows(productList.reduce((acc, product) => {
-          acc[product.id] = { quantity: '', price: product.rate || '' };
-          return acc;
-        }, {}));
-        setHistory([]);
-        return;
-      }
       const savedRows = regionalRes.data || [];
       const byProduct = {};
       savedRows.forEach(row => {
-        byProduct[row.product_id] = { quantity: row.quantity || '', price: row.price || '' };
+        const current = byProduct[row.product_id] || { quantity: 0, value: 0 };
+        const quantity = Number(row.quantity) || 0;
+        const value = Number(row.value) || quantity * (Number(row.price) || 0);
+        byProduct[row.product_id] = { quantity: current.quantity + quantity, value: current.value + value };
       });
       setProducts(productList);
       setRows(productList.reduce((acc, product) => {
         const saved = byProduct[product.id];
+        const quantity = saved?.quantity || 0;
+        const price = quantity ? saved.value / quantity : product.rate || '';
         acc[product.id] = {
-          quantity: saved?.quantity || '',
-          price: saved?.price || product.rate || '',
+          quantity: quantity || '',
+          price,
         };
         return acc;
       }, {}));
       setHistory(savedRows);
     }).catch(() => setError('Unable to load regional sales.'))
       .finally(() => setLoading(false));
-  }, [me?.id, me?.state, me?.city, salesYear, salesMonth, activeSalesWeek, stateCode, city]);
+  }, [me?.id, me?.state, me?.city, salesYear, salesMonth, activeSalesWeek, regionalStateFilter, regionalCityFilter]);
 
   useEffect(() => { loadRegional(); }, [loadRegional]);
 
@@ -819,7 +816,7 @@ function RegionalSalesPanel({ year, month }) {
     return acc;
   }, {})).sort((a, b) => a.state_name.localeCompare(b.state_name));
   const cityCounts = locations
-    .filter(loc => !stateCode || toStateName(loc.state_code) === toStateName(stateCode))
+    .filter(loc => stateCode === 'ALL' || toStateName(loc.state_code) === toStateName(stateCode))
     .reduce((acc, loc) => {
       if (loc.city) acc[loc.city] = (acc[loc.city] || 0) + (loc.count || 1);
       return acc;
@@ -827,7 +824,6 @@ function RegionalSalesPanel({ year, month }) {
   const cityEntries = Object.entries(cityCounts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   const topCities = cityEntries.slice(0, 5);
   const extraCities = cityEntries.slice(5);
-  const selectedStateName = toStateName(stateCode);
   const goSalesMonth = delta => {
     let y = salesYear;
     let m = salesMonth + delta;
@@ -840,7 +836,7 @@ function RegionalSalesPanel({ year, month }) {
 
   const saveRegionalSales = async () => {
     if (!me?.id) return;
-    if (!stateCode || !city) {
+    if (stateCode === 'ALL' || city === 'ALL' || !stateCode || !city) {
       setError('Select state and city before saving regional sales.');
       return;
     }
@@ -887,8 +883,9 @@ function RegionalSalesPanel({ year, month }) {
             <div style={{ fontSize: 20, fontWeight: 900 }}>Regional Sales</div>
             <div style={{ fontSize: 11, opacity: 0.55, marginTop: 3 }}>Product-wise sales by region · week-wise quantity and price</div>
           </div>
-          <button onClick={saveRegionalSales} disabled={saving || loading}
-            style={{ padding: '9px 15px', borderRadius: 9, border: 'none', background: saving ? '#9ca3af' : '#0F6E56', color: '#fff', cursor: saving ? 'default' : 'pointer', fontWeight: 900, marginLeft: 'auto' }}>
+          <button onClick={saveRegionalSales} disabled={saving || loading || isAggregateRegionalView}
+            title={isAggregateRegionalView ? 'Select a specific state and city to save regional sales.' : 'Save regional sales'}
+            style={{ padding: '9px 15px', borderRadius: 9, border: 'none', background: (saving || isAggregateRegionalView) ? '#9ca3af' : '#0F6E56', color: '#fff', cursor: (saving || isAggregateRegionalView) ? 'default' : 'pointer', fontWeight: 900, marginLeft: 'auto' }}>
             {saving ? 'Saving...' : 'Save Regional Sales'}
           </button>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', width: '100%' }}>
@@ -912,15 +909,27 @@ function RegionalSalesPanel({ year, month }) {
             <span style={{ width: '100%' }} />
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', width: '100%', maxWidth: '100%' }}>
               <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', fontWeight: 900, letterSpacing: 1.5, textTransform: 'uppercase', marginRight: 2 }}>Region</span>
+              <button onClick={() => {
+                setStateCode('ALL');
+                setCity('ALL');
+              }}
+                style={{
+                  padding: '5px 14px', borderRadius: 20, fontSize: 11, fontWeight: 800, cursor: 'pointer',
+                  border: stateCode === 'ALL' ? '2px solid #F5B800' : '2px solid rgba(255,255,255,0.15)',
+                  background: stateCode === 'ALL' ? '#F5B800' : 'rgba(255,255,255,0.08)',
+                  color: stateCode === 'ALL' ? '#0B1E10' : 'rgba(255,255,255,0.75)',
+                  boxShadow: stateCode === 'ALL' ? '0 2px 12px rgba(245,184,0,0.35)' : 'none',
+                }}>
+                All
+              </button>
               {stateOptions.map(st => {
                 const active = toStateName(stateCode) === st.state_name;
                 const regionAccents = { 'Tamil Nadu': '#F97316', 'Kerala': '#10B981', 'Telangana': '#8B5CF6', 'Karnataka': '#EF4444', 'Maharashtra': '#3B82F6' };
                 const ac = regionAccents[st.state_name] || '#F5B800';
                 return (
                   <button key={st.state_name} onClick={() => {
-                    const firstCity = locations.find(loc => toStateName(loc.state_code) === st.state_name)?.city || '';
                     setStateCode(st.state_code);
-                    setCity(firstCity);
+                    setCity('ALL');
                   }}
                     style={{
                       padding: '5px 14px', borderRadius: 20, fontSize: 11, fontWeight: 800, cursor: 'pointer',
@@ -935,6 +944,16 @@ function RegionalSalesPanel({ year, month }) {
               })}
               <div style={{ display: 'flex', gap: 5, flexWrap: 'nowrap', alignItems: 'center', overflowX: 'auto', whiteSpace: 'nowrap', width: '100%', paddingBottom: 2 }}>
                 <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', fontWeight: 900, letterSpacing: 1.5, textTransform: 'uppercase', marginRight: 2, flex: '0 0 auto' }}>City</span>
+                <button onClick={() => setCity('ALL')}
+                  style={{
+                    padding: '4px 11px', borderRadius: 20, fontSize: 10, fontWeight: 800, cursor: 'pointer',
+                    border: city === 'ALL' ? '2px solid #F5B800' : '2px solid rgba(255,255,255,0.12)',
+                    background: city === 'ALL' ? '#F5B800' : 'rgba(255,255,255,0.07)',
+                    color: city === 'ALL' ? '#0B1E10' : 'rgba(255,255,255,0.7)',
+                    flex: '0 0 auto',
+                  }}>
+                  All
+                </button>
                 {topCities.map(([ct, count]) => {
                   const active = city === ct;
                   return (
@@ -1030,11 +1049,13 @@ function RegionalSalesPanel({ year, month }) {
               </div>
               <div style={{ padding: '10px 12px' }}>
                 <input type="number" min="0" value={row.quantity || ''} onChange={e => updateRow(product.id, 'quantity', e.target.value)}
-                  style={{ width: '100%', boxSizing: 'border-box', padding: '8px 9px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13 }} />
+                  disabled={isAggregateRegionalView}
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '8px 9px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: isAggregateRegionalView ? '#f9fafb' : '#fff' }} />
               </div>
               <div style={{ padding: '10px 12px' }}>
                 <input type="number" min="0" value={row.price || ''} onChange={e => updateRow(product.id, 'price', e.target.value)}
-                  style={{ width: '100%', boxSizing: 'border-box', padding: '8px 9px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13 }} />
+                  disabled={isAggregateRegionalView}
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '8px 9px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: isAggregateRegionalView ? '#f9fafb' : '#fff' }} />
               </div>
               <div style={{ padding: '10px 12px', fontSize: 13, fontWeight: 900, color: quantity && price ? '#0F6E56' : '#9ca3af' }}>{fmtInr(quantity * price)}</div>
             </div>
@@ -1044,7 +1065,7 @@ function RegionalSalesPanel({ year, month }) {
 
       {history.length > 0 && (
         <div style={{ marginTop: 14, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 14 }}>
-          <div style={{ fontSize: 13, fontWeight: 900, marginBottom: 10 }}>Saved rows for {city || 'City'}, {stateCode || 'State'} · {isCurrentSalesMonth ? `Week ${week}` : 'Full month'}</div>
+          <div style={{ fontSize: 13, fontWeight: 900, marginBottom: 10 }}>Saved rows for {city === 'ALL' ? 'All cities' : city || 'City'}, {stateCode === 'ALL' ? 'All regions' : stateCode || 'State'} · {isCurrentSalesMonth ? `Week ${week}` : 'Full month'}</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {history.filter(row => Number(row.quantity) > 0).slice(0, 16).map(row => (
               <div key={row.id} style={{ border: '1px solid #eef2f7', borderRadius: 8, padding: '8px 10px', background: '#f9fafb' }}>
