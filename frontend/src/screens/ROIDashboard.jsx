@@ -785,10 +785,10 @@ function RegionalSalesPanel({ year, month }) {
       const savedRows = regionalRes.data || [];
       const byProduct = {};
       savedRows.forEach(row => {
-        const current = byProduct[row.product_id] || { quantity: 0, value: 0 };
+        const current = byProduct[row.product_id] || { quantity: 0, value: 0, existing: false };
         const quantity = Number(row.quantity) || 0;
         const value = Number(row.value) || quantity * (Number(row.price) || 0);
-        byProduct[row.product_id] = { quantity: current.quantity + quantity, value: current.value + value };
+        byProduct[row.product_id] = { quantity: current.quantity + quantity, value: current.value + value, existing: true };
       });
       setProducts(productList);
       setRows(productList.reduce((acc, product) => {
@@ -798,6 +798,7 @@ function RegionalSalesPanel({ year, month }) {
         acc[product.id] = {
           quantity: quantity || '',
           price,
+          existing: Boolean(saved?.existing),
         };
         return acc;
       }, {}));
@@ -855,7 +856,7 @@ function RegionalSalesPanel({ year, month }) {
       return;
     }
     const payloadRows = entries
-      .filter(row => row.quantity > 0)
+      .filter(row => row.quantity > 0 || rows[row.product.id]?.existing)
       .map(row => ({ product_id: row.product.id, quantity: row.quantity, price: row.price }));
     if (!payloadRows.length) {
       setError('Enter quantity for at least one product.');

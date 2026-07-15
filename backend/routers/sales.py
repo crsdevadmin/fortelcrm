@@ -135,11 +135,14 @@ def submit_regional_sales(payload: RegionalSalesRequest, db: Session = Depends(g
             RegionalSalesEntry.week == payload.week,
         ).first()
         if existing:
-            existing.qty = qty
-            existing.price = price
-            existing.value = value
-            existing.remarks = payload.remarks
-            existing.submitted_at = datetime.utcnow()
+            if qty <= 0:
+                db.delete(existing)
+            else:
+                existing.qty = qty
+                existing.price = price
+                existing.value = value
+                existing.remarks = payload.remarks
+                existing.submitted_at = datetime.utcnow()
         elif qty > 0 or price > 0:
             db.add(RegionalSalesEntry(
                 associate_id=payload.associate_id,
