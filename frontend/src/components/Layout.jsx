@@ -254,6 +254,10 @@ export default function Layout({ children }) {
     return () => clearInterval(timer);
   }, [showSalesReminderForRole, user?.id, location.pathname]);
 
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
+
   return (
     <>
     <InstallBanner />
