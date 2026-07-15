@@ -33,6 +33,7 @@ export const salesAPI = {
     client.get('/sales/weekly-reminder-status', { params: { user_id: userId, today } }),
   approveEntry: (id, approverId) =>
     client.post(`/sales/${id}/approve`, null, { params: { approver_id: approverId } }),
+  deleteEntry: (id) => client.delete(`/sales/${id}`),
   regional: (associateId, year, month, week, stateCode, city) => {
     const params = { associate_id: associateId };
     if (year !== undefined && year !== null) params.year = year;

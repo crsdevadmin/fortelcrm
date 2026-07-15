@@ -13,6 +13,7 @@ const CUR_MONTH = NOW.getMonth() + 1;
 
 const MONTHS = ['', 'January','February','March','April','May','June',
                  'July','August','September','October','November','December'];
+const monthDate = (year, month, day = 1) => `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 
 const NORMALIZE_STATE = s => (s || '').replace(/\s+/g, '').toLowerCase();
 const STATE_NAMES = {
@@ -557,17 +558,62 @@ function AddInvestmentModal({ doctor, year, month, onClose, onSaved }) {
 function AddBusinessModal({ doctor, year, month, onClose, onSaved }) {
   const { user } = useAuth();
   const [products, setProducts] = useState([]);
-  const [entries, setEntries] = useState([{ product_id: '', week: 1, value: '', quantity: '' }]);
+  const [saleDate, setSaleDate] = useState(monthDate(year, month, 1));
+  const [entries, setEntries] = useState([{ product_id: '', value: '', quantity: '' }]);
+  const [savedSales, setSavedSales] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    axios.get(`${API}/sales/by-product`, { params: { year, month } }).catch(() => {});
-    axios.get(`${API}/products/`).then(r => setProducts(r.data)).catch(() => {});
-  }, [year, month]);
+  const loadSavedSales = useCallback(() => {
+    if (!user?.id || !doctor?.doctor_id) return;
+    axios.get(`${API}/sales/my-sales`, { params: { associate_id: user.id, year, month } })
+      .then(res => {
+        const rows = [];
+        (res.data || []).forEach(day => {
+          (day.doctors || [])
+            .filter(d => d.doctor_id === doctor.doctor_id)
+            .forEach(d => {
+              (d.products || []).forEach(product => rows.push({
+                ...product,
+                date: day.date,
+                doctor_name: d.doctor_name,
+              }));
+            });
+        });
+        setSavedSales(rows);
+      })
+      .catch(() => setSavedSales([]));
+  }, [user?.id, doctor?.doctor_id, year, month]);
 
-  const addRow = () => setEntries(e => [...e, { product_id: '', week: 1, value: '', quantity: '' }]);
+  useEffect(() => {
+    axios.get(`${API}/products/`).then(r => setProducts(r.data)).catch(() => {});
+    loadSavedSales();
+  }, [loadSavedSales]);
+
+  const addRow = () => setEntries(e => [...e, { product_id: '', value: '', quantity: '' }]);
   const updRow = (i, field, val) => setEntries(e => e.map((r, idx) => idx === i ? { ...r, [field]: val } : r));
+
+  const editSavedSale = row => {
+    setSaleDate(row.date || monthDate(year, month, 1));
+    setEntries([{ product_id: String(row.product_id), value: String(row.value || ''), quantity: String(row.quantity || '') }]);
+    setError('');
+  };
+
+  const deleteSavedSale = async row => {
+    if (!row?.entry_id) return;
+    if (!window.confirm(`Delete ${row.product_name} sale entry?`)) return;
+    setSaving(true);
+    setError('');
+    try {
+      await salesAPI.deleteEntry(row.entry_id);
+      await loadSavedSales();
+      onSaved();
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'Failed to delete sale entry');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -578,16 +624,16 @@ function AddBusinessModal({ doctor, year, month, onClose, onSaved }) {
       await salesAPI.submit({
         doctor_id: doctor.doctor_id,
         associate_id: user?.id || 1,
-        year, month,
+        sale_date: saleDate,
         entries: valid.map(r => ({
           product_id: parseInt(r.product_id),
-          week: parseInt(r.week),
           value: parseFloat(r.value),
           quantity: parseFloat(r.quantity || 0),
         })),
       });
+      await loadSavedSales();
       onSaved();
-      onClose();
+      setEntries([{ product_id: '', value: '', quantity: '' }]);
     } catch (err) {
       setError(err?.response?.data?.detail || 'Failed to save');
     } finally { setSaving(false); }
@@ -610,16 +656,18 @@ function AddBusinessModal({ doctor, year, month, onClose, onSaved }) {
           Doctor: <strong>{doctor?.doctor_name}</strong> · {MONTHS[month]} {year}
         </div>
         <form onSubmit={handleSubmit}>
+          <div style={{ marginBottom: 12 }}>
+            <label style={{ fontSize: 12, color: '#888', display: 'block', marginBottom: 4 }}>Sale Date</label>
+            <input type="date" value={saleDate} onChange={e => setSaleDate(e.target.value)}
+              min={monthDate(year, month, 1)} max={monthDate(year, month, new Date(year, month, 0).getDate())}
+              style={{ width: '100%', padding: '8px 10px', borderRadius: 8, border: '0.5px solid #ddd', fontSize: 13 }} />
+          </div>
           {entries.map((row, i) => (
-            <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 8, marginBottom: 8 }}>
               <select value={row.product_id} onChange={e => updRow(i, 'product_id', e.target.value)}
                 style={{ padding: '8px 10px', borderRadius: 8, border: '0.5px solid #ddd', fontSize: 13 }}>
                 <option value="">Product</option>
                 {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-              <select value={row.week} onChange={e => updRow(i, 'week', e.target.value)}
-                style={{ padding: '8px 10px', borderRadius: 8, border: '0.5px solid #ddd', fontSize: 13 }}>
-                {[1,2,3,4].map(w => <option key={w} value={w}>W{w}</option>)}
               </select>
               <input type="number" value={row.quantity} onChange={e => updRow(i, 'quantity', e.target.value)}
                 placeholder="Qty" style={{ padding: '8px 10px', borderRadius: 8, border: '0.5px solid #ddd', fontSize: 13 }} />
@@ -632,6 +680,29 @@ function AddBusinessModal({ doctor, year, month, onClose, onSaved }) {
             borderRadius: 8, border: '0.5px dashed #bbb', background: 'none',
             cursor: 'pointer', fontSize: 12, color: '#888',
           }}>+ Add another product</button>
+          <div style={{ border: '1px solid #eef2f7', borderRadius: 10, overflow: 'hidden', marginBottom: 14 }}>
+            <div style={{ padding: '9px 11px', background: '#f9fafb', fontSize: 12, fontWeight: 800, color: '#374151' }}>
+              Existing Sales Entries
+            </div>
+            {savedSales.length === 0 ? (
+              <div style={{ padding: 12, fontSize: 12, color: '#9ca3af' }}>No saved sales for this doctor in {MONTHS[month]}.</div>
+            ) : savedSales.map(row => (
+              <div key={row.entry_id} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 8, alignItems: 'center', padding: '9px 11px', borderTop: '1px solid #f3f4f6' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.product_name}</div>
+                  <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{row.date} · Qty {row.quantity} · {fmtInr(row.value)}</div>
+                </div>
+                <button type="button" onClick={() => editSavedSale(row)}
+                  style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
+                  Edit
+                </button>
+                <button type="button" onClick={() => deleteSavedSale(row)}
+                  style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
+                  Delete
+                </button>
+              </div>
+            ))}
+          </div>
           {error && <div style={{ color: '#D85A30', fontSize: 12, marginBottom: 10 }}>{error}</div>}
           <div style={{ display: 'flex', gap: 10 }}>
             <button type="button" onClick={onClose} style={{

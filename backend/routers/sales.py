@@ -105,6 +105,16 @@ def submit_sales(payload: SalesEntryRequest, db: Session = Depends(get_db)):
     return {"status": "submitted", "entries_saved": saved, "sale_date": payload.sale_date}
 
 
+@router.delete("/{entry_id}")
+def delete_sales_entry(entry_id: int, db: Session = Depends(get_db)):
+    entry = db.query(SalesEntry).filter(SalesEntry.id == entry_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Sales entry not found")
+    db.delete(entry)
+    db.commit()
+    return {"status": "deleted", "entry_id": entry_id}
+
+
 @router.post("/regional/submit")
 def submit_regional_sales(payload: RegionalSalesRequest, db: Session = Depends(get_db)):
     if payload.month < 1 or payload.month > 12:
