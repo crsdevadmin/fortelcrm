@@ -1,5 +1,5 @@
-const CACHE = 'fortel-crm-v1';
-const OFFLINE_URLS = ['/', '/visit-log', '/enter-sales'];
+const CACHE = 'fortel-crm-v2';
+const OFFLINE_URLS = ['/index.html'];
 
 self.addEventListener('install', e => {
   e.waitUntil(
@@ -21,7 +21,7 @@ self.addEventListener('fetch', e => {
   // Network first, fall back to cache for navigation requests
   if (e.request.mode === 'navigate') {
     e.respondWith(
-      fetch(e.request).catch(() => caches.match('/'))
+      fetch(e.request).catch(() => caches.match('/index.html'))
     );
   }
 });
