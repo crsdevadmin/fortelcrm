@@ -261,6 +261,18 @@ def spend_analysis(
             )
     invs = q.all()
 
+    allocation_q = db.query(Investment)
+    if viewer_id:
+        visible_ids = get_subtree_ids(viewer_id, db)
+        if visible_ids is not None:
+            allocation_q = allocation_q.join(Doctor, Doctor.id == Investment.doctor_id).filter(
+                or_(
+                    Investment.associate_id.in_(visible_ids),
+                    Doctor.manager_id.in_(visible_ids),
+                )
+            )
+    allocation_invs = allocation_q.all()
+
     by_cat = {}
     cat_counts = {}
     by_model = {}
@@ -271,6 +283,10 @@ def spend_analysis(
         by_cat[cat]   = by_cat.get(cat, 0) + i.amount
         cat_counts[cat] = cat_counts.get(cat, 0) + 1
         by_model[model] = by_model.get(model, 0) + i.amount
+
+    for i in allocation_invs:
+        cat = _str_cat(i.category) or "PD"
+        model = i.commercial_model_type or "N/A"
         if i.doctor_id not in by_doctor:
             by_doctor[i.doctor_id] = {
                 "doctor_id": i.doctor_id,
