@@ -947,6 +947,31 @@ function RegionalSalesPanel({ year, month }) {
     }
   };
 
+  const deleteRegionalProduct = async product => {
+    if (!me?.id || !product?.id || isAggregateRegionalView) return;
+    if (!window.confirm(`Delete ${product.name} regional sales entry?`)) return;
+    setSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      await salesAPI.submitRegional({
+        associate_id: me.id,
+        state_code: stateCode,
+        city,
+        year: salesYear,
+        month: salesMonth,
+        week: activeSalesWeek,
+        entries: [{ product_id: product.id, quantity: 0, price: 0 }],
+      });
+      setMessage(`${product.name} regional sales entry deleted.`);
+      loadRegional();
+    } catch (err) {
+      setError(err?.response?.data?.detail || 'Failed to delete regional sales entry.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div style={{ padding: '16px 24px 40px' }}>
       <div style={{
@@ -1141,8 +1166,8 @@ function RegionalSalesPanel({ year, month }) {
       )}
 
       <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 120px 120px 130px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', fontSize: 11, fontWeight: 900, color: '#4b5563', textTransform: 'uppercase' }}>
-          {['Product', 'Qty', 'Price', 'Total'].map(label => <div key={label} style={{ padding: '10px 12px' }}>{label}</div>)}
+        <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 120px 120px 130px 86px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', fontSize: 11, fontWeight: 900, color: '#4b5563', textTransform: 'uppercase' }}>
+          {['Product', 'Qty', 'Price', 'Total', 'Action'].map(label => <div key={label} style={{ padding: '10px 12px' }}>{label}</div>)}
         </div>
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: '#6b7280' }}>Loading products...</div>
@@ -1151,7 +1176,7 @@ function RegionalSalesPanel({ year, month }) {
           const quantity = Number(row.quantity) || 0;
           const price = Number(row.price) || 0;
           return (
-            <div key={product.id} style={{ display: 'grid', gridTemplateColumns: '1.5fr 120px 120px 130px', alignItems: 'center', borderBottom: '1px solid #f3f4f6' }}>
+            <div key={product.id} style={{ display: 'grid', gridTemplateColumns: '1.5fr 120px 120px 130px 86px', alignItems: 'center', borderBottom: '1px solid #f3f4f6' }}>
               <div style={{ padding: '10px 12px', minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 800, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{product.name}</div>
                 {(product.pack || product.composition) && <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>{[product.pack, product.composition].filter(Boolean).join(' | ')}</div>}
@@ -1167,6 +1192,16 @@ function RegionalSalesPanel({ year, month }) {
                   style={{ width: '100%', boxSizing: 'border-box', padding: '8px 9px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: isAggregateRegionalView ? '#f9fafb' : '#fff' }} />
               </div>
               <div style={{ padding: '10px 12px', fontSize: 13, fontWeight: 900, color: quantity && price ? '#0F6E56' : '#9ca3af' }}>{fmtInr(quantity * price)}</div>
+              <div style={{ padding: '10px 12px' }}>
+                {row.existing && !isAggregateRegionalView ? (
+                  <button type="button" onClick={() => deleteRegionalProduct(product)} disabled={saving}
+                    style={{ width: '100%', padding: '7px 8px', borderRadius: 8, border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', fontSize: 11, fontWeight: 900, cursor: saving ? 'default' : 'pointer' }}>
+                    Delete
+                  </button>
+                ) : (
+                  <span style={{ color: '#d1d5db', fontSize: 12 }}>-</span>
+                )}
+              </div>
             </div>
           );
         })}
