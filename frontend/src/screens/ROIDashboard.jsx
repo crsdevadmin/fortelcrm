@@ -740,7 +740,8 @@ function RegionalSalesPanel({ year, month }) {
   const regionalStateFilter = stateCode === 'ALL' ? '' : stateCode;
   const regionalCityFilter = city === 'ALL' ? '' : city;
   const isAggregateRegionalView = stateCode === 'ALL' || city === 'ALL';
-  const shouldDefaultToEntryLocation = !['admin', 'md'].includes(me?.role);
+  const canUseAggregateRegionalView = ['admin', 'md', 'director', 'senior_manager', 'manager'].includes(me?.role);
+  const shouldDefaultToEntryLocation = !canUseAggregateRegionalView;
 
   const loadRegional = useCallback(() => {
     if (!me?.id) return;
@@ -922,29 +923,32 @@ function RegionalSalesPanel({ year, month }) {
             <span style={{ width: '100%' }} />
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', width: '100%', maxWidth: '100%' }}>
               <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', fontWeight: 900, letterSpacing: 1.5, textTransform: 'uppercase', marginRight: 2 }}>Region</span>
-              <button onClick={() => {
-                setRegionalSelectionTouched(true);
-                setStateCode('ALL');
-                setCity('ALL');
-              }}
-                style={{
-                  padding: '5px 14px', borderRadius: 20, fontSize: 11, fontWeight: 800, cursor: 'pointer',
-                  border: stateCode === 'ALL' ? '2px solid #F5B800' : '2px solid rgba(255,255,255,0.15)',
-                  background: stateCode === 'ALL' ? '#F5B800' : 'rgba(255,255,255,0.08)',
-                  color: stateCode === 'ALL' ? '#0B1E10' : 'rgba(255,255,255,0.75)',
-                  boxShadow: stateCode === 'ALL' ? '0 2px 12px rgba(245,184,0,0.35)' : 'none',
-                }}>
-                All
-              </button>
+              {canUseAggregateRegionalView && (
+                <button onClick={() => {
+                  setRegionalSelectionTouched(true);
+                  setStateCode('ALL');
+                  setCity('ALL');
+                }}
+                  style={{
+                    padding: '5px 14px', borderRadius: 20, fontSize: 11, fontWeight: 800, cursor: 'pointer',
+                    border: stateCode === 'ALL' ? '2px solid #F5B800' : '2px solid rgba(255,255,255,0.15)',
+                    background: stateCode === 'ALL' ? '#F5B800' : 'rgba(255,255,255,0.08)',
+                    color: stateCode === 'ALL' ? '#0B1E10' : 'rgba(255,255,255,0.75)',
+                    boxShadow: stateCode === 'ALL' ? '0 2px 12px rgba(245,184,0,0.35)' : 'none',
+                  }}>
+                  All
+                </button>
+              )}
               {stateOptions.map(st => {
                 const active = toStateName(stateCode) === st.state_name;
                 const regionAccents = { 'Tamil Nadu': '#F97316', 'Kerala': '#10B981', 'Telangana': '#8B5CF6', 'Karnataka': '#EF4444', 'Maharashtra': '#3B82F6' };
                 const ac = regionAccents[st.state_name] || '#F5B800';
                 return (
                   <button key={st.state_name} onClick={() => {
+                    const firstCity = locations.find(loc => toStateName(loc.state_code) === st.state_name)?.city || '';
                     setRegionalSelectionTouched(true);
                     setStateCode(st.state_code);
-                    setCity('ALL');
+                    setCity(canUseAggregateRegionalView ? 'ALL' : firstCity);
                   }}
                     style={{
                       padding: '5px 14px', borderRadius: 20, fontSize: 11, fontWeight: 800, cursor: 'pointer',
@@ -959,19 +963,21 @@ function RegionalSalesPanel({ year, month }) {
               })}
               <div style={{ display: 'flex', gap: 5, flexWrap: 'nowrap', alignItems: 'center', overflowX: 'auto', whiteSpace: 'nowrap', width: '100%', paddingBottom: 2 }}>
                 <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', fontWeight: 900, letterSpacing: 1.5, textTransform: 'uppercase', marginRight: 2, flex: '0 0 auto' }}>City</span>
-                <button onClick={() => {
-                  setRegionalSelectionTouched(true);
-                  setCity('ALL');
-                }}
-                  style={{
-                    padding: '4px 11px', borderRadius: 20, fontSize: 10, fontWeight: 800, cursor: 'pointer',
-                    border: city === 'ALL' ? '2px solid #F5B800' : '2px solid rgba(255,255,255,0.12)',
-                    background: city === 'ALL' ? '#F5B800' : 'rgba(255,255,255,0.07)',
-                    color: city === 'ALL' ? '#0B1E10' : 'rgba(255,255,255,0.7)',
-                    flex: '0 0 auto',
-                  }}>
-                  All
-                </button>
+                {canUseAggregateRegionalView && (
+                  <button onClick={() => {
+                    setRegionalSelectionTouched(true);
+                    setCity('ALL');
+                  }}
+                    style={{
+                      padding: '4px 11px', borderRadius: 20, fontSize: 10, fontWeight: 800, cursor: 'pointer',
+                      border: city === 'ALL' ? '2px solid #F5B800' : '2px solid rgba(255,255,255,0.12)',
+                      background: city === 'ALL' ? '#F5B800' : 'rgba(255,255,255,0.07)',
+                      color: city === 'ALL' ? '#0B1E10' : 'rgba(255,255,255,0.7)',
+                      flex: '0 0 auto',
+                    }}>
+                    All
+                  </button>
+                )}
                 {topCities.map(([ct, count]) => {
                   const active = city === ct;
                   return (
