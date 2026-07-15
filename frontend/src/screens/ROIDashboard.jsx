@@ -727,6 +727,7 @@ function RegionalSalesPanel({ year, month }) {
   const [locations, setLocations] = useState([]);
   const [stateCode, setStateCode] = useState('ALL');
   const [city, setCity] = useState('ALL');
+  const [regionalSelectionTouched, setRegionalSelectionTouched] = useState(false);
   const [rows, setRows] = useState({});
   const [history, setHistory] = useState([]);
   const [consolidated, setConsolidated] = useState({ qty: 0, value: 0 });
@@ -739,6 +740,7 @@ function RegionalSalesPanel({ year, month }) {
   const regionalStateFilter = stateCode === 'ALL' ? '' : stateCode;
   const regionalCityFilter = city === 'ALL' ? '' : city;
   const isAggregateRegionalView = stateCode === 'ALL' || city === 'ALL';
+  const shouldDefaultToEntryLocation = !['admin', 'md'].includes(me?.role);
 
   const loadRegional = useCallback(() => {
     if (!me?.id) return;
@@ -768,6 +770,17 @@ function RegionalSalesPanel({ year, month }) {
         return acc;
       }, {})).sort((a, b) => `${a.state_name} ${a.city}`.localeCompare(`${b.state_name} ${b.city}`));
       setLocations(locationList);
+      if (shouldDefaultToEntryLocation && !regionalSelectionTouched && stateCode === 'ALL' && city === 'ALL' && locationList.length) {
+        setStateCode(locationList[0].state_code);
+        setCity(locationList[0].city);
+        setProducts(productList);
+        setRows(productList.reduce((acc, product) => {
+          acc[product.id] = { quantity: '', price: product.rate || '' };
+          return acc;
+        }, {}));
+        setHistory([]);
+        return;
+      }
       const savedRows = regionalRes.data || [];
       const byProduct = {};
       savedRows.forEach(row => {
@@ -790,7 +803,7 @@ function RegionalSalesPanel({ year, month }) {
       setHistory(savedRows);
     }).catch(() => setError('Unable to load regional sales.'))
       .finally(() => setLoading(false));
-  }, [me?.id, me?.state, me?.city, salesYear, salesMonth, activeSalesWeek, regionalStateFilter, regionalCityFilter]);
+  }, [me?.id, me?.state, me?.city, me?.role, salesYear, salesMonth, activeSalesWeek, regionalStateFilter, regionalCityFilter, shouldDefaultToEntryLocation, regionalSelectionTouched, stateCode, city]);
 
   useEffect(() => { loadRegional(); }, [loadRegional]);
 
@@ -910,6 +923,7 @@ function RegionalSalesPanel({ year, month }) {
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', width: '100%', maxWidth: '100%' }}>
               <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', fontWeight: 900, letterSpacing: 1.5, textTransform: 'uppercase', marginRight: 2 }}>Region</span>
               <button onClick={() => {
+                setRegionalSelectionTouched(true);
                 setStateCode('ALL');
                 setCity('ALL');
               }}
@@ -928,6 +942,7 @@ function RegionalSalesPanel({ year, month }) {
                 const ac = regionAccents[st.state_name] || '#F5B800';
                 return (
                   <button key={st.state_name} onClick={() => {
+                    setRegionalSelectionTouched(true);
                     setStateCode(st.state_code);
                     setCity('ALL');
                   }}
@@ -944,7 +959,10 @@ function RegionalSalesPanel({ year, month }) {
               })}
               <div style={{ display: 'flex', gap: 5, flexWrap: 'nowrap', alignItems: 'center', overflowX: 'auto', whiteSpace: 'nowrap', width: '100%', paddingBottom: 2 }}>
                 <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', fontWeight: 900, letterSpacing: 1.5, textTransform: 'uppercase', marginRight: 2, flex: '0 0 auto' }}>City</span>
-                <button onClick={() => setCity('ALL')}
+                <button onClick={() => {
+                  setRegionalSelectionTouched(true);
+                  setCity('ALL');
+                }}
                   style={{
                     padding: '4px 11px', borderRadius: 20, fontSize: 10, fontWeight: 800, cursor: 'pointer',
                     border: city === 'ALL' ? '2px solid #F5B800' : '2px solid rgba(255,255,255,0.12)',
@@ -957,7 +975,10 @@ function RegionalSalesPanel({ year, month }) {
                 {topCities.map(([ct, count]) => {
                   const active = city === ct;
                   return (
-                    <button key={ct} onClick={() => setCity(ct)}
+                    <button key={ct} onClick={() => {
+                      setRegionalSelectionTouched(true);
+                      setCity(ct);
+                    }}
                       style={{
                         padding: '4px 11px', borderRadius: 20, fontSize: 10, fontWeight: 800, cursor: 'pointer',
                         border: active ? '2px solid #3D8C40' : '2px solid rgba(255,255,255,0.12)',
@@ -970,7 +991,12 @@ function RegionalSalesPanel({ year, month }) {
                   );
                 })}
                 {extraCities.length > 0 && (
-                  <select value="" onChange={e => { if (e.target.value) setCity(e.target.value); }}
+                  <select value="" onChange={e => {
+                    if (e.target.value) {
+                      setRegionalSelectionTouched(true);
+                      setCity(e.target.value);
+                    }
+                  }}
                     style={{ padding: '4px 10px', borderRadius: 20, fontSize: 10, fontWeight: 800, cursor: 'pointer', background: 'rgba(255,255,255,0.1)', color: '#fff', border: '2px solid rgba(255,255,255,0.15)', flex: '0 0 auto' }}>
                     <option value="" style={{ color: '#000' }}>+{extraCities.length} more...</option>
                     {extraCities.map(([ct, count]) => <option key={ct} value={ct} style={{ color: '#000' }}>{ct} ({count})</option>)}
@@ -1028,6 +1054,11 @@ function RegionalSalesPanel({ year, month }) {
       {!loading && !locations.length && (
         <div style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', borderRadius: 10, padding: 12, marginBottom: 12 }}>
           No state/city found in the customer master for your visible doctors.
+        </div>
+      )}
+      {!loading && locations.length > 0 && isAggregateRegionalView && (
+        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e3a8a', borderRadius: 10, padding: 12, marginBottom: 12, fontSize: 13, fontWeight: 700 }}>
+          Consolidated view is read-only. Select a specific region and city to enter quantity and price.
         </div>
       )}
 
