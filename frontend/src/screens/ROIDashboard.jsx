@@ -136,6 +136,39 @@ function InvestmentBar({ doc, pct, value, color = '#f97316', labelColor = '#f973
   );
 }
 
+function SalesBar({ doc, pct, markerPct = 0 }) {
+  const [activeDot, setActiveDot] = useState(null);
+  const rows = Array.isArray(doc.sales_months) ? doc.sales_months : [];
+  const barPct = Math.max(0, Math.min(100, pct || 0));
+  return (
+    <div onMouseLeave={() => setActiveDot(null)} style={{ height: 10, background: '#f9fafb', borderRadius: 3, overflow: 'visible', position: 'relative', cursor: 'pointer' }}>
+      <div style={{ width: `${barPct}%`, height: '100%', background: '#0F6E56', borderRadius: 3 }} />
+      {markerPct > 0 && <div style={{ position: 'absolute', left: `${markerPct}%`, top: 0, bottom: 0, width: 1.5, background: '#f97316', opacity: 0.7 }} />}
+      {rows.map((r, idx) => {
+        const dotLeft = rows.length === 1
+          ? Math.max(12, Math.min(88, barPct / 2))
+          : Math.max(8, Math.min(96, ((idx + 1) / rows.length) * barPct));
+        return (
+          <span
+            key={`${r.year}-${r.month}-${idx}`}
+            title={`${r.label}: ${fmtInr(r.amount || 0)}`}
+            onMouseEnter={() => setActiveDot(idx)}
+            onClick={e => { e.stopPropagation(); setActiveDot(activeDot === idx ? null : idx); }}
+            style={{ position: 'absolute', left: `${dotLeft}%`, top: '50%', transform: 'translate(-50%, -50%)', width: 7, height: 7, borderRadius: '50%', background: '#fff', border: '1.5px solid #0F6E56', boxShadow: '0 0 0 1px rgba(255,255,255,0.75)', cursor: 'help' }}
+          >
+            {activeDot === idx && (
+              <span style={{ position: 'absolute', left: '50%', bottom: 16, transform: 'translateX(-50%)', zIndex: 50, minWidth: 112, padding: '7px 9px', borderRadius: 8, background: '#111827', color: '#fff', boxShadow: '0 10px 28px rgba(0,0,0,0.22)', pointerEvents: 'none', textAlign: 'center' }}>
+                <span style={{ display: 'block', fontSize: 10, color: '#d1d5db', marginBottom: 3 }}>{r.label}</span>
+                <span style={{ display: 'block', fontSize: 13, fontWeight: 900 }}>{fmtInr(r.amount || 0)}</span>
+              </span>
+            )}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 function CaBadge({ status, pct }) {
   const c = CA_COLORS[status] || CA_COLORS.red;
   return (
@@ -1509,9 +1542,8 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <span style={{ fontSize: 9, color: '#0F6E56', width: 44, textAlign: 'right', flexShrink: 0 }}>Sales</span>
-                  <div style={{ flex: 1, height: 10, background: '#f9fafb', borderRadius: 3, overflow: 'hidden', position: 'relative' }}>
-                    <div style={{ width: `${salesPct}%`, height: '100%', background: '#0F6E56', borderRadius: 3 }} />
-                    {invPct > 0 && <div style={{ position: 'absolute', left: `${invPct}%`, top: 0, bottom: 0, width: 1.5, background: '#f97316', opacity: 0.7 }} />}
+                  <div style={{ flex: 1 }}>
+                    <SalesBar doc={doc} pct={salesPct} markerPct={invPct} />
                   </div>
                   <span style={{ fontSize: 10, fontWeight: 600, color: '#0F6E56', width: 64, textAlign: 'right', flexShrink: 0 }}>{fmtInr(sales)}</span>
                 </div>
@@ -2107,9 +2139,8 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
                         {/* Sales bar */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <span style={{ fontSize: 9, color: '#0F6E56', width: 44, textAlign: 'right', flexShrink: 0 }}>Sales</span>
-                          <div style={{ flex: 1, height: 10, background: '#f9fafb', borderRadius: 3, overflow: 'hidden', position: 'relative' }}>
-                            <div style={{ width: `${salesPct}%`, height: '100%', background: '#0F6E56', borderRadius: 3 }} />
-                            {invPct > 0 && <div style={{ position: 'absolute', left: `${invPct}%`, top: 0, bottom: 0, width: 1.5, background: '#f97316', opacity: 0.7 }} />}
+                          <div style={{ flex: 1 }}>
+                            <SalesBar doc={doc} pct={salesPct} markerPct={invPct} />
                           </div>
                           <span style={{ fontSize: 10, fontWeight: 600, color: '#0F6E56', width: 64, textAlign: 'right', flexShrink: 0 }}>{fmtInr(doc.actual_sales)}</span>
                         </div>

@@ -363,6 +363,23 @@ def get_all_doctors_roi(
         sales_q = sales_q.filter(SalesEntry.year == eff_year, SalesEntry.month == eff_month)
     sales_map = {r.doctor_id: float(r.total or 0) for r in sales_q.group_by(SalesEntry.doctor_id).all()}
 
+    sales_month_rows = db.query(
+        SalesEntry.doctor_id,
+        SalesEntry.year,
+        SalesEntry.month,
+        func.sum(SalesEntry.value).label("total"),
+    ).filter(SalesEntry.doctor_id.in_(doctor_ids))\
+     .group_by(SalesEntry.doctor_id, SalesEntry.year, SalesEntry.month)\
+     .order_by(SalesEntry.year, SalesEntry.month).all()
+    sales_month_map = {}
+    for r in sales_month_rows:
+        sales_month_map.setdefault(r.doctor_id, []).append({
+            "year": r.year,
+            "month": r.month,
+            "label": f"{MONTHS[r.month]} {r.year}" if r.month and 1 <= r.month <= 12 else str(r.year),
+            "amount": round(float(r.total or 0), 2),
+        })
+
     inv_rows = db.query(
         Investment.doctor_id,
         func.sum(Investment.amount).label("total"),
@@ -437,6 +454,7 @@ def get_all_doctors_roi(
             "commercial_label": COMMERCIAL_LABELS.get(cm, ""),
             "expected_multiple": em,
             "actual_sales": round(actual, 2),
+            "sales_months": sales_month_map.get(doc.id, []),
             "total_invested": round(total_invested, 2),
             "investment_months": inv_month_map.get(doc.id, []),
             "expected_sales": round(expected, 2),
