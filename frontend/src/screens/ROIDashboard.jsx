@@ -88,15 +88,13 @@ function investmentTooltip(doc) {
 }
 
 function InvestmentBar({ doc, pct, value, color = '#f97316', labelColor = '#f97316' }) {
-  const [open, setOpen] = useState(false);
+  const [activeDot, setActiveDot] = useState(null);
   const rows = Array.isArray(doc.investment_months) ? doc.investment_months : [];
   const total = value ?? doc.total_invested ?? 0;
   const barPct = Math.max(0, Math.min(100, pct || 0));
   return (
     <div
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
-      onClick={e => { e.stopPropagation(); setOpen(v => !v); }}
+      onMouseLeave={() => setActiveDot(null)}
       style={{ height: 12, borderRadius: 3, background: '#f9fafb', overflow: 'visible', position: 'relative', cursor: 'pointer' }}
     >
       <div style={{ width: `${barPct}%`, height: '100%', background: color, borderRadius: 3 }} />
@@ -109,6 +107,8 @@ function InvestmentBar({ doc, pct, value, color = '#f97316', labelColor = '#f973
           <span
             key={`${r.year}-${r.month}-${idx}`}
             title={`${r.label}: ${fmtInr(r.amount || 0)}`}
+            onMouseEnter={() => setActiveDot(idx)}
+            onClick={e => { e.stopPropagation(); setActiveDot(activeDot === idx ? null : idx); }}
             style={{
               position: 'absolute',
               left: `${dotLeft}%`,
@@ -122,21 +122,16 @@ function InvestmentBar({ doc, pct, value, color = '#f97316', labelColor = '#f973
               boxShadow: '0 0 0 1px rgba(255,255,255,0.75)',
               cursor: 'help',
             }}
-          />
+          >
+            {activeDot === idx && (
+              <span style={{ position: 'absolute', left: '50%', bottom: 16, transform: 'translateX(-50%)', zIndex: 50, minWidth: 112, padding: '7px 9px', borderRadius: 8, background: '#111827', color: '#fff', boxShadow: '0 10px 28px rgba(0,0,0,0.22)', pointerEvents: 'none', textAlign: 'center' }}>
+                <span style={{ display: 'block', fontSize: 10, color: '#d1d5db', marginBottom: 3 }}>{r.label}</span>
+                <span style={{ display: 'block', fontSize: 13, fontWeight: 900 }}>{fmtInr(r.amount || 0)}</span>
+              </span>
+            )}
+          </span>
         );
       })}
-      {open && (
-        <div style={{ position: 'absolute', left: 6, bottom: 20, zIndex: 50, width: 190, padding: '8px 10px', borderRadius: 8, background: '#111827', color: '#fff', boxShadow: '0 10px 28px rgba(0,0,0,0.22)', pointerEvents: 'none' }}>
-          <div style={{ fontSize: 10, opacity: 0.72, marginBottom: 4 }}>Cumulative investment</div>
-          <div style={{ fontSize: 14, fontWeight: 900, marginBottom: rows.length ? 6 : 0 }}>{fmtInr(total)}</div>
-          {rows.map(r => (
-            <div key={`${r.year}-${r.month}`} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 11, lineHeight: 1.6 }}>
-              <span style={{ color: '#d1d5db' }}>{r.label}</span>
-              <span style={{ fontWeight: 800 }}>{fmtInr(r.amount || 0)}</span>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
