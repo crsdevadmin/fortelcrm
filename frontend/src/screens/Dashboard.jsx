@@ -87,6 +87,19 @@ function InvestmentBar({ doc, pct, color, labelColor, height = 12, radius = 3, l
     </div>
   );
 }
+function InvestmentMonthSplit({ doc }) {
+  const rows = Array.isArray(doc.investment_months) ? doc.investment_months : [];
+  if (!rows.length) return null;
+  return (
+    <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: '3px 6px' }}>
+      {rows.map(r => (
+        <span key={`${r.year}-${r.month}`} style={{ fontSize: 9, lineHeight: 1.2, color: '#92400e', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 5, padding: '2px 5px', fontWeight: 800 }}>
+          {r.label.split(' ')[0]} {fmtInr(r.amount || 0)}
+        </span>
+      ))}
+    </div>
+  );
+}
 function initials(n) { return (n || '').split(' ').filter(Boolean).map(w => w[0]).join('').slice(0,2).toUpperCase(); }
 
 function Avatar({ name, color = '#888', size = 36 }) {
@@ -885,6 +898,7 @@ export default function Dashboard() {
                               <div style={{ marginTop: 4 }}>
                                 <InvestmentBar doc={d} pct={pct} color={c} labelColor="#065F46" height={12} radius={6} labelLeft={8} />
                               </div>
+                              <InvestmentMonthSplit doc={d} />
                             </div>
                             <div style={{ textAlign: 'right', flexShrink: 0 }}>
                               <div style={{ fontSize: 13, fontWeight: 800, color: '#059669' }}>{fmtInr(d.total_invested)}</div>
@@ -1017,6 +1031,7 @@ export default function Dashboard() {
                             <span style={{ fontSize: 9, color: '#f97316', width: 40, textAlign: 'right', flexShrink: 0 }}>Inv</span>
                             <div style={{ flex: 1 }}>
                               <InvestmentBar doc={doc} pct={invPct} color="#f97316" labelColor="#f97316" />
+                              <InvestmentMonthSplit doc={doc} />
                             </div>
                             <span style={{ fontSize: 10, fontWeight: 600, color: '#f97316', width: 52, textAlign: 'right', flexShrink: 0 }}>{fmtInr(doc.total_invested)}</span>
                           </div>

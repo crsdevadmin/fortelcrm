@@ -117,6 +117,20 @@ function InvestmentBar({ doc, pct, value, color = '#f97316', labelColor = '#f973
   );
 }
 
+function InvestmentMonthSplit({ doc }) {
+  const rows = Array.isArray(doc.investment_months) ? doc.investment_months : [];
+  if (!rows.length) return null;
+  return (
+    <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: '3px 6px' }}>
+      {rows.map(r => (
+        <span key={`${r.year}-${r.month}`} style={{ fontSize: 9, lineHeight: 1.2, color: '#92400e', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 5, padding: '2px 5px', fontWeight: 800 }}>
+          {String(r.label || '').split(' ')[0]} {fmtInr(r.amount || 0)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function CaBadge({ status, pct }) {
   const c = CA_COLORS[status] || CA_COLORS.red;
   return (
@@ -1485,6 +1499,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
                   <span style={{ fontSize: 9, color: '#f97316', width: 44, textAlign: 'right', flexShrink: 0 }}>Inv</span>
                   <div style={{ flex: 1 }}>
                     <InvestmentBar doc={doc} pct={invPct} value={invested} />
+                    <InvestmentMonthSplit doc={doc} />
                   </div>
                   <span style={{ fontSize: 10, fontWeight: 600, color: '#f97316', width: 64, textAlign: 'right', flexShrink: 0 }}>{fmtInr(invested)}</span>
                 </div>
@@ -2082,6 +2097,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
                           <span style={{ fontSize: 9, color: '#f97316', width: 44, textAlign: 'right', flexShrink: 0 }}>Inv</span>
                           <div style={{ flex: 1 }}>
                             <InvestmentBar doc={doc} pct={invPct} />
+                            <InvestmentMonthSplit doc={doc} />
                           </div>
                           <span style={{ fontSize: 10, fontWeight: 600, color: '#f97316', width: 64, textAlign: 'right', flexShrink: 0 }}>{fmtInr(doc.total_invested)}</span>
                         </div>
