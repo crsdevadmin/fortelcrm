@@ -80,6 +80,13 @@ function fmtROIValue(sales, invested, roi) {
   return '0×';
 }
 
+function investmentTooltip(doc) {
+  const total = fmtInr(doc.total_invested || 0);
+  const rows = Array.isArray(doc.investment_months) ? doc.investment_months : [];
+  if (!rows.length) return `Cumulative investment: ${total}`;
+  return [`Cumulative investment: ${total}`, ...rows.map(r => `${r.label}: ${fmtInr(r.amount || 0)}`)].join('\n');
+}
+
 function CaBadge({ status, pct }) {
   const c = CA_COLORS[status] || CA_COLORS.red;
   return (
@@ -1446,8 +1453,9 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                   <span style={{ fontSize: 9, color: '#f97316', width: 44, textAlign: 'right', flexShrink: 0 }}>Inv</span>
-                  <div style={{ flex: 1, height: 10, background: '#f9fafb', borderRadius: 3, overflow: 'hidden' }}>
+                  <div title={investmentTooltip(doc)} style={{ flex: 1, height: 12, background: '#f9fafb', borderRadius: 3, overflow: 'hidden', position: 'relative' }}>
                     <div style={{ width: `${invPct}%`, height: '100%', background: '#f97316', borderRadius: 3 }} />
+                    <span style={{ position: 'absolute', left: 6, top: '50%', transform: 'translateY(-50%)', fontSize: 9, lineHeight: 1, fontWeight: 900, color: invPct > 32 ? '#fff' : '#f97316', textShadow: invPct > 32 ? '0 1px 2px rgba(0,0,0,0.25)' : 'none', pointerEvents: 'none' }}>{fmtInr(invested)}</span>
                   </div>
                   <span style={{ fontSize: 10, fontWeight: 600, color: '#f97316', width: 64, textAlign: 'right', flexShrink: 0 }}>{fmtInr(invested)}</span>
                 </div>
@@ -2043,8 +2051,9 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
                         {/* Investment bar */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                           <span style={{ fontSize: 9, color: '#f97316', width: 44, textAlign: 'right', flexShrink: 0 }}>Inv</span>
-                          <div style={{ flex: 1, height: 10, background: '#f9fafb', borderRadius: 3, overflow: 'hidden' }}>
+                          <div title={investmentTooltip(doc)} style={{ flex: 1, height: 12, background: '#f9fafb', borderRadius: 3, overflow: 'hidden', position: 'relative' }}>
                             <div style={{ width: `${invPct}%`, height: '100%', background: '#f97316', borderRadius: 3 }} />
+                            <span style={{ position: 'absolute', left: 6, top: '50%', transform: 'translateY(-50%)', fontSize: 9, lineHeight: 1, fontWeight: 900, color: invPct > 32 ? '#fff' : '#f97316', textShadow: invPct > 32 ? '0 1px 2px rgba(0,0,0,0.25)' : 'none', pointerEvents: 'none' }}>{fmtInr(doc.total_invested)}</span>
                           </div>
                           <span style={{ fontSize: 10, fontWeight: 600, color: '#f97316', width: 64, textAlign: 'right', flexShrink: 0 }}>{fmtInr(doc.total_invested)}</span>
                         </div>

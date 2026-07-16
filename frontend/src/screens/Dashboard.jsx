@@ -52,6 +52,12 @@ function fmtROIStatus(sales, invested, roi) {
   if ((invested || 0) <= 0 && (sales || 0) > 0) return 'No investment';
   return roi >= 5 ? 'On track' : roi >= 3 ? 'Average' : 'Below target';
 }
+function investmentTooltip(doc) {
+  const total = fmtInr(doc.total_invested || 0);
+  const rows = Array.isArray(doc.investment_months) ? doc.investment_months : [];
+  if (!rows.length) return `Cumulative investment: ${total}`;
+  return [`Cumulative investment: ${total}`, ...rows.map(r => `${r.label}: ${fmtInr(r.amount || 0)}`)].join('\n');
+}
 function initials(n) { return (n || '').split(' ').filter(Boolean).map(w => w[0]).join('').slice(0,2).toUpperCase(); }
 
 function Avatar({ name, color = '#888', size = 36 }) {
@@ -847,8 +853,9 @@ export default function Dashboard() {
                               fontSize: 10, fontWeight: 900, color: '#fff', flexShrink: 0 }}>{i + 1}</div>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: '#065F46' }}>{d.doctor_name}</div>
-                              <div style={{ height: 3, borderRadius: 2, background: '#BBF7D0', marginTop: 4 }}>
-                                <div style={{ height: '100%', width: `${pct}%`, borderRadius: 2, background: c }} />
+                              <div title={investmentTooltip(d)} style={{ height: 12, borderRadius: 6, background: '#BBF7D0', marginTop: 4, overflow: 'hidden', position: 'relative' }}>
+                                <div style={{ height: '100%', width: `${pct}%`, borderRadius: 6, background: c }} />
+                                <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 9, lineHeight: 1, fontWeight: 900, color: pct > 35 ? '#fff' : '#065F46', textShadow: pct > 35 ? '0 1px 2px rgba(0,0,0,0.25)' : 'none', pointerEvents: 'none' }}>{fmtInr(d.total_invested)}</span>
                               </div>
                             </div>
                             <div style={{ textAlign: 'right', flexShrink: 0 }}>
@@ -980,8 +987,9 @@ export default function Dashboard() {
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
                             <span style={{ fontSize: 9, color: '#f97316', width: 40, textAlign: 'right', flexShrink: 0 }}>Inv</span>
-                            <div style={{ flex: 1, height: 8, background: '#f9fafb', borderRadius: 2, overflow: 'hidden' }}>
+                            <div title={investmentTooltip(doc)} style={{ flex: 1, height: 12, background: '#f9fafb', borderRadius: 3, overflow: 'hidden', position: 'relative' }}>
                               <div style={{ width: `${invPct}%`, height: '100%', background: '#f97316', borderRadius: 2 }} />
+                              <span style={{ position: 'absolute', left: 6, top: '50%', transform: 'translateY(-50%)', fontSize: 9, lineHeight: 1, fontWeight: 900, color: invPct > 32 ? '#fff' : '#f97316', textShadow: invPct > 32 ? '0 1px 2px rgba(0,0,0,0.25)' : 'none', pointerEvents: 'none' }}>{fmtInr(doc.total_invested)}</span>
                             </div>
                             <span style={{ fontSize: 10, fontWeight: 600, color: '#f97316', width: 52, textAlign: 'right', flexShrink: 0 }}>{fmtInr(doc.total_invested)}</span>
                           </div>

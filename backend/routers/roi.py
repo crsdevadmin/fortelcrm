@@ -369,6 +369,23 @@ def get_all_doctors_roi(
     ).filter(Investment.doctor_id.in_(doctor_ids)).group_by(Investment.doctor_id).all()
     inv_map = {r.doctor_id: float(r.total or 0) for r in inv_rows}
 
+    inv_month_rows = db.query(
+        Investment.doctor_id,
+        Investment.year,
+        Investment.month,
+        func.sum(Investment.amount).label("total"),
+    ).filter(Investment.doctor_id.in_(doctor_ids))\
+     .group_by(Investment.doctor_id, Investment.year, Investment.month)\
+     .order_by(Investment.year, Investment.month).all()
+    inv_month_map = {}
+    for r in inv_month_rows:
+        inv_month_map.setdefault(r.doctor_id, []).append({
+            "year": r.year,
+            "month": r.month,
+            "label": f"{MONTHS[r.month]} {r.year}" if r.month and 1 <= r.month <= 12 else str(r.year),
+            "amount": round(float(r.total or 0), 2),
+        })
+
     inv_model_q = db.query(
         Investment.doctor_id,
         Investment.commercial_model_type,
@@ -421,6 +438,7 @@ def get_all_doctors_roi(
             "expected_multiple": em,
             "actual_sales": round(actual, 2),
             "total_invested": round(total_invested, 2),
+            "investment_months": inv_month_map.get(doc.id, []),
             "expected_sales": round(expected, 2),
             "roi_multiple": roi_multiple,
             "roi_grade": roi_grade.value,
