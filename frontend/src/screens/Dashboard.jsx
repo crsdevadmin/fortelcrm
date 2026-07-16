@@ -58,6 +58,35 @@ function investmentTooltip(doc) {
   if (!rows.length) return `Cumulative investment: ${total}`;
   return [`Cumulative investment: ${total}`, ...rows.map(r => `${r.label}: ${fmtInr(r.amount || 0)}`)].join('\n');
 }
+function InvestmentBar({ doc, pct, color, labelColor, height = 12, radius = 3, labelLeft = 6 }) {
+  const [open, setOpen] = useState(false);
+  const rows = Array.isArray(doc.investment_months) ? doc.investment_months : [];
+  const total = doc.total_invested || 0;
+  const barPct = Math.max(0, Math.min(100, pct || 0));
+  return (
+    <div
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+      onClick={e => { e.stopPropagation(); setOpen(v => !v); }}
+      style={{ height, borderRadius: radius, background: '#f9fafb', overflow: 'visible', position: 'relative', cursor: 'pointer' }}
+    >
+      <div style={{ width: `${barPct}%`, height: '100%', background: color, borderRadius: radius }} />
+      <span style={{ position: 'absolute', left: labelLeft, top: '50%', transform: 'translateY(-50%)', fontSize: 9, lineHeight: 1, fontWeight: 900, color: barPct > 32 ? '#fff' : labelColor, textShadow: barPct > 32 ? '0 1px 2px rgba(0,0,0,0.25)' : 'none', pointerEvents: 'none' }}>{fmtInr(total)}</span>
+      {open && (
+        <div style={{ position: 'absolute', left: labelLeft, bottom: height + 8, zIndex: 50, width: 190, padding: '8px 10px', borderRadius: 8, background: '#111827', color: '#fff', boxShadow: '0 10px 28px rgba(0,0,0,0.22)', pointerEvents: 'none' }}>
+          <div style={{ fontSize: 10, opacity: 0.72, marginBottom: 4 }}>Cumulative investment</div>
+          <div style={{ fontSize: 14, fontWeight: 900, marginBottom: rows.length ? 6 : 0 }}>{fmtInr(total)}</div>
+          {rows.map(r => (
+            <div key={`${r.year}-${r.month}`} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 11, lineHeight: 1.6 }}>
+              <span style={{ color: '#d1d5db' }}>{r.label}</span>
+              <span style={{ fontWeight: 800 }}>{fmtInr(r.amount || 0)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 function initials(n) { return (n || '').split(' ').filter(Boolean).map(w => w[0]).join('').slice(0,2).toUpperCase(); }
 
 function Avatar({ name, color = '#888', size = 36 }) {
@@ -853,9 +882,8 @@ export default function Dashboard() {
                               fontSize: 10, fontWeight: 900, color: '#fff', flexShrink: 0 }}>{i + 1}</div>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: '#065F46' }}>{d.doctor_name}</div>
-                              <div title={investmentTooltip(d)} style={{ height: 12, borderRadius: 6, background: '#BBF7D0', marginTop: 4, overflow: 'hidden', position: 'relative' }}>
-                                <div style={{ height: '100%', width: `${pct}%`, borderRadius: 6, background: c }} />
-                                <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 9, lineHeight: 1, fontWeight: 900, color: pct > 35 ? '#fff' : '#065F46', textShadow: pct > 35 ? '0 1px 2px rgba(0,0,0,0.25)' : 'none', pointerEvents: 'none' }}>{fmtInr(d.total_invested)}</span>
+                              <div style={{ marginTop: 4 }}>
+                                <InvestmentBar doc={d} pct={pct} color={c} labelColor="#065F46" height={12} radius={6} labelLeft={8} />
                               </div>
                             </div>
                             <div style={{ textAlign: 'right', flexShrink: 0 }}>
@@ -987,9 +1015,8 @@ export default function Dashboard() {
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
                             <span style={{ fontSize: 9, color: '#f97316', width: 40, textAlign: 'right', flexShrink: 0 }}>Inv</span>
-                            <div title={investmentTooltip(doc)} style={{ flex: 1, height: 12, background: '#f9fafb', borderRadius: 3, overflow: 'hidden', position: 'relative' }}>
-                              <div style={{ width: `${invPct}%`, height: '100%', background: '#f97316', borderRadius: 2 }} />
-                              <span style={{ position: 'absolute', left: 6, top: '50%', transform: 'translateY(-50%)', fontSize: 9, lineHeight: 1, fontWeight: 900, color: invPct > 32 ? '#fff' : '#f97316', textShadow: invPct > 32 ? '0 1px 2px rgba(0,0,0,0.25)' : 'none', pointerEvents: 'none' }}>{fmtInr(doc.total_invested)}</span>
+                            <div style={{ flex: 1 }}>
+                              <InvestmentBar doc={doc} pct={invPct} color="#f97316" labelColor="#f97316" />
                             </div>
                             <span style={{ fontSize: 10, fontWeight: 600, color: '#f97316', width: 52, textAlign: 'right', flexShrink: 0 }}>{fmtInr(doc.total_invested)}</span>
                           </div>
