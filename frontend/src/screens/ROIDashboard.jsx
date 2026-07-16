@@ -101,6 +101,30 @@ function InvestmentBar({ doc, pct, value, color = '#f97316', labelColor = '#f973
     >
       <div style={{ width: `${barPct}%`, height: '100%', background: color, borderRadius: 3 }} />
       <span style={{ position: 'absolute', left: 6, top: '50%', transform: 'translateY(-50%)', fontSize: 9, lineHeight: 1, fontWeight: 900, color: barPct > 32 ? '#fff' : labelColor, textShadow: barPct > 32 ? '0 1px 2px rgba(0,0,0,0.25)' : 'none', pointerEvents: 'none' }}>{fmtInr(total)}</span>
+      {rows.map((r, idx) => {
+        const dotLeft = rows.length === 1
+          ? Math.max(12, Math.min(88, barPct / 2))
+          : Math.max(8, Math.min(96, ((idx + 1) / rows.length) * barPct));
+        return (
+          <span
+            key={`${r.year}-${r.month}-${idx}`}
+            title={`${r.label}: ${fmtInr(r.amount || 0)}`}
+            style={{
+              position: 'absolute',
+              left: `${dotLeft}%`,
+              top: '50%',
+              transform: 'translate(-50%, -50%)',
+              width: 7,
+              height: 7,
+              borderRadius: '50%',
+              background: '#fff',
+              border: '1.5px solid #f97316',
+              boxShadow: '0 0 0 1px rgba(255,255,255,0.75)',
+              cursor: 'help',
+            }}
+          />
+        );
+      })}
       {open && (
         <div style={{ position: 'absolute', left: 6, bottom: 20, zIndex: 50, width: 190, padding: '8px 10px', borderRadius: 8, background: '#111827', color: '#fff', boxShadow: '0 10px 28px rgba(0,0,0,0.22)', pointerEvents: 'none' }}>
           <div style={{ fontSize: 10, opacity: 0.72, marginBottom: 4 }}>Cumulative investment</div>
@@ -113,40 +137,6 @@ function InvestmentBar({ doc, pct, value, color = '#f97316', labelColor = '#f973
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-function InvestmentMonthDots({ doc }) {
-  const rows = Array.isArray(doc.investment_months) ? doc.investment_months : [];
-  if (!rows.length) return null;
-  const total = rows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0) || 1;
-  let running = 0;
-  return (
-    <div style={{ position: 'relative', height: 10, marginTop: 3 }}>
-      {rows.map((r, idx) => {
-        running += Number(r.amount) || 0;
-        const left = rows.length === 1 ? 50 : Math.max(4, Math.min(96, (running / total) * 100));
-        return (
-          <span
-            key={`${r.year}-${r.month}-${idx}`}
-            title={`${r.label}: ${fmtInr(r.amount || 0)}`}
-            style={{
-              position: 'absolute',
-              left: `${left}%`,
-              top: 1,
-              transform: 'translateX(-50%)',
-              width: 7,
-              height: 7,
-              borderRadius: '50%',
-              background: '#f97316',
-              border: '1.5px solid #fff',
-              boxShadow: '0 0 0 1px #fed7aa',
-              cursor: 'help',
-            }}
-          />
-        );
-      })}
     </div>
   );
 }
@@ -1519,7 +1509,6 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
                   <span style={{ fontSize: 9, color: '#f97316', width: 44, textAlign: 'right', flexShrink: 0 }}>Inv</span>
                   <div style={{ flex: 1 }}>
                     <InvestmentBar doc={doc} pct={invPct} value={invested} />
-                    <InvestmentMonthDots doc={doc} />
                   </div>
                   <span style={{ fontSize: 10, fontWeight: 600, color: '#f97316', width: 64, textAlign: 'right', flexShrink: 0 }}>{fmtInr(invested)}</span>
                 </div>
@@ -2117,7 +2106,6 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
                           <span style={{ fontSize: 9, color: '#f97316', width: 44, textAlign: 'right', flexShrink: 0 }}>Inv</span>
                           <div style={{ flex: 1 }}>
                             <InvestmentBar doc={doc} pct={invPct} />
-                            <InvestmentMonthDots doc={doc} />
                           </div>
                           <span style={{ fontSize: 10, fontWeight: 600, color: '#f97316', width: 64, textAlign: 'right', flexShrink: 0 }}>{fmtInr(doc.total_invested)}</span>
                         </div>
