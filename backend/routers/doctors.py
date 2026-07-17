@@ -208,9 +208,10 @@ def delete_doctor(doctor_id: int, db: Session = Depends(get_db)):
     doctor = db.query(Doctor).filter(Doctor.id == doctor_id).first()
     if not doctor:
         raise HTTPException(status_code=404, detail="Doctor not found")
-    db.delete(doctor)
+    doctor.is_active = False
+    doctor.status = "Inactive"
     db.commit()
-    return {"status": "deleted"}
+    return {"status": "deactivated", "id": doctor.id, "is_active": doctor.is_active}
 
 
 # ── Assign Doctor → Manager + Rep ────────────
