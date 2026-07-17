@@ -36,6 +36,7 @@ class SalesEntryRequest(BaseModel):
 
 
 class RegionalSalesItem(BaseModel):
+    id: Optional[int] = None
     product_id: int
     quantity: float = 0
     price: float = 0
@@ -135,15 +136,22 @@ def submit_regional_sales(payload: RegionalSalesRequest, db: Session = Depends(g
         price = float(item.price or 0)
         value = round(qty * price, 2) if qty > 0 and price > 0 else 0.0
 
-        existing = db.query(RegionalSalesEntry).filter(
-            RegionalSalesEntry.associate_id == payload.associate_id,
-            RegionalSalesEntry.state_code == state_code,
-            RegionalSalesEntry.city == city,
-            RegionalSalesEntry.product_id == item.product_id,
-            RegionalSalesEntry.year == payload.year,
-            RegionalSalesEntry.month == payload.month,
-            RegionalSalesEntry.week == payload.week,
-        ).first()
+        existing = None
+        if item.id:
+            existing = db.query(RegionalSalesEntry).filter(
+                RegionalSalesEntry.id == item.id,
+                RegionalSalesEntry.product_id == item.product_id,
+            ).first()
+        if not existing:
+            existing = db.query(RegionalSalesEntry).filter(
+                RegionalSalesEntry.associate_id == payload.associate_id,
+                RegionalSalesEntry.state_code == state_code,
+                RegionalSalesEntry.city == city,
+                RegionalSalesEntry.product_id == item.product_id,
+                RegionalSalesEntry.year == payload.year,
+                RegionalSalesEntry.month == payload.month,
+                RegionalSalesEntry.week == payload.week,
+            ).first()
         if existing:
             if qty <= 0:
                 db.delete(existing)
