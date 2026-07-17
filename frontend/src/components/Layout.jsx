@@ -151,7 +151,7 @@ function isoToday() {
 
 function shouldCheckSalesReminder(now = new Date()) {
   const day = now.getDay();
-  if (day === 1) return now.getHours() >= 12;
+  if (day === 1) return now.getHours() >= 10;
   return day === 0 || day >= 2;
 }
 

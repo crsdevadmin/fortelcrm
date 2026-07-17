@@ -105,7 +105,7 @@ export default function SalesScreen() {
       const d = new Date();
       const minutes = d.getHours() * 60 + d.getMinutes();
       const monday = d.getDay() === 1;
-      const reminderSlot = monday && minutes >= 720 && (minutes - 720) % 30 === 0;
+      const reminderSlot = monday && minutes >= 600 && (minutes - 600) % 30 === 0;
       const key = `sales-reminder-${d.toISOString().slice(0,10)}-${d.getHours()}-${d.getMinutes()}`;
       if (reminderSlot && localStorage.getItem(key) !== 'sent') {
         localStorage.setItem(key, 'sent');
