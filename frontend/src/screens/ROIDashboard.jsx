@@ -199,6 +199,26 @@ function ModelBadge({ model }) {
   );
 }
 
+function CommitmentStatusBadge({ status }) {
+  const map = {
+    Achieved: { bg: '#E1F5EE', text: '#085041', border: '#1D9E75' },
+    'On Track': { bg: '#E6F1FB', text: '#042C53', border: '#60a5fa' },
+    'At Risk': { bg: '#FAEEDA', text: '#412402', border: '#BA7517' },
+    Breached: { bg: '#FAECE7', text: '#4A1B0C', border: '#D85A30' },
+  };
+  const c = map[status] || map['At Risk'];
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      minWidth: 76, fontSize: 10, fontWeight: 800, padding: '3px 8px',
+      borderRadius: 5, background: c.bg, color: c.text, border: `1px solid ${c.border}`,
+      whiteSpace: 'nowrap',
+    }}>
+      {status}
+    </span>
+  );
+}
+
 function StatCard({ label, value, sub, color, icon }) {
   return (
     <div style={{
@@ -1416,6 +1436,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
   // Analytics panels
   const [spendData,    setSpendData]    = useState(null);
   const [riskData,     setRiskData]     = useState(null);
+  const [commitmentData, setCommitmentData] = useState(null);
   const [analyticsTab, setAnalyticsTab] = useState('allocation'); // 'allocation' | 'spend' | 'risk'
 
   const load = useCallback(() => {
@@ -1449,11 +1470,16 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
   // Load analytics panels
   useEffect(() => {
     if (!me?.id) return;
+    const params = { viewer_id: me.id };
+    if (search) params.search = search;
+    if (modelFilter !== 'All') params.commercial_model = modelFilter;
     roiAPI.spendAnalysis(year, month, { viewer_id: me.id })
       .then(r => setSpendData(normalizeSpendData(r.data))).catch(() => {});
     roiAPI.concentrationRisk(year, month, { viewer_id: me.id })
       .then(r => setRiskData(normalizeRiskData(r.data))).catch(() => {});
-  }, [year, month, refreshKey, me?.id]);
+    roiAPI.commitmentRecovery(params)
+      .then(r => setCommitmentData(r.data)).catch(() => setCommitmentData(null));
+  }, [year, month, search, modelFilter, refreshKey, me?.id]);
 
   const filteredFormDocs = myDoctors.filter(d =>
     !docSearch || d.name.toLowerCase().includes(docSearch.toLowerCase()) ||
@@ -2302,9 +2328,10 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
         {/* Analytics tab bar */}
         <div style={{ display: 'flex', gap: 4, borderBottom: '2px solid #f3f4f6', marginBottom: 20 }}>
           {[
-            { key: 'allocation', label: '📊 Resource Allocation' },
-            { key: 'spend',      label: '💸 Spend Analysis' },
-            { key: 'risk',       label: '⚠ Concentration Risk' },
+            { key: 'allocation', label: 'Resource Allocation' },
+            { key: 'commitment', label: '5x Commitment Recovery' },
+            { key: 'spend',      label: 'Spend Analysis' },
+            { key: 'risk',       label: 'Concentration Risk' },
           ].map(tab => (
             <button key={tab.key} onClick={() => setAnalyticsTab(tab.key)}
               style={{
@@ -2404,6 +2431,141 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
                   );
                 })()}
               </table>
+            </div>
+          </div>
+        )}
+
+        {analyticsTab === 'commitment' && (
+          <div style={{ display: 'grid', gap: 16 }}>
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+              gap: 10,
+            }}>
+              {[
+                ['Open', commitmentData?.summary?.open_commitments || 0, 'Inside 3-month window', '#042C53'],
+                ['Achieved', commitmentData?.summary?.achieved || 0, 'Reached 5x', '#085041'],
+                ['At Risk', commitmentData?.summary?.at_risk || 0, 'Behind time progress', '#BA7517'],
+                ['Breached', commitmentData?.summary?.breached || 0, 'Past deadline below 5x', '#D85A30'],
+                ['Shortfall', fmtInr(commitmentData?.summary?.shortfall || 0), 'Sales still required', '#4A1B0C'],
+              ].map(([label, value, sub, color]) => (
+                <div key={label} style={{
+                  background: '#fff', border: '0.5px solid #e5e7eb', borderRadius: 8,
+                  padding: '13px 14px', minWidth: 0,
+                }}>
+                  <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 800, textTransform: 'uppercase' }}>{label}</div>
+                  <div style={{ fontSize: 22, fontWeight: 900, color, marginTop: 4 }}>{value}</div>
+                  <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>{sub}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ background: '#fff', borderRadius: 12, border: '0.5px solid #e5e7eb', overflow: 'hidden' }}>
+              <div style={{ padding: '14px 20px', borderBottom: '1px solid #f3f4f6', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 800 }}>3-Month 5x Commitment Recovery</div>
+                  <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
+                    Each investment is tracked separately from investment date to 3-month deadline.
+                  </div>
+                </div>
+                <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 700, whiteSpace: 'nowrap' }}>
+                  As of {commitmentData?.as_of || 'today'}
+                </div>
+              </div>
+
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', minWidth: 980, borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: '#f9fafb' }}>
+                      {['Doctor', 'Model', 'Invested', '5x Target', 'Sales Captured', 'Progress', 'Deadline', 'Status', 'Shortfall'].map(h => (
+                        <th key={h} style={{
+                          padding: '10px 12px', textAlign: h === 'Doctor' || h === 'Progress' ? 'left' : 'right',
+                          fontSize: 11, color: '#6b7280', textTransform: 'uppercase', borderBottom: '1px solid #f3f4f6',
+                          whiteSpace: 'nowrap',
+                        }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(commitmentData?.commitments || []).length > 0 ? commitmentData.commitments.map((row, i) => {
+                      const pct = Math.max(0, Math.min(100, Number(row.achievement_pct) || 0));
+                      const statusColor = row.status === 'Achieved' ? '#1D9E75' : row.status === 'Breached' ? '#D85A30' : row.status === 'At Risk' ? '#BA7517' : '#60a5fa';
+                      return (
+                        <tr key={row.investment_id} style={{ background: i % 2 === 0 ? '#fff' : '#fafafa', borderBottom: '0.5px solid #f3f4f6' }}>
+                          <td style={{ padding: '11px 12px', textAlign: 'left' }}>
+                            <div style={{ fontWeight: 800 }}>{row.doctor_name}</div>
+                            <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
+                              {[row.city, row.manager_name].filter(Boolean).join(' · ')}
+                            </div>
+                            <div style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>Investment: {row.investment_date}</div>
+                          </td>
+                          <td style={{ padding: '11px 12px', textAlign: 'right' }}><ModelBadge model={row.commercial_model} /></td>
+                          <td style={{ padding: '11px 12px', textAlign: 'right', fontWeight: 800 }}>{fmtInr(row.investment_amount)}</td>
+                          <td style={{ padding: '11px 12px', textAlign: 'right', fontWeight: 800 }}>{fmtInr(row.expected_sales)}</td>
+                          <td style={{ padding: '11px 12px', textAlign: 'right', fontWeight: 800, color: '#0F6E56' }}>{fmtInr(row.sales_captured)}</td>
+                          <td style={{ padding: '11px 12px', textAlign: 'left', minWidth: 180 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 800, marginBottom: 4 }}>
+                              <span>{row.achievement_pct}%</span>
+                              <span style={{ color: '#888' }}>pace {row.expected_progress_pct}%</span>
+                            </div>
+                            <div style={{ height: 7, borderRadius: 4, background: '#f3f4f6', position: 'relative', overflow: 'hidden' }}>
+                              <div style={{ height: 7, width: `${pct}%`, background: statusColor, borderRadius: 4 }} />
+                              <div style={{ position: 'absolute', left: `${Math.max(0, Math.min(100, row.expected_progress_pct || 0))}%`, top: 0, bottom: 0, width: 2, background: '#111827', opacity: 0.35 }} />
+                            </div>
+                          </td>
+                          <td style={{ padding: '11px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                            <div style={{ fontWeight: 800 }}>{row.deadline}</div>
+                            <div style={{ fontSize: 10, color: row.days_left < 0 ? '#D85A30' : '#888' }}>
+                              {row.days_left < 0 ? `${Math.abs(row.days_left)} days late` : `${row.days_left} days left`}
+                            </div>
+                          </td>
+                          <td style={{ padding: '11px 12px', textAlign: 'right' }}><CommitmentStatusBadge status={row.status} /></td>
+                          <td style={{ padding: '11px 12px', textAlign: 'right', fontWeight: 900, color: row.shortfall > 0 ? '#D85A30' : '#0F6E56' }}>
+                            {fmtInr(row.shortfall)}
+                          </td>
+                        </tr>
+                      );
+                    }) : (
+                      <tr><td colSpan={9} style={{ textAlign: 'center', padding: 32, color: '#888' }}>No investment commitments found</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div style={{ background: '#fff', borderRadius: 12, border: '0.5px solid #e5e7eb', overflow: 'hidden' }}>
+              <div style={{ padding: '14px 20px', borderBottom: '1px solid #f3f4f6' }}>
+                <div style={{ fontSize: 15, fontWeight: 800 }}>Doctor-Level Recovery Summary</div>
+                <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>Worst status wins when a doctor has multiple investments.</div>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', minWidth: 760, borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: '#f9fafb' }}>
+                      {['Doctor', 'Commitments', 'Invested', 'Expected', 'Sales', 'Achievement', 'Worst Status', 'Shortfall'].map(h => (
+                        <th key={h} style={{ padding: '10px 12px', textAlign: h === 'Doctor' ? 'left' : 'right', fontSize: 11, color: '#6b7280', textTransform: 'uppercase', borderBottom: '1px solid #f3f4f6', whiteSpace: 'nowrap' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(commitmentData?.doctor_summary || []).slice(0, 25).map(row => (
+                      <tr key={row.doctor_id} style={{ borderBottom: '0.5px solid #f3f4f6' }}>
+                        <td style={{ padding: '10px 12px', fontWeight: 800 }}>
+                          <div>{row.doctor_name}</div>
+                          <div style={{ fontSize: 11, color: '#888', fontWeight: 500 }}>{[row.city, row.manager_name].filter(Boolean).join(' · ')}</div>
+                        </td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right' }}>{row.commitments}</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800 }}>{fmtInr(row.total_invested)}</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800 }}>{fmtInr(row.expected_sales)}</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800, color: '#0F6E56' }}>{fmtInr(row.sales_captured)}</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 800 }}>{row.achievement_pct}%</td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right' }}><CommitmentStatusBadge status={row.worst_status} /></td>
+                        <td style={{ padding: '10px 12px', textAlign: 'right', fontWeight: 900, color: row.shortfall > 0 ? '#D85A30' : '#0F6E56' }}>{fmtInr(row.shortfall)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
@@ -2590,3 +2752,4 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
     </div>
   );
 }
+

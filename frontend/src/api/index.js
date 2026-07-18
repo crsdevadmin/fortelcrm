@@ -75,6 +75,8 @@ export const roiAPI = {
     client.get('/roi/at-risk', { params: { year, month } }),
   productsSummary: (year, month) =>
     client.get('/roi/products-summary', { params: { year, month } }),
+  commitmentRecovery: (params = {}) =>
+    client.get('/roi/commitment-recovery', { params }),
   spendAnalysis: (year, month, params = {}) =>
     client.get('/investments/spend-analysis', { params: { year, month, ...params } }),
   concentrationRisk: (year, month, params = {}) =>

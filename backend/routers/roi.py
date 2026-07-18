@@ -4,6 +4,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from typing import Optional
 from pydantic import BaseModel
+from datetime import date as date_type, datetime
+import calendar
 
 from ..database import get_db
 from ..models.models import Doctor, SalesEntry, Investment, ROIGrade, Product
@@ -107,6 +109,65 @@ def _str_val(v) -> str:
     if v is None:
         return ""
     return v.value if hasattr(v, "value") else str(v)
+
+
+def _safe_date(year: int, month: int, day: Optional[int] = None) -> date_type:
+    m = max(1, min(12, int(month or 1)))
+    max_day = calendar.monthrange(int(year), m)[1]
+    d = max(1, min(max_day, int(day or 1)))
+    return date_type(int(year), m, d)
+
+
+def _add_months(d: date_type, months: int) -> date_type:
+    month_index = d.month - 1 + months
+    y = d.year + month_index // 12
+    m = month_index % 12 + 1
+    day = min(d.day, calendar.monthrange(y, m)[1])
+    return date_type(y, m, day)
+
+
+def _sales_between_for_doctor(db: Session, doctor_id: int, start: date_type, end: date_type) -> float:
+    date_conditions = []
+    cursor = start
+    while cursor <= end:
+        date_conditions.append(
+            (SalesEntry.year == cursor.year) &
+            (SalesEntry.month == cursor.month) &
+            (SalesEntry.week == cursor.day)
+        )
+        from datetime import timedelta
+        cursor = cursor + timedelta(days=1)
+
+    total = db.query(func.sum(SalesEntry.value)).filter(
+        SalesEntry.doctor_id == doctor_id,
+        or_(
+            (SalesEntry.sale_date >= start.isoformat()) & (SalesEntry.sale_date <= end.isoformat()),
+            *date_conditions,
+        ),
+    ).scalar()
+    return float(total or 0)
+
+
+def _commitment_status(
+    sales: float,
+    expected: float,
+    start: date_type,
+    deadline: date_type,
+    as_of: date_type,
+) -> tuple[str, float, int]:
+    achievement = compute_ca_percent(sales, expected)
+    days_total = max(1, (deadline - start).days)
+    days_elapsed = max(0, min(days_total, (as_of - start).days))
+    expected_progress = round((days_elapsed / days_total) * 100, 1)
+    days_left = (deadline - as_of).days
+
+    if achievement >= 100:
+        return "Achieved", expected_progress, days_left
+    if as_of > deadline:
+        return "Breached", expected_progress, days_left
+    if achievement + 10 < expected_progress:
+        return "At Risk", expected_progress, days_left
+    return "On Track", expected_progress, days_left
 
 
 @router.get("/doctor/{doctor_id}")
@@ -302,6 +363,167 @@ def update_commercial_model(
         "doctor_id": doctor_id,
         "commercial_model": cm or None,
         "expected_multiple": _expected_mult(doctor),
+    }
+
+
+@router.get("/commitment-recovery")
+def get_commitment_recovery(
+    viewer_id: Optional[int] = None,
+    as_of: Optional[str] = None,
+    manager_id: Optional[int] = None,
+    commercial_model: Optional[str] = None,
+    status: Optional[str] = None,
+    search: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    try:
+        ref_date = datetime.strptime(as_of, "%Y-%m-%d").date() if as_of else date_type.today()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="as_of must be YYYY-MM-DD")
+
+    doctor_q = db.query(Doctor).filter(Doctor.is_active != False)
+    if viewer_id and not manager_id:
+        doctor_q = apply_viewer_scope(doctor_q, viewer_id, db)
+    if manager_id:
+        doctor_q = doctor_q.filter(Doctor.manager_id == manager_id)
+    if search:
+        like = f"%{search}%"
+        doctor_q = doctor_q.filter(or_(Doctor.name.ilike(like), Doctor.hospital.ilike(like), Doctor.city.ilike(like)))
+
+    doctors = doctor_q.all()
+    doctor_map = {d.id: d for d in doctors}
+    if not doctor_map:
+        return {
+            "as_of": ref_date.isoformat(),
+            "summary": {
+                "open_commitments": 0,
+                "achieved": 0,
+                "at_risk": 0,
+                "breached": 0,
+                "total_invested": 0,
+                "expected_sales": 0,
+                "sales_captured": 0,
+                "shortfall": 0,
+            },
+            "commitments": [],
+            "doctor_summary": [],
+        }
+
+    inv_q = db.query(Investment).filter(Investment.doctor_id.in_(doctor_map.keys()))
+    if commercial_model:
+        inv_q = inv_q.filter(Investment.commercial_model_type == commercial_model)
+    investments = inv_q.order_by(Investment.year.desc(), Investment.month.desc(), Investment.week.desc()).all()
+
+    from ..models.models import User as UserModel
+    mgr_ids = list({d.manager_id for d in doctors if d.manager_id})
+    mgr_map = {}
+    if mgr_ids:
+        mgr_map = {r.id: r.name for r in db.query(UserModel.id, UserModel.name).filter(UserModel.id.in_(mgr_ids)).all()}
+
+    commitments = []
+    doctor_summary = {}
+    for inv in investments:
+        doc = doctor_map.get(inv.doctor_id)
+        if not doc:
+            continue
+
+        invested = float(inv.amount or 0)
+        expected_multiple = float(inv.expected_multiple or _expected_mult(doc) or 5.0)
+        expected_sales = float(inv.expected_sales or (invested * expected_multiple))
+        investment_date = _safe_date(inv.year, inv.month, inv.week)
+        deadline = _add_months(investment_date, 3)
+        sales_captured = _sales_between_for_doctor(db, inv.doctor_id, investment_date, min(ref_date, deadline))
+        row_status, expected_progress, days_left = _commitment_status(
+            sales_captured, expected_sales, investment_date, deadline, ref_date
+        )
+        shortfall = max(0.0, expected_sales - sales_captured)
+
+        if status and row_status.lower().replace(" ", "_") != status.lower().replace(" ", "_"):
+            continue
+
+        row = {
+            "investment_id": inv.id,
+            "doctor_id": doc.id,
+            "doctor_name": doc.name,
+            "hospital": doc.hospital,
+            "city": doc.city,
+            "state_code": doc.state_code,
+            "manager_id": doc.manager_id,
+            "manager_name": mgr_map.get(doc.manager_id, ""),
+            "commercial_model": _str_val(inv.commercial_model_type) or _str_val(doc.commercial_model) or None,
+            "category": _str_val(inv.category) or None,
+            "sub_category": _str_val(inv.sub_category) or None,
+            "investment_date": investment_date.isoformat(),
+            "deadline": deadline.isoformat(),
+            "days_left": days_left,
+            "investment_amount": round(invested, 2),
+            "expected_multiple": round(expected_multiple, 2),
+            "expected_sales": round(expected_sales, 2),
+            "sales_captured": round(sales_captured, 2),
+            "achievement_pct": compute_ca_percent(sales_captured, expected_sales),
+            "expected_progress_pct": expected_progress,
+            "shortfall": round(shortfall, 2),
+            "status": row_status,
+        }
+        commitments.append(row)
+
+        ds = doctor_summary.setdefault(doc.id, {
+            "doctor_id": doc.id,
+            "doctor_name": doc.name,
+            "hospital": doc.hospital,
+            "city": doc.city,
+            "manager_name": mgr_map.get(doc.manager_id, ""),
+            "commitments": 0,
+            "total_invested": 0.0,
+            "expected_sales": 0.0,
+            "sales_captured": 0.0,
+            "shortfall": 0.0,
+            "worst_status": "Achieved",
+        })
+        ds["commitments"] += 1
+        ds["total_invested"] += invested
+        ds["expected_sales"] += expected_sales
+        ds["sales_captured"] += sales_captured
+        ds["shortfall"] += shortfall
+        severity = {"Breached": 4, "At Risk": 3, "On Track": 2, "Achieved": 1}
+        if severity[row_status] > severity.get(ds["worst_status"], 0):
+            ds["worst_status"] = row_status
+
+    summary = {
+        "open_commitments": sum(1 for r in commitments if r["status"] in ("On Track", "At Risk")),
+        "achieved": sum(1 for r in commitments if r["status"] == "Achieved"),
+        "at_risk": sum(1 for r in commitments if r["status"] == "At Risk"),
+        "breached": sum(1 for r in commitments if r["status"] == "Breached"),
+        "total_invested": round(sum(r["investment_amount"] for r in commitments), 2),
+        "expected_sales": round(sum(r["expected_sales"] for r in commitments), 2),
+        "sales_captured": round(sum(r["sales_captured"] for r in commitments), 2),
+        "shortfall": round(sum(r["shortfall"] for r in commitments), 2),
+    }
+
+    doctor_rows = []
+    for row in doctor_summary.values():
+        row["total_invested"] = round(row["total_invested"], 2)
+        row["expected_sales"] = round(row["expected_sales"], 2)
+        row["sales_captured"] = round(row["sales_captured"], 2)
+        row["shortfall"] = round(row["shortfall"], 2)
+        row["achievement_pct"] = compute_ca_percent(row["sales_captured"], row["expected_sales"])
+        doctor_rows.append(row)
+
+    commitments.sort(key=lambda r: (
+        {"Breached": 0, "At Risk": 1, "On Track": 2, "Achieved": 3}.get(r["status"], 9),
+        r["deadline"],
+        -r["shortfall"],
+    ))
+    doctor_rows.sort(key=lambda r: (
+        {"Breached": 0, "At Risk": 1, "On Track": 2, "Achieved": 3}.get(r["worst_status"], 9),
+        -r["shortfall"],
+    ))
+
+    return {
+        "as_of": ref_date.isoformat(),
+        "summary": summary,
+        "commitments": commitments,
+        "doctor_summary": doctor_rows,
     }
 
 
