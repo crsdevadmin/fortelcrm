@@ -1405,8 +1405,6 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
   const [search, setSearch]     = useState('');
   const [gradeFilter, setGradeFilter] = useState('All');
   const [modelFilter, setModelFilter] = useState('All');
-  const [regionFilter, setRegionFilter] = useState('All');
-  const [cityFilter, setCityFilter] = useState('All');
   const [activityFilter, setActivityFilter] = useState('all');
   const [selectedDoctor, setSelectedDoctor] = useState(null);
   const [addInvDoctor,  setAddInvDoctor]  = useState(null);
@@ -1448,8 +1446,6 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
     if (search)       params.search = search;
     if (gradeFilter !== 'All') params.grade = gradeFilter;
     if (modelFilter !== 'All') params.commercial_model = modelFilter;
-    if (regionFilter !== 'All') params.state_code = regionFilter;
-    if (cityFilter !== 'All') params.city = cityFilter;
 
     Promise.all([
       roiAPI.allDoctors(year, month, params),
@@ -1459,7 +1455,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
       setSummary(Array.isArray(sr.data) ? sr.data : []);
       setLoading(false);
     }).catch(() => setLoading(false));
-  }, [year, month, search, gradeFilter, modelFilter, regionFilter, cityFilter, refreshKey, me?.id]);
+  }, [year, month, search, gradeFilter, modelFilter, refreshKey, me?.id]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -1477,28 +1473,18 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
     const params = { viewer_id: me.id };
     if (search) params.search = search;
     if (modelFilter !== 'All') params.commercial_model = modelFilter;
-    if (regionFilter !== 'All') params.state_code = regionFilter;
-    if (cityFilter !== 'All') params.city = cityFilter;
-    roiAPI.spendAnalysis(year, month, params)
+    roiAPI.spendAnalysis(year, month, { viewer_id: me.id })
       .then(r => setSpendData(normalizeSpendData(r.data))).catch(() => {});
-    roiAPI.concentrationRisk(year, month, params)
+    roiAPI.concentrationRisk(year, month, { viewer_id: me.id })
       .then(r => setRiskData(normalizeRiskData(r.data))).catch(() => {});
     roiAPI.commitmentRecovery(params)
       .then(r => setCommitmentData(r.data)).catch(() => setCommitmentData(null));
-  }, [year, month, search, modelFilter, regionFilter, cityFilter, refreshKey, me?.id]);
+  }, [year, month, search, modelFilter, refreshKey, me?.id]);
 
-  const regionOptions = [...new Set(myDoctors.map(d => d.state_code).filter(Boolean))].sort();
-  const cityOptions = [...new Set(myDoctors
-    .filter(d => regionFilter === 'All' || d.state_code === regionFilter)
-    .map(d => (d.city || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
-
-  const filteredFormDocs = myDoctors.filter(d => {
-    const matchesLocation = (regionFilter === 'All' || d.state_code === regionFilter)
-      && (cityFilter === 'All' || (d.city || '').trim().toLowerCase() === cityFilter.toLowerCase());
-    const matchesSearch = !docSearch || d.name.toLowerCase().includes(docSearch.toLowerCase())
-      || (d.city || '').toLowerCase().includes(docSearch.toLowerCase());
-    return matchesLocation && matchesSearch;
-  }).slice(0, 8);
+  const filteredFormDocs = myDoctors.filter(d =>
+    !docSearch || d.name.toLowerCase().includes(docSearch.toLowerCase()) ||
+    (d.city || '').toLowerCase().includes(docSearch.toLowerCase())
+  ).slice(0, 8);
 
   const selectDoc = (doc) => {
     setSelDoc(doc);
@@ -1743,17 +1729,6 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
             <div style={{ fontSize: 11, opacity: 0.55, marginTop: 2 }}>Commitment achievement · investment tracking · grade analysis</div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <select value={regionFilter} onChange={e => { setRegionFilter(e.target.value); setCityFilter('All'); }}
-              aria-label="Filter by region"
-              style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.2)', fontSize: 13, background: 'rgba(255,255,255,0.1)', color: '#fff' }}>
-              <option value="All" style={{ color: '#111' }}>All Regions</option>
-              {regionOptions.map(region => <option key={region} value={region} style={{ color: '#111' }}>{toStateName(region)}</option>)}
-            </select>
-            <select value={cityFilter} onChange={e => setCityFilter(e.target.value)} aria-label="Filter by city"
-              style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.2)', fontSize: 13, background: 'rgba(255,255,255,0.1)', color: '#fff' }}>
-              <option value="All" style={{ color: '#111' }}>All Cities</option>
-              {cityOptions.map(cityName => <option key={cityName} value={cityName} style={{ color: '#111' }}>{cityName}</option>)}
-            </select>
             <select value={month} onChange={e => setMonth(+e.target.value)}
               style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.2)', fontSize: 13, background: 'rgba(255,255,255,0.1)', color: '#fff' }}>
               {MONTHS.slice(1).map((m, i) => <option key={i+1} value={i+1} style={{ color: '#111' }}>{m}</option>)}
@@ -2777,3 +2752,4 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
     </div>
   );
 }
+

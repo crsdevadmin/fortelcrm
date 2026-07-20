@@ -374,8 +374,6 @@ def get_commitment_recovery(
     commercial_model: Optional[str] = None,
     status: Optional[str] = None,
     search: Optional[str] = None,
-    state_code: Optional[str] = None,
-    city: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     try:
@@ -388,10 +386,6 @@ def get_commitment_recovery(
         doctor_q = apply_viewer_scope(doctor_q, viewer_id, db)
     if manager_id:
         doctor_q = doctor_q.filter(Doctor.manager_id == manager_id)
-    if state_code:
-        doctor_q = doctor_q.filter(Doctor.state_code == state_code)
-    if city:
-        doctor_q = doctor_q.filter(func.lower(Doctor.city) == city.strip().lower())
     if search:
         like = f"%{search}%"
         doctor_q = doctor_q.filter(or_(Doctor.name.ilike(like), Doctor.hospital.ilike(like), Doctor.city.ilike(like)))
@@ -544,8 +538,6 @@ def get_all_doctors_roi(
     commercial_model: Optional[str] = None,
     grade: Optional[str] = None,
     search: Optional[str] = None,
-    state_code: Optional[str] = None,
-    city: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     q = db.query(Doctor).filter(Doctor.is_active != False)
@@ -565,10 +557,6 @@ def get_all_doctors_roi(
 
     if manager_id:
         q = q.filter(Doctor.manager_id == manager_id)
-    if state_code:
-        q = q.filter(Doctor.state_code == state_code)
-    if city:
-        q = q.filter(func.lower(Doctor.city) == city.strip().lower())
     if commercial_model:
         inv_model_q = db.query(Investment.doctor_id).filter(
             Investment.commercial_model_type == commercial_model
@@ -705,21 +693,10 @@ def get_all_doctors_roi(
 
 
 @router.get("/grade-summary")
-def get_grade_summary(
-    year: int,
-    month: int,
-    viewer_id: Optional[int] = None,
-    state_code: Optional[str] = None,
-    city: Optional[str] = None,
-    db: Session = Depends(get_db),
-):
+def get_grade_summary(year: int, month: int, viewer_id: Optional[int] = None, db: Session = Depends(get_db)):
     q = db.query(Doctor).filter(Doctor.is_active != False)
     if viewer_id:
         q = apply_viewer_scope(q, viewer_id, db, year, month)
-    if state_code:
-        q = q.filter(Doctor.state_code == state_code)
-    if city:
-        q = q.filter(func.lower(Doctor.city) == city.strip().lower())
     doctors = q.all()
     if not doctors:
         return []
