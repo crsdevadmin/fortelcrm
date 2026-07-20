@@ -1405,8 +1405,6 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
   const [search, setSearch]     = useState('');
   const [gradeFilter, setGradeFilter] = useState('All');
   const [modelFilter, setModelFilter] = useState('All');
-  const [roiStateCode, setRoiStateCode] = useState('ALL');
-  const [roiCity, setRoiCity] = useState('ALL');
   const [activityFilter, setActivityFilter] = useState('all');
   const [selectedDoctor, setSelectedDoctor] = useState(null);
   const [addInvDoctor,  setAddInvDoctor]  = useState(null);
@@ -1483,42 +1481,9 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
       .then(r => setCommitmentData(r.data)).catch(() => setCommitmentData(null));
   }, [year, month, search, modelFilter, refreshKey, me?.id]);
 
-  const roiLocations = Object.values(myDoctors.reduce((acc, doctor) => {
-    const stateCode = (doctor.state_code || '').trim();
-    const cityName = groupedCityName(doctor);
-    if (!stateCode || !cityName) return acc;
-    const stateName = toStateName(stateCode);
-    const key = `${stateName}__${cityName}`.toLowerCase();
-    acc[key] = acc[key] || { state_code: stateCode, state_name: stateName, city: cityName, count: 0 };
-    acc[key].count += 1;
-    return acc;
-  }, {})).sort((a, b) => `${a.state_name} ${a.city}`.localeCompare(`${b.state_name} ${b.city}`));
-
-  const roiStateOptions = Object.values(roiLocations.reduce((acc, loc) => {
-    acc[loc.state_name] = acc[loc.state_name] || { state_code: loc.state_code, state_name: loc.state_name, count: 0 };
-    acc[loc.state_name].count += loc.count;
-    return acc;
-  }, {})).sort((a, b) => a.state_name.localeCompare(b.state_name));
-
-  const roiCityOptions = Object.entries(roiLocations
-    .filter(loc => roiStateCode === 'ALL' || loc.state_name === toStateName(roiStateCode))
-    .reduce((acc, loc) => {
-      acc[loc.city] = (acc[loc.city] || 0) + loc.count;
-      return acc;
-    }, {})).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-
-  const doctorLocationMap = new Map(myDoctors.map(doctor => [doctor.id, doctor]));
-  const matchesRoiLocation = doctor => {
-    const locationDoctor = doctorLocationMap.get(doctor.doctor_id || doctor.id) || doctor;
-    return (roiStateCode === 'ALL' || toStateName(locationDoctor.state_code) === toStateName(roiStateCode))
-      && (roiCity === 'ALL' || groupedCityName(locationDoctor) === roiCity);
-  };
-
   const filteredFormDocs = myDoctors.filter(d =>
-    matchesRoiLocation(d) && (
-      !docSearch || d.name.toLowerCase().includes(docSearch.toLowerCase()) ||
-      (d.city || '').toLowerCase().includes(docSearch.toLowerCase())
-    )
+    !docSearch || d.name.toLowerCase().includes(docSearch.toLowerCase()) ||
+    (d.city || '').toLowerCase().includes(docSearch.toLowerCase())
   ).slice(0, 8);
 
   const selectDoc = (doc) => {
@@ -1553,8 +1518,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
     } finally { setInvSaving(false); }
   };
 
-  const locationDoctors = doctors.filter(matchesRoiLocation);
-  const displayDoctors = locationDoctors.filter(doc => {
+  const displayDoctors = doctors.filter(doc => {
     if (activityFilter === 'prescribed') return toNum(doc.actual_sales) > 0;
     if (activityFilter === 'not_prescribed') return toNum(doc.actual_sales) <= 0;
     return true;
@@ -1562,8 +1526,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
 
   const summaryTotals = (() => {
     const gradeRows = Array.isArray(summary) ? summary : [];
-    const hasLocationFilter = roiStateCode !== 'ALL' || roiCity !== 'ALL';
-    const sourceRows = !hasLocationFilter && activityFilter === 'all' && gradeRows.length ? gradeRows : displayDoctors;
+    const sourceRows = activityFilter === 'all' && gradeRows.length ? gradeRows : displayDoctors;
     const totalSales = sourceRows.reduce((sum, row) => sum + toNum(row.total_sales ?? row.actual_sales), 0);
     const totalInvested = sourceRows.reduce((sum, row) => sum + toNum(row.total_invested), 0);
     const expectedSales = displayDoctors.reduce((sum, row) => sum + toNum(row.expected_sales), 0);
@@ -1577,13 +1540,13 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
 
   const activityStats = (() => {
     const stats = {
-      total: locationDoctors.length,
+      total: doctors.length,
       prescribedInvested: 0,
       prescribedNotInvested: 0,
       notPrescribedInvested: 0,
       notPrescribedNotInvested: 0,
     };
-    locationDoctors.forEach(doc => {
+    doctors.forEach(doc => {
       const hasSales = toNum(doc.actual_sales) > 0;
       const hasInvestment = toNum(doc.total_invested) > 0;
       if (hasSales && hasInvestment) stats.prescribedInvested += 1;
@@ -1608,77 +1571,6 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
   const prescribedSalesOnlyDoctors = displayDoctors.filter(doc =>
     toNum(doc.actual_sales) > 0 && toNum(doc.total_invested) <= 0
   );
-
-  const visibleDoctorIds = new Set(locationDoctors.map(doc => doc.doctor_id));
-  const hasRoiLocationFilter = roiStateCode !== 'ALL' || roiCity !== 'ALL';
-
-  const displaySpendData = (() => {
-    if (!spendData || !hasRoiLocationFilter) return spendData;
-    const rows = (spendData.per_doctor_category || []).filter(row => visibleDoctorIds.has(row.doctor_id));
-    const categoryBreakdown = ['PD', 'RD', 'CS'].reduce((acc, cat) => {
-      acc[cat] = {
-        total: rows.reduce((sum, row) => sum + toNum(row[cat]), 0),
-        count: rows.filter(row => toNum(row[cat]) > 0).length,
-      };
-      return acc;
-    }, {});
-    const byModel = rows.reduce((acc, row) => {
-      const model = row.commercial_model || 'N/A';
-      acc[model] = (acc[model] || 0) + toNum(row.total);
-      return acc;
-    }, {});
-    return {
-      ...spendData,
-      per_doctor_category: rows,
-      category_breakdown: categoryBreakdown,
-      sub_activity_breakdown: Object.entries(byModel).map(([activity, total]) => ({ activity, total })),
-    };
-  })();
-
-  const displayCommitmentData = (() => {
-    if (!commitmentData || !hasRoiLocationFilter) return commitmentData;
-    const commitments = (commitmentData.commitments || []).filter(row => visibleDoctorIds.has(row.doctor_id));
-    const doctorSummary = (commitmentData.doctor_summary || []).filter(row => visibleDoctorIds.has(row.doctor_id));
-    return {
-      ...commitmentData,
-      commitments,
-      doctor_summary: doctorSummary,
-      summary: {
-        open_commitments: commitments.filter(row => ['On Track', 'At Risk'].includes(row.status)).length,
-        achieved: commitments.filter(row => row.status === 'Achieved').length,
-        at_risk: commitments.filter(row => row.status === 'At Risk').length,
-        breached: commitments.filter(row => row.status === 'Breached').length,
-        shortfall: commitments.reduce((sum, row) => sum + toNum(row.shortfall), 0),
-      },
-    };
-  })();
-
-  const displayRiskData = (() => {
-    if (!riskData || !hasRoiLocationFilter) return riskData;
-    const ranked = [...locationDoctors]
-      .filter(doc => toNum(doc.actual_sales) > 0)
-      .sort((a, b) => toNum(b.actual_sales) - toNum(a.actual_sales));
-    const totalSales = ranked.reduce((sum, doc) => sum + toNum(doc.actual_sales), 0);
-    const share = count => totalSales > 0
-      ? Math.round((ranked.slice(0, count).reduce((sum, doc) => sum + toNum(doc.actual_sales), 0) / totalSales) * 1000) / 10
-      : 0;
-    let cumulative = 0;
-    const topDoctors = ranked.slice(0, 10).map((doc, index) => {
-      const pct = totalSales > 0 ? (toNum(doc.actual_sales) / totalSales) * 100 : 0;
-      cumulative += pct;
-      return {
-        doctor_id: doc.doctor_id,
-        doctor_name: doc.doctor_name,
-        commercial_model: doc.commercial_model,
-        roi_grade: doc.roi_grade,
-        sales: toNum(doc.actual_sales),
-        pct_of_total: Math.round(pct * 10) / 10,
-        cumulative_pct: Math.round(cumulative * 10) / 10,
-        rank: index + 1,
-      };
-    });
-    return { ...riskData, top5_pct: share(5), top10_pct: share(10), total_sales: totalSales, doctor_count: ranked.length, top_doctors: topDoctors };
-  })();
 
   const renderReturnsTracker = (rows, title, subtitle) => {
     const chartDocs = [...rows]
@@ -1871,58 +1763,6 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
             </button>
           </div>
         </div>
-
-        {/* Location filters — shared behavior with Regional Sales */}
-        {roiLocations.length > 0 && (
-          <div style={{ display: 'grid', gap: 7, marginBottom: 16 }}>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-              <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', fontWeight: 900, letterSpacing: 1.5, textTransform: 'uppercase', marginRight: 2 }}>Region</span>
-              <button onClick={() => { setRoiStateCode('ALL'); setRoiCity('ALL'); }}
-                style={{
-                  padding: '5px 14px', borderRadius: 20, fontSize: 11, fontWeight: 800, cursor: 'pointer',
-                  border: roiStateCode === 'ALL' ? '2px solid #F5B800' : '2px solid rgba(255,255,255,0.15)',
-                  background: roiStateCode === 'ALL' ? '#F5B800' : 'rgba(255,255,255,0.08)',
-                  color: roiStateCode === 'ALL' ? '#0B1E10' : 'rgba(255,255,255,0.75)',
-                }}>All</button>
-              {roiStateOptions.map(st => {
-                const active = toStateName(roiStateCode) === st.state_name;
-                const accents = { 'Tamil Nadu': '#F97316', 'Kerala': '#10B981', 'Telangana': '#8B5CF6', 'Karnataka': '#EF4444', 'Maharashtra': '#3B82F6' };
-                const accent = accents[st.state_name] || '#F5B800';
-                return (
-                  <button key={st.state_name} onClick={() => { setRoiStateCode(st.state_code); setRoiCity('ALL'); }}
-                    style={{
-                      padding: '5px 14px', borderRadius: 20, fontSize: 11, fontWeight: 800, cursor: 'pointer',
-                      border: active ? `2px solid ${accent}` : '2px solid rgba(255,255,255,0.15)',
-                      background: active ? accent : 'rgba(255,255,255,0.08)',
-                      color: active ? '#fff' : 'rgba(255,255,255,0.75)',
-                    }}>{st.state_name} <span style={{ opacity: 0.65 }}>({st.count})</span></button>
-                );
-              })}
-            </div>
-            <div style={{ display: 'flex', gap: 5, alignItems: 'center', overflowX: 'auto', whiteSpace: 'nowrap', paddingBottom: 2 }}>
-              <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', fontWeight: 900, letterSpacing: 1.5, textTransform: 'uppercase', marginRight: 2, flex: '0 0 auto' }}>City</span>
-              <button onClick={() => setRoiCity('ALL')}
-                style={{
-                  padding: '4px 11px', borderRadius: 20, fontSize: 10, fontWeight: 800, cursor: 'pointer',
-                  border: roiCity === 'ALL' ? '2px solid #F5B800' : '2px solid rgba(255,255,255,0.12)',
-                  background: roiCity === 'ALL' ? '#F5B800' : 'rgba(255,255,255,0.07)',
-                  color: roiCity === 'ALL' ? '#0B1E10' : 'rgba(255,255,255,0.7)', flex: '0 0 auto',
-                }}>All</button>
-              {roiCityOptions.map(([cityName, count]) => {
-                const active = roiCity === cityName;
-                return (
-                  <button key={cityName} onClick={() => setRoiCity(cityName)}
-                    style={{
-                      padding: '4px 11px', borderRadius: 20, fontSize: 10, fontWeight: 800, cursor: 'pointer',
-                      border: active ? '2px solid #3D8C40' : '2px solid rgba(255,255,255,0.12)',
-                      background: active ? '#3D8C40' : 'rgba(255,255,255,0.07)',
-                      color: active ? '#fff' : 'rgba(255,255,255,0.7)', flex: '0 0 auto',
-                    }}>{cityName} <span style={{ opacity: 0.65 }}>({count})</span></button>
-                );
-              })}
-            </div>
-          </div>
-        )}
 
         {/* Row 1 — Summary metric chips + account categories */}
         <div style={{ display: 'flex', alignItems: 'stretch', gap: 10, flexWrap: 'wrap' }}>
@@ -2527,7 +2367,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {displaySpendData?.per_doctor_category?.length > 0 ? displaySpendData.per_doctor_category.map((row, i) => {
+                  {spendData?.per_doctor_category?.length > 0 ? spendData.per_doctor_category.map((row, i) => {
                     const gc = GRADE_COLORS[row.roi_grade] || GRADE_COLORS.Bronze;
                     const total = row.total || 0;
                     const pdPct = total ? Math.round((row.PD / total) * 100) : 0;
@@ -2566,8 +2406,8 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
                     <tr><td colSpan={9} style={{ textAlign: 'center', padding: 32, color: '#888', fontSize: 13 }}>No investment data for this period</td></tr>
                   )}
                 </tbody>
-                {displaySpendData?.per_doctor_category?.length > 0 && (() => {
-                  const rows = displaySpendData.per_doctor_category;
+                {spendData?.per_doctor_category?.length > 0 && (() => {
+                  const rows = spendData.per_doctor_category;
                   const totPD = rows.reduce((s, r) => s + r.PD, 0);
                   const totRD = rows.reduce((s, r) => s + r.RD, 0);
                   const totCS = rows.reduce((s, r) => s + r.CS, 0);
@@ -2603,11 +2443,11 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
               gap: 10,
             }}>
               {[
-                ['Open', displayCommitmentData?.summary?.open_commitments || 0, 'Inside 3-month window', '#042C53'],
-                ['Achieved', displayCommitmentData?.summary?.achieved || 0, 'Reached 5x', '#085041'],
-                ['At Risk', displayCommitmentData?.summary?.at_risk || 0, 'Behind time progress', '#BA7517'],
-                ['Breached', displayCommitmentData?.summary?.breached || 0, 'Past deadline below 5x', '#D85A30'],
-                ['Shortfall', fmtInr(displayCommitmentData?.summary?.shortfall || 0), 'Sales still required', '#4A1B0C'],
+                ['Open', commitmentData?.summary?.open_commitments || 0, 'Inside 3-month window', '#042C53'],
+                ['Achieved', commitmentData?.summary?.achieved || 0, 'Reached 5x', '#085041'],
+                ['At Risk', commitmentData?.summary?.at_risk || 0, 'Behind time progress', '#BA7517'],
+                ['Breached', commitmentData?.summary?.breached || 0, 'Past deadline below 5x', '#D85A30'],
+                ['Shortfall', fmtInr(commitmentData?.summary?.shortfall || 0), 'Sales still required', '#4A1B0C'],
               ].map(([label, value, sub, color]) => (
                 <div key={label} style={{
                   background: '#fff', border: '0.5px solid #e5e7eb', borderRadius: 8,
@@ -2629,7 +2469,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
                   </div>
                 </div>
                 <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 700, whiteSpace: 'nowrap' }}>
-                  As of {displayCommitmentData?.as_of || 'today'}
+                  As of {commitmentData?.as_of || 'today'}
                 </div>
               </div>
 
@@ -2647,7 +2487,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {(displayCommitmentData?.commitments || []).length > 0 ? displayCommitmentData.commitments.map((row, i) => {
+                    {(commitmentData?.commitments || []).length > 0 ? commitmentData.commitments.map((row, i) => {
                       const pct = Math.max(0, Math.min(100, Number(row.achievement_pct) || 0));
                       const statusColor = row.status === 'Achieved' ? '#1D9E75' : row.status === 'Breached' ? '#D85A30' : row.status === 'At Risk' ? '#BA7517' : '#60a5fa';
                       return (
@@ -2708,7 +2548,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {(displayCommitmentData?.doctor_summary || []).slice(0, 25).map(row => (
+                    {(commitmentData?.doctor_summary || []).slice(0, 25).map(row => (
                       <tr key={row.doctor_id} style={{ borderBottom: '0.5px solid #f3f4f6' }}>
                         <td style={{ padding: '10px 12px', fontWeight: 800 }}>
                           <div>{row.doctor_name}</div>
@@ -2736,8 +2576,8 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
             <div style={{ background: '#fff', borderRadius: 16, border: '0.5px solid #e5e7eb', padding: 20 }}>
               <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 16 }}>Investment by Category</div>
               {['PD', 'RD', 'CS'].map(cat => {
-                const d = displaySpendData?.category_breakdown?.[cat];
-                const allTotal = displaySpendData ? Object.values(displaySpendData.category_breakdown || {}).reduce((s, v) => s + v.total, 0) : 0;
+                const d = spendData?.category_breakdown?.[cat];
+                const allTotal = spendData ? Object.values(spendData.category_breakdown || {}).reduce((s, v) => s + v.total, 0) : 0;
                 const pct = allTotal > 0 ? Math.round(((d?.total) || 0) / allTotal * 100) : 0;
                 const color = INV_CATEGORY_COLORS[cat];
                 return (
@@ -2764,7 +2604,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
             <div style={{ background: '#fff', borderRadius: 16, border: '0.5px solid #e5e7eb', padding: 20 }}>
               <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 16 }}>Investment by Activity</div>
               {(() => {
-                const acts = (displaySpendData?.sub_activity_breakdown || []).filter(a => a.total > 0).sort((a, b) => b.total - a.total);
+                const acts = (spendData?.sub_activity_breakdown || []).filter(a => a.total > 0).sort((a, b) => b.total - a.total);
                 if (acts.length === 0) return <div style={{ textAlign: 'center', color: '#888', padding: 24, fontSize: 13 }}>No activity data for this period</div>;
                 const maxAct = acts[0].total;
                 return acts.map(a => (
@@ -2786,29 +2626,29 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
         {/* TAB: CONCENTRATION RISK */}
         {analyticsTab === 'risk' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {displayRiskData && (
+            {riskData && (
               <div style={{
                 padding: '14px 20px', borderRadius: 12,
-                background: displayRiskData.top5_pct >= 80 ? '#FEF2F2' : displayRiskData.top5_pct >= 60 ? '#FFFBEB' : '#F0FDF4',
-                border: `1px solid ${displayRiskData.top5_pct >= 80 ? '#FECACA' : displayRiskData.top5_pct >= 60 ? '#FDE68A' : '#BBF7D0'}`,
+                background: riskData.top5_pct >= 80 ? '#FEF2F2' : riskData.top5_pct >= 60 ? '#FFFBEB' : '#F0FDF4',
+                border: `1px solid ${riskData.top5_pct >= 80 ? '#FECACA' : riskData.top5_pct >= 60 ? '#FDE68A' : '#BBF7D0'}`,
                 display: 'flex', alignItems: 'center', gap: 12,
               }}>
-                <span style={{ fontSize: 24 }}>{displayRiskData.top5_pct >= 80 ? '🔴' : displayRiskData.top5_pct >= 60 ? '🟡' : '🟢'}</span>
+                <span style={{ fontSize: 24 }}>{riskData.top5_pct >= 80 ? '🔴' : riskData.top5_pct >= 60 ? '🟡' : '🟢'}</span>
                 <div>
-                  <div style={{ fontWeight: 700, fontSize: 14, color: displayRiskData.top5_pct >= 80 ? '#991B1B' : displayRiskData.top5_pct >= 60 ? '#92400E' : '#065f46' }}>
-                    {displayRiskData.top5_pct >= 80
-                      ? `Critical Concentration: Top 5 doctors = ${displayRiskData.top5_pct}% of business`
-                      : displayRiskData.top5_pct >= 60
-                      ? `Moderate Concentration: Top 5 doctors = ${displayRiskData.top5_pct}% of business`
-                      : `Healthy Distribution: Top 5 doctors = ${displayRiskData.top5_pct}% of business`}
+                  <div style={{ fontWeight: 700, fontSize: 14, color: riskData.top5_pct >= 80 ? '#991B1B' : riskData.top5_pct >= 60 ? '#92400E' : '#065f46' }}>
+                    {riskData.top5_pct >= 80
+                      ? `Critical Concentration: Top 5 doctors = ${riskData.top5_pct}% of business`
+                      : riskData.top5_pct >= 60
+                      ? `Moderate Concentration: Top 5 doctors = ${riskData.top5_pct}% of business`
+                      : `Healthy Distribution: Top 5 doctors = ${riskData.top5_pct}% of business`}
                   </div>
                   <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
-                    {displayRiskData.top5_pct >= 80
+                    {riskData.top5_pct >= 80
                       ? 'Critical dependency — losing any top account would severely impact revenue. Diversify urgently.'
-                      : displayRiskData.top5_pct >= 60
+                      : riskData.top5_pct >= 60
                       ? 'Moderate concentration — develop mid-tier accounts to reduce dependency on top performers.'
                       : 'Business is well spread across accounts. Continue growing mid-tier doctors.'}
-                    {' '}Top 10 = {displayRiskData.top10_pct}% of {fmtInr(displayRiskData.total_sales)} total business across {displayRiskData.doctor_count} doctors.
+                    {' '}Top 10 = {riskData.top10_pct}% of {fmtInr(riskData.total_sales)} total business across {riskData.doctor_count} doctors.
                   </div>
                 </div>
               </div>
@@ -2831,7 +2671,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {displayRiskData?.top_doctors?.length > 0 ? displayRiskData.top_doctors.map((doc, i) => {
+                    {riskData?.top_doctors?.length > 0 ? riskData.top_doctors.map((doc, i) => {
                       const gc = GRADE_COLORS[doc.roi_grade] || GRADE_COLORS.Bronze;
                       const cumulColor = doc.cumulative_pct >= 80 ? '#dc2626' : doc.cumulative_pct >= 60 ? '#d97706' : '#059669';
                       return (
@@ -2912,3 +2752,4 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
     </div>
   );
 }
+
