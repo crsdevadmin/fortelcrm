@@ -1565,7 +1565,31 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
     } finally { setInvSaving(false); }
   };
 
-  const locationDoctors = doctors.filter(matchesRoiLocation);
+  const doctorsForSelectedMonth = doctors.map(doc => {
+    const monthlyInvestment = (doc.investment_months || [])
+      .filter(row => Number(row.year) === year && Number(row.month) === month)
+      .reduce((sum, row) => sum + toNum(row.amount), 0);
+    const sales = toNum(doc.actual_sales);
+    const expectedMultiple = toNum(doc.expected_multiple) || 5;
+    const expectedSales = monthlyInvestment * expectedMultiple;
+    const roiMultiple = monthlyInvestment > 0 ? Math.round((sales / monthlyInvestment) * 100) / 100 : 0;
+    const roiGrade = monthlyInvestment <= 0 || roiMultiple < 3
+      ? 'Bronze'
+      : roiMultiple > 8 ? 'Platinum' : roiMultiple >= 5 ? 'Gold' : 'Silver';
+    const caPercent = expectedSales > 0 ? Math.round((sales / expectedSales) * 100) : 0;
+    return {
+      ...doc,
+      cumulative_invested: toNum(doc.total_invested),
+      total_invested: monthlyInvestment,
+      expected_sales: expectedSales,
+      roi_multiple: roiMultiple,
+      roi_grade: roiGrade,
+      ca_percent: caPercent,
+      ca_status: caPercent >= 100 ? 'green' : caPercent >= 80 ? 'yellow' : 'red',
+    };
+  });
+
+  const locationDoctors = doctorsForSelectedMonth.filter(matchesRoiLocation);
   const displayDoctors = locationDoctors.filter(doc => {
     if (activityFilter === 'prescribed') return toNum(doc.actual_sales) > 0;
     if (activityFilter === 'not_prescribed') return toNum(doc.actual_sales) <= 0;
@@ -1573,9 +1597,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
   });
 
   const summaryTotals = (() => {
-    const gradeRows = Array.isArray(summary) ? summary : [];
-    const hasLocationFilter = roiStateCode !== 'ALL' || roiCity !== 'ALL';
-    const sourceRows = !hasLocationFilter && activityFilter === 'all' && gradeRows.length ? gradeRows : displayDoctors;
+    const sourceRows = displayDoctors;
     const totalSales = sourceRows.reduce((sum, row) => sum + toNum(row.total_sales ?? row.actual_sales), 0);
     const totalInvested = sourceRows.reduce((sum, row) => sum + toNum(row.total_invested), 0);
     const expectedSales = displayDoctors.reduce((sum, row) => sum + toNum(row.expected_sales), 0);
