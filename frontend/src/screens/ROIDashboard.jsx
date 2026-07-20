@@ -1414,6 +1414,16 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
   const [refreshKey,    setRefreshKey]    = useState(0);
   const [workTab,       setWorkTab]       = useState(defaultTab);
 
+  const goRoiMonth = (delta) => {
+    let nextYear = year;
+    let nextMonth = month + delta;
+    if (nextMonth < 1) { nextMonth = 12; nextYear -= 1; }
+    if (nextMonth > 12) { nextMonth = 1; nextYear += 1; }
+    if (nextYear > CUR_YEAR || (nextYear === CUR_YEAR && nextMonth > CUR_MONTH)) return;
+    setYear(nextYear);
+    setMonth(nextMonth);
+  };
+
   useEffect(() => {
     const tab = new URLSearchParams(location.search).get('tab');
     if (['roi', 'my_sales', 'regional_sales'].includes(tab)) {
@@ -1506,6 +1516,8 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
       acc[loc.city] = (acc[loc.city] || 0) + loc.count;
       return acc;
     }, {})).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const topRoiCities = roiCityOptions.slice(0, 5);
+  const extraRoiCities = roiCityOptions.slice(5);
 
   const doctorLocationMap = new Map(myDoctors.map(doctor => [doctor.id, doctor]));
   const matchesRoiLocation = doctor => {
@@ -1837,14 +1849,20 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
             <div style={{ fontSize: 11, opacity: 0.55, marginTop: 2 }}>Commitment achievement · investment tracking · grade analysis</div>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <select value={month} onChange={e => setMonth(+e.target.value)}
-              style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.2)', fontSize: 13, background: 'rgba(255,255,255,0.1)', color: '#fff' }}>
-              {MONTHS.slice(1).map((m, i) => <option key={i+1} value={i+1} style={{ color: '#111' }}>{m}</option>)}
-            </select>
-            <select value={year} onChange={e => setYear(+e.target.value)}
-              style={{ padding: '7px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.2)', fontSize: 13, background: 'rgba(255,255,255,0.1)', color: '#fff' }}>
-              {[2024, 2025, 2026].map(y => <option key={y} value={y} style={{ color: '#111' }}>{y}</option>)}
-            </select>
+            <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.12)', borderRadius: 10, border: '1px solid rgba(255,255,255,0.2)', overflow: 'hidden' }}>
+              <button onClick={() => goRoiMonth(-1)} aria-label="Previous month"
+                style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: 18, padding: '8px 14px', lineHeight: 1, opacity: 0.85 }}>‹</button>
+              <span style={{ fontSize: 13, fontWeight: 700, minWidth: 118, textAlign: 'center', padding: '0 4px' }}>{MONTHS[month]} {year}</span>
+              <button onClick={() => goRoiMonth(1)} aria-label="Next month"
+                disabled={year === CUR_YEAR && month === CUR_MONTH}
+                style={{ background: 'none', border: 'none', color: '#fff', cursor: year === CUR_YEAR && month === CUR_MONTH ? 'not-allowed' : 'pointer', fontSize: 18, padding: '8px 14px', lineHeight: 1, opacity: year === CUR_YEAR && month === CUR_MONTH ? 0.25 : 0.85 }}>›</button>
+            </div>
+            {(year !== CUR_YEAR || month !== CUR_MONTH) && (
+              <button onClick={() => { setYear(CUR_YEAR); setMonth(CUR_MONTH); }}
+                style={{ background: 'rgba(245,184,0,0.25)', border: '1px solid rgba(245,184,0,0.4)', borderRadius: 8, color: '#F5B800', fontSize: 11, fontWeight: 700, padding: '8px 12px', cursor: 'pointer' }}>
+                This Month
+              </button>
+            )}
             <button onClick={() => { setShowForm(s => !s); setInvError(''); setSelDoc(null); setInvForm(EMPTY_INV); }}
               style={{
                 background: showForm ? 'rgba(255,255,255,0.15)' : '#1D9E75',
@@ -1908,7 +1926,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
                   background: roiCity === 'ALL' ? '#F5B800' : 'rgba(255,255,255,0.07)',
                   color: roiCity === 'ALL' ? '#0B1E10' : 'rgba(255,255,255,0.7)', flex: '0 0 auto',
                 }}>All</button>
-              {roiCityOptions.map(([cityName, count]) => {
+              {topRoiCities.map(([cityName, count]) => {
                 const active = roiCity === cityName;
                 return (
                   <button key={cityName} onClick={() => setRoiCity(cityName)}
@@ -2314,6 +2332,15 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
                   </button>
                 );
               })}
+              {extraRoiCities.length > 0 && (
+                <select value={extraRoiCities.some(([cityName]) => cityName === roiCity) ? roiCity : ''}
+                  onChange={e => e.target.value && setRoiCity(e.target.value)}
+                  aria-label="More cities"
+                  style={{ padding: '4px 10px', borderRadius: 20, fontSize: 10, fontWeight: 800, cursor: 'pointer', background: 'rgba(255,255,255,0.1)', color: '#fff', border: '2px solid rgba(255,255,255,0.15)', flex: '0 0 auto' }}>
+                  <option value="" style={{ color: '#000' }}>+{extraRoiCities.length} more...</option>
+                  {extraRoiCities.map(([cityName, count]) => <option key={cityName} value={cityName} style={{ color: '#000' }}>{cityName} ({count})</option>)}
+                </select>
+              )}
             </div>
 
             {/* Row 3: Search */}
