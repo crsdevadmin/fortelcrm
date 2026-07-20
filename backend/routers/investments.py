@@ -245,32 +245,45 @@ def spend_analysis(
     year: Optional[int] = None,
     month: Optional[int] = None,
     viewer_id: Optional[int] = None,
+    state_code: Optional[str] = None,
+    city: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     q = db.query(Investment)
     if year:  q = q.filter(Investment.year  == year)
     if month: q = q.filter(Investment.month == month)
-    if viewer_id:
-        visible_ids = get_subtree_ids(viewer_id, db)
-        if visible_ids is not None:
-            q = q.join(Doctor, Doctor.id == Investment.doctor_id).filter(
-                or_(
-                    Investment.associate_id.in_(visible_ids),
-                    Doctor.manager_id.in_(visible_ids),
-                )
+    visible_ids = get_subtree_ids(viewer_id, db) if viewer_id else None
+    if state_code or city or visible_ids is not None:
+        q = q.join(Doctor, Doctor.id == Investment.doctor_id)
+    if state_code or city:
+        if state_code:
+            q = q.filter(Doctor.state_code == state_code)
+        if city:
+            q = q.filter(func.lower(Doctor.city) == city.strip().lower())
+    if visible_ids is not None:
+        q = q.filter(
+            or_(
+                Investment.associate_id.in_(visible_ids),
+                Doctor.manager_id.in_(visible_ids),
             )
+        )
     invs = q.all()
 
     allocation_q = db.query(Investment)
-    if viewer_id:
-        visible_ids = get_subtree_ids(viewer_id, db)
-        if visible_ids is not None:
-            allocation_q = allocation_q.join(Doctor, Doctor.id == Investment.doctor_id).filter(
-                or_(
-                    Investment.associate_id.in_(visible_ids),
-                    Doctor.manager_id.in_(visible_ids),
-                )
+    if state_code or city or visible_ids is not None:
+        allocation_q = allocation_q.join(Doctor, Doctor.id == Investment.doctor_id)
+    if state_code or city:
+        if state_code:
+            allocation_q = allocation_q.filter(Doctor.state_code == state_code)
+        if city:
+            allocation_q = allocation_q.filter(func.lower(Doctor.city) == city.strip().lower())
+    if visible_ids is not None:
+        allocation_q = allocation_q.filter(
+            or_(
+                Investment.associate_id.in_(visible_ids),
+                Doctor.manager_id.in_(visible_ids),
             )
+        )
     allocation_invs = allocation_q.all()
 
     by_cat = {}
@@ -368,6 +381,9 @@ def spend_analysis(
 def concentration_risk(
     year: Optional[int] = None,
     month: Optional[int] = None,
+    viewer_id: Optional[int] = None,
+    state_code: Optional[str] = None,
+    city: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     q = db.query(
@@ -376,6 +392,16 @@ def concentration_risk(
     )
     if year:  q = q.filter(Investment.year  == year)
     if month: q = q.filter(Investment.month == month)
+    if viewer_id or state_code or city:
+        q = q.join(Doctor, Doctor.id == Investment.doctor_id)
+    if viewer_id:
+        visible_ids = get_subtree_ids(viewer_id, db)
+        if visible_ids is not None:
+            q = q.filter(or_(Investment.associate_id.in_(visible_ids), Doctor.manager_id.in_(visible_ids)))
+    if state_code:
+        q = q.filter(Doctor.state_code == state_code)
+    if city:
+        q = q.filter(func.lower(Doctor.city) == city.strip().lower())
     rows = q.group_by(Investment.doctor_id).all()
     if not rows:
         return {"risk": "low", "top_doctor_pct": 0, "top3_pct": 0, "doctors": []}
