@@ -19,7 +19,7 @@ const label = { display: 'flex', flexDirection: 'column', gap: 5, fontSize: 10, 
 
 export default function DailyTasks() {
   const { user } = useAuth();
-  const canAssign = MANAGER_ROLES.has(user?.role);
+  const [canAssign, setCanAssign] = useState(MANAGER_ROLES.has(user?.role));
   const draftKey = `fortel_task_draft_${user?.id || 'user'}`;
   const [assignees, setAssignees] = useState([]);
   const [doctors, setDoctors] = useState([]);
@@ -59,18 +59,26 @@ export default function DailyTasks() {
   useEffect(() => { loadTasks(); }, [loadTasks]);
 
   useEffect(() => {
-    if (!user?.id || !canAssign) return;
-    Promise.all([
-      tasksAPI.assignees(user.id),
-      axios.get(`${API}/doctors/`, { params: { viewer_id: user.id, include_inactive: false } }),
-    ]).then(([assigneeRes, doctorRes]) => {
+    if (!user?.id) return;
+    setCanAssign(MANAGER_ROLES.has(user.role));
+    tasksAPI.assignees(user.id).then(async assigneeRes => {
       const reps = Array.isArray(assigneeRes.data) ? assigneeRes.data : [];
+      const doctorRes = await axios.get(`${API}/doctors/`, { params: { viewer_id: user.id, include_inactive: false } });
       const doctorList = Array.isArray(doctorRes.data) ? doctorRes.data : [];
+      setCanAssign(true);
       setAssignees(reps);
       setDoctors(doctorList);
       setForm(prev => ({ ...prev, assigned_to_id: prev.assigned_to_id || String(reps[0]?.id || '') }));
-    }).catch(err => setError(err?.response?.data?.detail || 'Unable to load representatives and doctors'));
-  }, [user?.id, canAssign]);
+    }).catch(err => {
+      if (err?.response?.status === 403) {
+        setCanAssign(false);
+        setAssignees([]);
+        setDoctors([]);
+        return;
+      }
+      setError(err?.response?.data?.detail || 'Unable to load representatives and doctors');
+    });
+  }, [user?.id, user?.role]);
 
   useEffect(() => {
     if (!canAssign) return;
@@ -187,7 +195,7 @@ export default function DailyTasks() {
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', alignItems: 'flex-start', marginBottom: 18 }}>
         <div>
           <div style={{ fontSize: 23, fontWeight: 900, color: '#111827' }}>Daily Tasks</div>
-          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 3 }}>{canAssign ? 'Assign doctor-specific daily work to representatives.' : 'Review and complete tasks assigned by your manager.'}</div>
+          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 3 }}>{user?.role === 'md' ? 'Assign tasks and review tasks assigned by every manager.' : canAssign ? 'Assign doctor-specific daily work to representatives.' : 'Review and complete tasks assigned by your manager.'}</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} style={{ ...input, width: 150 }} />
@@ -205,7 +213,7 @@ export default function DailyTasks() {
         <form onSubmit={assignTask} style={{ ...card, marginBottom: 18 }}>
           <div style={{ fontSize: 15, fontWeight: 900, color: '#111827', marginBottom: 12 }}>Assign a Task</div>
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1fr) minmax(240px, 1.4fr) minmax(150px, .7fr)', gap: 10 }}>
-            <label style={label}>Representative<select value={form.assigned_to_id} onChange={e => updateForm('assigned_to_id', e.target.value)} style={input}><option value="">Select rep</option>{assignees.map(rep => <option key={rep.id} value={rep.id}>{rep.name}</option>)}</select></label>
+            <label style={label}>Representative<select value={form.assigned_to_id} onChange={e => updateForm('assigned_to_id', e.target.value)} style={input}><option value="">Select rep</option>{assignees.map(rep => <option key={rep.id} value={rep.id}>{rep.name}{rep.display_role ? ` — ${rep.display_role}` : ''}</option>)}</select></label>
             <label style={label}>Doctor / Hospital<select value={form.doctor_id} onChange={e => updateForm('doctor_id', e.target.value)} style={input}><option value="">Select doctor</option>{doctors.map(doctor => <option key={doctor.id} value={doctor.id}>{doctor.name}{doctor.hospital ? ` — ${doctor.hospital}` : ''}</option>)}</select></label>
             <label style={label}>Task Date<input type="date" value={form.task_date} onChange={e => updateForm('task_date', e.target.value)} style={input} /></label>
           </div>

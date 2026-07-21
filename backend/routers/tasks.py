@@ -68,29 +68,69 @@ def _task_dict(task: DailyTask):
     }
 
 
+def _active_representative_ids(db: Session):
+    """Return active field staff, including custom-role users at hierarchy leaves."""
+    active_manager_ids = {
+        reports_to_id
+        for (reports_to_id,) in db.query(User.reports_to_id).filter(
+            User.is_active == True,
+            User.reports_to_id.isnot(None),
+        ).distinct().all()
+    }
+    return {
+        user.id
+        for user in db.query(User.id, User.role).filter(User.is_active == True).all()
+        if user.role in {"rep", "custom"} and user.id not in active_manager_ids
+    }
+
+
+def _assignment_scope(manager: User, db: Session):
+    """Return assignable hierarchy IDs, None for company-wide, or an empty set when denied."""
+    visible_ids = get_subtree_ids(manager.id, db)
+    if manager.role in MANAGER_ROLES:
+        return visible_ids
+    if manager.role == "custom" and visible_ids and any(user_id != manager.id for user_id in visible_ids):
+        return visible_ids
+    return set()
+
+
 @router.get("/assignees")
 def task_assignees(manager_id: int, db: Session = Depends(get_db)):
     manager = db.query(User).filter(User.id == manager_id, User.is_active == True).first()
-    if not manager or manager.role not in MANAGER_ROLES:
+    if not manager:
+        raise HTTPException(status_code=404, detail="User not found")
+    visible_ids = _assignment_scope(manager, db)
+    if visible_ids == set():
         raise HTTPException(status_code=403, detail="Only managers can assign tasks")
-    visible_ids = get_subtree_ids(manager_id, db)
-    q = db.query(User).filter(User.is_active == True, User.role == "rep", User.id != manager_id)
+    representative_ids = _active_representative_ids(db)
+    q = db.query(User).filter(User.id.in_(representative_ids), User.id != manager_id)
     if visible_ids is not None:
         q = q.filter(User.id.in_(visible_ids))
-    return [{"id": user.id, "name": user.name, "city": user.city, "state": user.state} for user in q.order_by(User.name).all()]
+    return [
+        {
+            "id": user.id,
+            "name": user.name,
+            "city": user.city,
+            "state": user.state,
+            "display_role": user.display_role,
+        }
+        for user in q.order_by(User.name).all()
+    ]
 
 
 @router.post("/")
 def create_task(payload: TaskCreateRequest, db: Session = Depends(get_db)):
     manager = db.query(User).filter(User.id == payload.assigned_by_id, User.is_active == True).first()
-    if not manager or manager.role not in MANAGER_ROLES:
+    if not manager:
+        raise HTTPException(status_code=404, detail="User not found")
+    visible_ids = _assignment_scope(manager, db)
+    if visible_ids == set():
         raise HTTPException(status_code=403, detail="Only managers can assign tasks")
 
     assignee = db.query(User).filter(User.id == payload.assigned_to_id, User.is_active == True).first()
-    if not assignee or assignee.role != "rep":
+    if not assignee or assignee.id not in _active_representative_ids(db):
         raise HTTPException(status_code=400, detail="Select an active representative")
 
-    visible_ids = get_subtree_ids(payload.assigned_by_id, db)
     if visible_ids is not None and payload.assigned_to_id not in visible_ids:
         raise HTTPException(status_code=403, detail="Representative is outside your reporting hierarchy")
 
