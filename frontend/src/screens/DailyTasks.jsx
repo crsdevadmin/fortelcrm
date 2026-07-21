@@ -5,6 +5,19 @@ import { useAuth } from '../context/AuthContext';
 
 const API = process.env.REACT_APP_API_URL || '';
 const MANAGER_ROLES = new Set(['admin', 'md', 'director', 'senior_manager', 'manager']);
+const NORMALIZE = value => (value || '').replace(/\s+/g, '').toLowerCase();
+const STATE_NAMES = {
+  tn: 'Tamil Nadu', tamilnadu: 'Tamil Nadu',
+  kl: 'Kerala', kerala: 'Kerala',
+  ka: 'Karnataka', karnataka: 'Karnataka',
+  ts: 'Telangana', telangana: 'Telangana',
+  ap: 'Andhra Pradesh', andhrapradesh: 'Andhra Pradesh',
+  mh: 'Maharashtra', maharashtra: 'Maharashtra',
+  dl: 'Delhi', delhi: 'Delhi',
+};
+const toStateName = value => STATE_NAMES[NORMALIZE(value)] || (value || '').trim();
+const normCity = value => (value || '').trim().toLowerCase().replace(/\b\w/g, letter => letter.toUpperCase());
+const repMatchesRegion = (rep, region) => !region || toStateName((rep.state || '').split(',')[0]) === region;
 
 const todayIso = () => {
   const now = new Date();
@@ -29,9 +42,9 @@ export default function DailyTasks() {
   const [form, setForm] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(draftKey) || '{}');
-      return { assigned_to_id: '', doctor_id: '', task_date: todayIso(), details: '', ...saved };
+      return { region: '', city: '', assigned_to_id: '', doctor_id: '', task_date: todayIso(), details: '', ...saved };
     } catch (_) {
-      return { assigned_to_id: '', doctor_id: '', task_date: todayIso(), details: '' };
+      return { region: '', city: '', assigned_to_id: '', doctor_id: '', task_date: todayIso(), details: '' };
     }
   });
   const [completion, setCompletion] = useState({});
@@ -68,7 +81,11 @@ export default function DailyTasks() {
       setCanAssign(true);
       setAssignees(reps);
       setDoctors(doctorList);
-      setForm(prev => ({ ...prev, assigned_to_id: prev.assigned_to_id || String(reps[0]?.id || '') }));
+      setForm(prev => {
+        const regionReps = reps.filter(rep => repMatchesRegion(rep, prev.region));
+        const selectedRepIsAvailable = regionReps.some(rep => String(rep.id) === String(prev.assigned_to_id));
+        return { ...prev, assigned_to_id: selectedRepIsAvailable ? prev.assigned_to_id : String(regionReps[0]?.id || '') };
+      });
     }).catch(err => {
       if (err?.response?.status === 403) {
         setCanAssign(false);
@@ -85,7 +102,41 @@ export default function DailyTasks() {
     localStorage.setItem(draftKey, JSON.stringify(form));
   }, [form, canAssign, draftKey]);
 
-  const selectedDoctor = (Array.isArray(doctors) ? doctors : []).find(doctor => String(doctor.id) === String(form.doctor_id));
+  const allRegions = useMemo(() => {
+    const seen = new Set();
+    doctors.forEach(doctor => {
+      const region = toStateName(doctor.state_code);
+      if (region) seen.add(region);
+    });
+    return [...seen].sort();
+  }, [doctors]);
+
+  const cityList = useMemo(() => {
+    const regionDoctors = form.region
+      ? doctors.filter(doctor => toStateName(doctor.state_code) === form.region)
+      : doctors;
+    const counts = {};
+    regionDoctors.forEach(doctor => {
+      const city = normCity(doctor.city);
+      if (city) counts[city] = (counts[city] || 0) + 1;
+    });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  }, [doctors, form.region]);
+
+  const filteredAssignees = useMemo(
+    () => assignees.filter(rep => repMatchesRegion(rep, form.region)),
+    [assignees, form.region]
+  );
+
+  const filteredDoctors = useMemo(() => {
+    let rows = form.region
+      ? doctors.filter(doctor => toStateName(doctor.state_code) === form.region)
+      : doctors;
+    if (form.city) rows = rows.filter(doctor => normCity(doctor.city) === form.city);
+    return rows;
+  }, [doctors, form.region, form.city]);
+
+  const selectedDoctor = filteredDoctors.find(doctor => String(doctor.id) === String(form.doctor_id));
   const duplicatePreview = useMemo(() => (Array.isArray(tasks) ? tasks : []).find(task =>
     String(task.assigned_to_id) === String(form.assigned_to_id)
     && String(task.doctor_id) === String(form.doctor_id)
@@ -95,6 +146,27 @@ export default function DailyTasks() {
 
   const updateForm = (field, value) => {
     setForm(prev => ({ ...prev, [field]: value }));
+    setDuplicateTask(null);
+    setMessage('');
+    setError('');
+  };
+
+  const selectRegion = region => {
+    const regionReps = assignees.filter(rep => repMatchesRegion(rep, region));
+    setForm(prev => ({
+      ...prev,
+      region: region || '',
+      city: '',
+      assigned_to_id: String(regionReps[0]?.id || ''),
+      doctor_id: '',
+    }));
+    setDuplicateTask(null);
+    setMessage('');
+    setError('');
+  };
+
+  const selectCity = city => {
+    setForm(prev => ({ ...prev, city: city || '', doctor_id: '' }));
     setDuplicateTask(null);
     setMessage('');
     setError('');
@@ -212,9 +284,43 @@ export default function DailyTasks() {
       {canAssign && (
         <form onSubmit={assignTask} style={{ ...card, marginBottom: 18 }}>
           <div style={{ fontSize: 15, fontWeight: 900, color: '#111827', marginBottom: 12 }}>Assign a Task</div>
+          {allRegions.length > 0 && (
+            <div style={{ padding: '12px 14px', borderRadius: 11, background: '#f8fafc', border: '1px solid #e5e7eb', marginBottom: 13 }}>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                <span style={{ fontSize: 9, color: '#6b7280', fontWeight: 900, letterSpacing: 1.3, textTransform: 'uppercase', marginRight: 4 }}>Region</span>
+                {[{ label: 'All', value: '' }, ...allRegions.map(region => ({ label: region, value: region }))].map(({ label: regionLabel, value }) => {
+                  const active = form.region === value;
+                  const regionAccents = { 'Tamil Nadu': '#F97316', Kerala: '#10B981', Telangana: '#8B5CF6', Karnataka: '#EF4444', Maharashtra: '#3B82F6' };
+                  const accent = regionAccents[value] || '#0F6E56';
+                  return <button type="button" key={regionLabel} onClick={() => selectRegion(value)} style={{ padding: '5px 13px', borderRadius: 20, fontSize: 11, fontWeight: 800, cursor: 'pointer', border: active ? `2px solid ${accent}` : '2px solid #e5e7eb', background: active ? accent : '#fff', color: active ? '#fff' : '#6b7280' }}>{regionLabel}</button>;
+                })}
+              </div>
+              {cityList.length > 0 && (() => {
+                const topCities = cityList.slice(0, 5);
+                const remainingCities = cityList.slice(5);
+                return (
+                  <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 8, alignItems: 'center' }}>
+                    <span style={{ fontSize: 9, color: '#6b7280', fontWeight: 900, letterSpacing: 1.3, textTransform: 'uppercase', marginRight: 4 }}>City</span>
+                    <button type="button" onClick={() => selectCity('')} style={{ padding: '3px 11px', borderRadius: 20, fontSize: 10, fontWeight: 800, cursor: 'pointer', border: form.city === '' ? '2px solid #3D8C40' : '2px solid #e5e7eb', background: form.city === '' ? '#3D8C40' : '#fff', color: form.city === '' ? '#fff' : '#6b7280' }}>All</button>
+                    {topCities.map(([city, count]) => {
+                      const active = form.city === city;
+                      return <button type="button" key={city} onClick={() => selectCity(active ? '' : city)} style={{ padding: '3px 11px', borderRadius: 20, fontSize: 10, fontWeight: 700, cursor: 'pointer', border: active ? '2px solid #3D8C40' : '2px solid #e5e7eb', background: active ? '#3D8C40' : '#fff', color: active ? '#fff' : '#6b7280' }}>{city} <span style={{ opacity: 0.65 }}>({count})</span></button>;
+                    })}
+                    {remainingCities.length > 0 && (
+                      <select value={remainingCities.some(([city]) => city === form.city) ? form.city : ''} onChange={event => selectCity(event.target.value)} style={{ padding: '4px 10px', borderRadius: 20, fontSize: 10, fontWeight: 700, cursor: 'pointer', background: '#fff', color: '#4b5563', border: '2px solid #e5e7eb' }}>
+                        <option value="">+{remainingCities.length} more...</option>
+                        {remainingCities.map(([city, count]) => <option key={city} value={city}>{city} ({count})</option>)}
+                      </select>
+                    )}
+                  </div>
+                );
+              })()}
+              <div style={{ marginTop: 8, fontSize: 10, color: '#6b7280' }}>{filteredAssignees.length} representative{filteredAssignees.length === 1 ? '' : 's'} · {filteredDoctors.length} doctor/hospital record{filteredDoctors.length === 1 ? '' : 's'} in this selection</div>
+            </div>
+          )}
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1fr) minmax(240px, 1.4fr) minmax(150px, .7fr)', gap: 10 }}>
-            <label style={label}>Representative<select value={form.assigned_to_id} onChange={e => updateForm('assigned_to_id', e.target.value)} style={input}><option value="">Select rep</option>{assignees.map(rep => <option key={rep.id} value={rep.id}>{rep.name}{rep.display_role ? ` — ${rep.display_role}` : ''}</option>)}</select></label>
-            <label style={label}>Doctor / Hospital<select value={form.doctor_id} onChange={e => updateForm('doctor_id', e.target.value)} style={input}><option value="">Select doctor</option>{doctors.map(doctor => <option key={doctor.id} value={doctor.id}>{doctor.name}{doctor.hospital ? ` — ${doctor.hospital}` : ''}</option>)}</select></label>
+            <label style={label}>Representative<select value={form.assigned_to_id} onChange={e => updateForm('assigned_to_id', e.target.value)} style={input}><option value="">Select rep</option>{filteredAssignees.map(rep => <option key={rep.id} value={rep.id}>{rep.name}{rep.display_role ? ` — ${rep.display_role}` : ''}{rep.city ? ` · ${rep.city}` : ''}</option>)}</select></label>
+            <label style={label}>Doctor / Hospital<select value={form.doctor_id} onChange={e => updateForm('doctor_id', e.target.value)} style={input}><option value="">Select doctor</option>{filteredDoctors.map(doctor => <option key={doctor.id} value={doctor.id}>{doctor.name}{doctor.hospital ? ` — ${doctor.hospital}` : ''}{doctor.city ? ` · ${normCity(doctor.city)}` : ''}</option>)}</select></label>
             <label style={label}>Task Date<input type="date" value={form.task_date} onChange={e => updateForm('task_date', e.target.value)} style={input} /></label>
           </div>
           {selectedDoctor && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 8 }}>Selected: {selectedDoctor.name} · {[selectedDoctor.hospital, selectedDoctor.city].filter(Boolean).join(' · ')}</div>}
