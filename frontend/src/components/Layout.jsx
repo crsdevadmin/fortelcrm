@@ -260,7 +260,7 @@ export default function Layout({ children }) {
   }, [showSalesReminderForRole, user?.id, location.pathname]);
 
   useEffect(() => {
-    if (!user?.id || role !== 'rep') {
+    if (!user?.id) {
       setUnreadTasks([]);
       return undefined;
     }

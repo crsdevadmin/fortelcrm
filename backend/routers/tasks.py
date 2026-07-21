@@ -68,22 +68,6 @@ def _task_dict(task: DailyTask):
     }
 
 
-def _active_representative_ids(db: Session):
-    """Return active field staff, including custom-role users at hierarchy leaves."""
-    active_manager_ids = {
-        reports_to_id
-        for (reports_to_id,) in db.query(User.reports_to_id).filter(
-            User.is_active == True,
-            User.reports_to_id.isnot(None),
-        ).distinct().all()
-    }
-    return {
-        user.id
-        for user in db.query(User.id, User.role).filter(User.is_active == True).all()
-        if user.role in {"rep", "custom"} and user.id not in active_manager_ids
-    }
-
-
 def _assignment_scope(manager: User, db: Session):
     """Return assignable hierarchy IDs, None for company-wide, or an empty set when denied."""
     visible_ids = get_subtree_ids(manager.id, db)
@@ -102,8 +86,11 @@ def task_assignees(manager_id: int, db: Session = Depends(get_db)):
     visible_ids = _assignment_scope(manager, db)
     if visible_ids == set():
         raise HTTPException(status_code=403, detail="Only managers can assign tasks")
-    representative_ids = _active_representative_ids(db)
-    q = db.query(User).filter(User.id.in_(representative_ids), User.id != manager_id)
+    q = db.query(User).filter(
+        User.is_active == True,
+        User.id != manager_id,
+        User.role != "admin",
+    )
     if visible_ids is not None:
         q = q.filter(User.id.in_(visible_ids))
     return [
@@ -128,15 +115,22 @@ def create_task(payload: TaskCreateRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=403, detail="Only managers can assign tasks")
 
     assignee = db.query(User).filter(User.id == payload.assigned_to_id, User.is_active == True).first()
-    if not assignee or assignee.id not in _active_representative_ids(db):
-        raise HTTPException(status_code=400, detail="Select an active representative")
+    if not assignee or assignee.id == manager.id or assignee.role == "admin":
+        raise HTTPException(status_code=400, detail="Select an active reportee")
 
     if visible_ids is not None and payload.assigned_to_id not in visible_ids:
-        raise HTTPException(status_code=403, detail="Representative is outside your reporting hierarchy")
+        raise HTTPException(status_code=403, detail="Reportee is outside your reporting hierarchy")
 
     doctor = db.query(Doctor).filter(Doctor.id == payload.doctor_id, Doctor.is_active != False).first()
     if not doctor:
         raise HTTPException(status_code=404, detail="Doctor not found")
+    doctor_reportee_ids = {doctor.manager_id} | {
+        mapping.associate_id
+        for mapping in doctor.rep_mappings
+        if mapping.is_active and mapping.associate_id
+    }
+    if assignee.id not in doctor_reportee_ids:
+        raise HTTPException(status_code=400, detail="Select a doctor attached to this reportee")
 
     details = re.sub(r"\s+", " ", (payload.details or "").strip())
     if len(details) < 3:

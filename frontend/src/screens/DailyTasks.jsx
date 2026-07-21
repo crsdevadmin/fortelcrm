@@ -17,7 +17,11 @@ const STATE_NAMES = {
 };
 const toStateName = value => STATE_NAMES[NORMALIZE(value)] || (value || '').trim();
 const normCity = value => (value || '').trim().toLowerCase().replace(/\b\w/g, letter => letter.toUpperCase());
-const repMatchesRegion = (rep, region) => !region || toStateName((rep.state || '').split(',')[0]) === region;
+const doctorBelongsTo = (doctor, userId) => {
+  if (!userId) return true;
+  if (String(doctor.manager_id) === String(userId)) return true;
+  return (doctor.reps || []).some(rep => String(rep.id) === String(userId));
+};
 
 const todayIso = () => {
   const now = new Date();
@@ -29,6 +33,37 @@ const todayIso = () => {
 const card = { background: '#fff', border: '1px solid #e5e7eb', borderRadius: 14, padding: 16 };
 const input = { width: '100%', boxSizing: 'border-box', padding: '10px 11px', border: '1px solid #d1d5db', borderRadius: 9, background: '#fff', fontSize: 13, color: '#111827' };
 const label = { display: 'flex', flexDirection: 'column', gap: 5, fontSize: 10, fontWeight: 800, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.4 };
+
+function SearchPicker({ title, selected, search, onSearch, results, onSelect, onClear, placeholder, resultTitle, resultMeta, emptyText, disabled = false }) {
+  return (
+    <div style={label}>
+      {title}
+      {selected ? (
+        <div style={{ minHeight: 43, display: 'flex', alignItems: 'center', gap: 9, padding: '8px 11px', borderRadius: 9, background: '#f0fdf4', border: '1px solid #86efac', textTransform: 'none', letterSpacing: 0 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: '#166534', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{resultTitle(selected)}</div>
+            <div style={{ fontSize: 10, fontWeight: 500, color: '#6b7280', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{resultMeta(selected)}</div>
+          </div>
+          <button type="button" onClick={onClear} aria-label={`Clear ${title}`} style={{ border: 'none', background: 'none', color: '#6b7280', fontSize: 18, cursor: 'pointer', padding: 2 }}>×</button>
+        </div>
+      ) : (
+        <div style={{ position: 'relative', textTransform: 'none', letterSpacing: 0 }}>
+          <input value={search} onChange={event => onSearch(event.target.value)} placeholder={placeholder} disabled={disabled} style={{ ...input, background: disabled ? '#f3f4f6' : '#fff', cursor: disabled ? 'not-allowed' : 'text' }} />
+          {search.trim() && (
+            <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 80, maxHeight: 240, overflowY: 'auto', marginTop: 4, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 10, boxShadow: '0 10px 28px rgba(0,0,0,0.14)' }}>
+              {results.length ? results.map(row => (
+                <button type="button" key={row.id} onClick={() => onSelect(row)} style={{ width: '100%', display: 'block', textAlign: 'left', border: 'none', borderBottom: '1px solid #f3f4f6', background: '#fff', padding: '10px 12px', cursor: 'pointer' }} onMouseEnter={event => { event.currentTarget.style.background = '#f9fafb'; }} onMouseLeave={event => { event.currentTarget.style.background = '#fff'; }}>
+                  <div style={{ fontSize: 13, fontWeight: 750, color: '#111827' }}>{resultTitle(row)}</div>
+                  <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>{resultMeta(row)}</div>
+                </button>
+              )) : <div style={{ padding: '12px', fontSize: 12, color: '#9ca3af' }}>{emptyText}</div>}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function DailyTasks() {
   const { user } = useAuth();
@@ -53,6 +88,8 @@ export default function DailyTasks() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [duplicateTask, setDuplicateTask] = useState(null);
+  const [assigneeSearch, setAssigneeSearch] = useState('');
+  const [doctorSearch, setDoctorSearch] = useState('');
 
   const loadTasks = useCallback(() => {
     if (!user?.id) return;
@@ -61,9 +98,8 @@ export default function DailyTasks() {
       .then(res => {
         const rows = Array.isArray(res.data) ? res.data : [];
         setTasks(rows);
-        if (user.role === 'rep') {
-          rows.filter(task => !task.is_read).forEach(task => tasksAPI.markRead(task.id, user.id).catch(() => {}));
-        }
+        rows.filter(task => String(task.assigned_to_id) === String(user.id) && !task.is_read)
+          .forEach(task => tasksAPI.markRead(task.id, user.id).catch(() => {}));
       })
       .catch(err => setError(err?.response?.data?.detail || 'Unable to load tasks'))
       .finally(() => setLoading(false));
@@ -82,9 +118,9 @@ export default function DailyTasks() {
       setAssignees(reps);
       setDoctors(doctorList);
       setForm(prev => {
-        const regionReps = reps.filter(rep => repMatchesRegion(rep, prev.region));
-        const selectedRepIsAvailable = regionReps.some(rep => String(rep.id) === String(prev.assigned_to_id));
-        return { ...prev, assigned_to_id: selectedRepIsAvailable ? prev.assigned_to_id : String(regionReps[0]?.id || '') };
+        const selectedReporteeIsAvailable = reps.some(rep => String(rep.id) === String(prev.assigned_to_id));
+        const selectedDoctorIsAvailable = selectedReporteeIsAvailable && doctorList.some(doctor => String(doctor.id) === String(prev.doctor_id) && doctorBelongsTo(doctor, prev.assigned_to_id));
+        return { ...prev, assigned_to_id: selectedReporteeIsAvailable ? prev.assigned_to_id : '', doctor_id: selectedDoctorIsAvailable ? prev.doctor_id : '' };
       });
     }).catch(err => {
       if (err?.response?.status === 403) {
@@ -93,7 +129,7 @@ export default function DailyTasks() {
         setDoctors([]);
         return;
       }
-      setError(err?.response?.data?.detail || 'Unable to load representatives and doctors');
+      setError(err?.response?.data?.detail || 'Unable to load reportees and doctors');
     });
   }, [user?.id, user?.role]);
 
@@ -123,12 +159,7 @@ export default function DailyTasks() {
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
   }, [doctors, form.region]);
 
-  const filteredAssignees = useMemo(
-    () => assignees.filter(rep => repMatchesRegion(rep, form.region)),
-    [assignees, form.region]
-  );
-
-  const filteredDoctors = useMemo(() => {
+  const locationDoctors = useMemo(() => {
     let rows = form.region
       ? doctors.filter(doctor => toStateName(doctor.state_code) === form.region)
       : doctors;
@@ -136,7 +167,28 @@ export default function DailyTasks() {
     return rows;
   }, [doctors, form.region, form.city]);
 
+  const filteredAssignees = useMemo(() => {
+    if (!form.region && !form.city) return assignees;
+    return assignees.filter(reportee => locationDoctors.some(doctor => doctorBelongsTo(doctor, reportee.id)));
+  }, [assignees, locationDoctors, form.region, form.city]);
+
+  const filteredDoctors = useMemo(() => {
+    if (!form.assigned_to_id) return locationDoctors;
+    return locationDoctors.filter(doctor => doctorBelongsTo(doctor, form.assigned_to_id));
+  }, [locationDoctors, form.assigned_to_id]);
+
+  const selectedAssignee = assignees.find(rep => String(rep.id) === String(form.assigned_to_id));
   const selectedDoctor = filteredDoctors.find(doctor => String(doctor.id) === String(form.doctor_id));
+  const assigneeSearchResults = useMemo(() => {
+    const query = assigneeSearch.trim().toLowerCase();
+    if (!query) return [];
+    return filteredAssignees.filter(reportee => [reportee.name, reportee.display_role, reportee.city, reportee.state].filter(Boolean).join(' ').toLowerCase().includes(query)).slice(0, 15);
+  }, [filteredAssignees, assigneeSearch]);
+  const doctorSearchResults = useMemo(() => {
+    const query = doctorSearch.trim().toLowerCase();
+    if (!query) return [];
+    return filteredDoctors.filter(doctor => [doctor.name, doctor.hospital, doctor.city, doctor.specialty, doctor.client_code].filter(Boolean).join(' ').toLowerCase().includes(query)).slice(0, 20);
+  }, [filteredDoctors, doctorSearch]);
   const duplicatePreview = useMemo(() => (Array.isArray(tasks) ? tasks : []).find(task =>
     String(task.assigned_to_id) === String(form.assigned_to_id)
     && String(task.doctor_id) === String(form.doctor_id)
@@ -152,21 +204,24 @@ export default function DailyTasks() {
   };
 
   const selectRegion = region => {
-    const regionReps = assignees.filter(rep => repMatchesRegion(rep, region));
     setForm(prev => ({
       ...prev,
       region: region || '',
       city: '',
-      assigned_to_id: String(regionReps[0]?.id || ''),
+      assigned_to_id: '',
       doctor_id: '',
     }));
+    setAssigneeSearch('');
+    setDoctorSearch('');
     setDuplicateTask(null);
     setMessage('');
     setError('');
   };
 
   const selectCity = city => {
-    setForm(prev => ({ ...prev, city: city || '', doctor_id: '' }));
+    setForm(prev => ({ ...prev, city: city || '', assigned_to_id: '', doctor_id: '' }));
+    setAssigneeSearch('');
+    setDoctorSearch('');
     setDuplicateTask(null);
     setMessage('');
     setError('');
@@ -175,7 +230,7 @@ export default function DailyTasks() {
   const assignTask = async (event) => {
     event.preventDefault();
     if (!form.assigned_to_id || !form.doctor_id || !form.task_date || !form.details.trim()) {
-      setError('Representative, doctor, date and task details are required.');
+      setError('Reportee, doctor, date and task details are required.');
       return;
     }
     if (duplicatePreview) {
@@ -198,7 +253,7 @@ export default function DailyTasks() {
         setDuplicateTask(res.data.task);
         setError('This task was already assigned. The existing task is shown below.');
       } else {
-        setMessage(`Task assigned to ${res.data?.task?.assigned_to_name || 'representative'}.`);
+        setMessage(`Task assigned to ${res.data?.task?.assigned_to_name || 'reportee'}.`);
         setForm(prev => ({ ...prev, doctor_id: '', details: '' }));
         localStorage.removeItem(draftKey);
         loadTasks();
@@ -244,13 +299,13 @@ export default function DailyTasks() {
         <div style={{ marginTop: 12, padding: 11, borderRadius: 9, background: '#f9fafb', color: '#374151', fontSize: 13, lineHeight: 1.5 }}>{task.details}</div>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 10, fontSize: 11, color: '#6b7280' }}>
           <span><strong>Date:</strong> {task.task_date}</span>
-          <span><strong>Rep:</strong> {task.assigned_to_name}</span>
+          <span><strong>Assigned to:</strong> {task.assigned_to_name}</span>
           <span><strong>Assigned by:</strong> {task.assigned_by_name}</span>
         </div>
         {done && task.completion_comments && (
           <div style={{ marginTop: 10, padding: 10, background: '#f0fdf4', borderRadius: 9, color: '#166534', fontSize: 12 }}><strong>Completion comments:</strong> {task.completion_comments}</div>
         )}
-        {!canAssign && !done && (
+        {String(task.assigned_to_id) === String(user.id) && !done && (
           <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'stretch', flexWrap: 'wrap' }}>
             <textarea value={completion[task.id] || ''} onChange={e => setCompletion(prev => ({ ...prev, [task.id]: e.target.value }))}
               placeholder="Enter completion comments..." rows={2} style={{ ...input, flex: 1, minWidth: 240, resize: 'vertical' }} />
@@ -267,7 +322,7 @@ export default function DailyTasks() {
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap', alignItems: 'flex-start', marginBottom: 18 }}>
         <div>
           <div style={{ fontSize: 23, fontWeight: 900, color: '#111827' }}>Daily Tasks</div>
-          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 3 }}>{user?.role === 'md' ? 'Assign tasks and review tasks assigned by every manager.' : canAssign ? 'Assign doctor-specific daily work to representatives.' : 'Review and complete tasks assigned by your manager.'}</div>
+          <div style={{ fontSize: 12, color: '#6b7280', marginTop: 3 }}>{user?.role === 'md' ? 'Assign tasks to reportees and review tasks assigned by every manager.' : canAssign ? 'Assign doctor-specific daily work to people in your reporting hierarchy.' : 'Review and complete tasks assigned by your manager.'}</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} style={{ ...input, width: 150 }} />
@@ -315,12 +370,37 @@ export default function DailyTasks() {
                   </div>
                 );
               })()}
-              <div style={{ marginTop: 8, fontSize: 10, color: '#6b7280' }}>{filteredAssignees.length} representative{filteredAssignees.length === 1 ? '' : 's'} · {filteredDoctors.length} doctor/hospital record{filteredDoctors.length === 1 ? '' : 's'} in this selection</div>
+              <div style={{ marginTop: 8, fontSize: 10, color: '#6b7280' }}>{filteredAssignees.length} reportee{filteredAssignees.length === 1 ? '' : 's'} · {filteredDoctors.length} doctor/hospital record{filteredDoctors.length === 1 ? '' : 's'} in this selection</div>
             </div>
           )}
           <div style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1fr) minmax(240px, 1.4fr) minmax(150px, .7fr)', gap: 10 }}>
-            <label style={label}>Representative<select value={form.assigned_to_id} onChange={e => updateForm('assigned_to_id', e.target.value)} style={input}><option value="">Select rep</option>{filteredAssignees.map(rep => <option key={rep.id} value={rep.id}>{rep.name}{rep.display_role ? ` — ${rep.display_role}` : ''}{rep.city ? ` · ${rep.city}` : ''}</option>)}</select></label>
-            <label style={label}>Doctor / Hospital<select value={form.doctor_id} onChange={e => updateForm('doctor_id', e.target.value)} style={input}><option value="">Select doctor</option>{filteredDoctors.map(doctor => <option key={doctor.id} value={doctor.id}>{doctor.name}{doctor.hospital ? ` — ${doctor.hospital}` : ''}{doctor.city ? ` · ${normCity(doctor.city)}` : ''}</option>)}</select></label>
+            <SearchPicker
+              title="Reportee / Representative"
+              selected={selectedAssignee}
+              search={assigneeSearch}
+              onSearch={setAssigneeSearch}
+              results={assigneeSearchResults}
+              onSelect={reportee => { updateForm('assigned_to_id', String(reportee.id)); setForm(prev => ({ ...prev, doctor_id: '' })); setAssigneeSearch(''); setDoctorSearch(''); }}
+              onClear={() => { updateForm('assigned_to_id', ''); setForm(prev => ({ ...prev, doctor_id: '' })); setAssigneeSearch(''); setDoctorSearch(''); }}
+              placeholder="Type reportee name, role or city..."
+              resultTitle={reportee => reportee.name}
+              resultMeta={reportee => [reportee.display_role, reportee.city, toStateName(reportee.state)].filter(Boolean).join(' · ')}
+              emptyText="No matching reportee in your reporting hierarchy"
+            />
+            <SearchPicker
+              title="Doctor / Hospital"
+              selected={selectedDoctor}
+              search={doctorSearch}
+              onSearch={setDoctorSearch}
+              results={doctorSearchResults}
+              onSelect={doctor => { updateForm('doctor_id', String(doctor.id)); setDoctorSearch(''); }}
+              onClear={() => { updateForm('doctor_id', ''); setDoctorSearch(''); }}
+              placeholder={form.assigned_to_id ? 'Type doctor, hospital, city or code...' : 'Select a reportee first, then type...'}
+              disabled={!form.assigned_to_id}
+              resultTitle={doctor => doctor.name}
+              resultMeta={doctor => [doctor.hospital, normCity(doctor.city), doctor.client_code].filter(Boolean).join(' · ')}
+              emptyText={form.assigned_to_id ? 'No matching doctor attached to this reportee' : 'Select a reportee before searching doctors'}
+            />
             <label style={label}>Task Date<input type="date" value={form.task_date} onChange={e => updateForm('task_date', e.target.value)} style={input} /></label>
           </div>
           {selectedDoctor && <div style={{ fontSize: 11, color: '#6b7280', marginTop: 8 }}>Selected: {selectedDoctor.name} · {[selectedDoctor.hospital, selectedDoctor.city].filter(Boolean).join(' · ')}</div>}
