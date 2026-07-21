@@ -911,6 +911,7 @@ function RegionalSalesPanel({ year, month }) {
   const [rows, setRows] = useState({});
   const [editingRegionalRows, setEditingRegionalRows] = useState({});
   const [dirtyRegionalRows, setDirtyRegionalRows] = useState({});
+  const [previousRegionalQty, setPreviousRegionalQty] = useState({});
   const [history, setHistory] = useState([]);
   const [consolidated, setConsolidated] = useState({ qty: 0, value: 0 });
   const [loading, setLoading] = useState(true);
@@ -933,8 +934,9 @@ function RegionalSalesPanel({ year, month }) {
       axios.get(`${API}/products/`),
       axios.get(`${API}/doctors/`, { params: { viewer_id: me.id, include_inactive: false } }),
       salesAPI.regional(me.id, salesYear, salesMonth, activeSalesWeek, regionalStateFilter, regionalCityFilter),
+      salesAPI.regional(me.id, salesYear, salesMonth, null, regionalStateFilter, regionalCityFilter),
       salesAPI.regional(me.id, null, null, null, regionalStateFilter, regionalCityFilter),
-    ]).then(([productRes, doctorRes, regionalRes, consolidatedRes]) => {
+    ]).then(([productRes, doctorRes, regionalRes, monthRes, consolidatedRes]) => {
       const productList = productRes.data || [];
       const doctorList = doctorRes.data || [];
       const consolidatedRows = consolidatedRes.data || [];
@@ -961,10 +963,18 @@ function RegionalSalesPanel({ year, month }) {
           acc[product.id] = { quantity: '', price: product.rate || '' };
           return acc;
         }, {}));
+        setPreviousRegionalQty({});
         setHistory([]);
         return;
       }
       const savedRows = regionalRes.data || [];
+      const previousQty = isCurrentSalesMonth
+        ? (monthRes.data || []).filter(row => Number(row.week) < activeSalesWeek).reduce((acc, row) => {
+          acc[row.product_id] = (acc[row.product_id] || 0) + (Number(row.quantity) || 0);
+          return acc;
+        }, {})
+        : {};
+      setPreviousRegionalQty(previousQty);
       const byProduct = {};
       savedRows.forEach(row => {
         const current = byProduct[row.product_id] || { quantity: 0, value: 0, existing: false, count: 0, id: null };
@@ -981,8 +991,9 @@ function RegionalSalesPanel({ year, month }) {
       setProducts(productList);
       setRows(productList.reduce((acc, product) => {
         const saved = byProduct[product.id];
-        const quantity = saved?.quantity || 0;
-        const price = quantity ? saved.value / quantity : product.rate || '';
+        const weeklyQuantity = saved?.quantity || 0;
+        const quantity = (previousQty[product.id] || 0) + weeklyQuantity;
+        const price = weeklyQuantity ? saved.value / weeklyQuantity : product.rate || '';
         acc[product.id] = {
           quantity: quantity || '',
           price,
@@ -1010,9 +1021,19 @@ function RegionalSalesPanel({ year, month }) {
 
   const entries = products.map(product => {
     const row = rows[product.id] || {};
-    const quantity = Number(row.quantity) || 0;
+    const cumulativeQuantity = Number(row.quantity) || 0;
+    const previousQuantity = isCurrentSalesMonth ? (Number(previousRegionalQty[product.id]) || 0) : 0;
+    const quantity = isCurrentSalesMonth ? Math.max(0, cumulativeQuantity - previousQuantity) : cumulativeQuantity;
     const price = Number(row.price) || 0;
-    return { product, quantity, price, value: quantity * price };
+    return {
+      product,
+      cumulativeQuantity,
+      previousQuantity,
+      quantity,
+      price,
+      value: quantity * price,
+      belowPrevious: isCurrentSalesMonth && cumulativeQuantity > 0 && cumulativeQuantity < previousQuantity,
+    };
   });
   const totalQty = entries.reduce((sum, row) => sum + row.quantity, 0);
   const totalValue = entries.reduce((sum, row) => sum + row.value, 0);
@@ -1060,7 +1081,7 @@ function RegionalSalesPanel({ year, month }) {
         id: rows[row.product.id]?.id || undefined,
         product_id: row.product.id,
         quantity: row.quantity,
-        price: row.price,
+        price: row.quantity > 0 ? row.price : 0,
       }));
     if (!payloadRows.length) {
       setError('Enter quantity for at least one product.');
@@ -1328,17 +1349,30 @@ function RegionalSalesPanel({ year, month }) {
           Consolidated view is read-only. Select a specific region and city to enter quantity and price.
         </div>
       )}
+      {!loading && isCurrentSalesMonth && week > 1 && !isAggregateRegionalView && (
+        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e3a8a', borderRadius: 10, padding: 12, marginBottom: 12, fontSize: 13 }}>
+          Enter the <strong>cumulative quantity shown in the PDF</strong>. Quantities already saved in Weeks 1–{week - 1} are subtracted automatically. The product rate is not subtracted.
+        </div>
+      )}
+      {entries.some(row => row.belowPrevious) && (
+        <div style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', borderRadius: 10, padding: 12, marginBottom: 12, fontSize: 13 }}>
+          Some cumulative quantities are below the previous saved total. Their current-week quantity has been set to zero.
+        </div>
+      )}
 
       <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 120px 120px 130px 86px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', fontSize: 11, fontWeight: 900, color: '#4b5563', textTransform: 'uppercase' }}>
-          {['Product', 'Qty', 'Price', 'Total', 'Action'].map(label => <div key={label} style={{ padding: '10px 12px' }}>{label}</div>)}
+          {['Product', isCurrentSalesMonth ? 'PDF Cumulative Qty' : 'Qty', 'Rate', isCurrentSalesMonth ? `Week ${week} Total` : 'Total', 'Action'].map(label => <div key={label} style={{ padding: '10px 12px' }}>{label}</div>)}
         </div>
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: '#6b7280' }}>Loading products...</div>
         ) : products.map(product => {
           const row = rows[product.id] || {};
-          const quantity = Number(row.quantity) || 0;
+          const cumulativeQuantity = Number(row.quantity) || 0;
+          const previousQuantity = isCurrentSalesMonth ? (Number(previousRegionalQty[product.id]) || 0) : 0;
+          const quantity = isCurrentSalesMonth ? Math.max(0, cumulativeQuantity - previousQuantity) : cumulativeQuantity;
           const price = Number(row.price) || 0;
+          const belowPrevious = isCurrentSalesMonth && cumulativeQuantity > 0 && cumulativeQuantity < previousQuantity;
           const editing = Boolean(editingRegionalRows[product.id]);
           const isLockedSavedRow = Boolean(row.existing) && !editing;
           const inputDisabled = isAggregateRegionalView || isLockedSavedRow;
@@ -1347,11 +1381,16 @@ function RegionalSalesPanel({ year, month }) {
               <div style={{ padding: '10px 12px', minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 800, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{product.name}</div>
                 {(product.pack || product.composition) && <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>{[product.pack, product.composition].filter(Boolean).join(' | ')}</div>}
+                {isCurrentSalesMonth && week > 1 && (
+                  <div style={{ fontSize: 10, color: belowPrevious ? '#b45309' : '#6b7280', marginTop: 3 }}>
+                    Previous: {previousQuantity.toLocaleString('en-IN')} · Week {week}: {quantity.toLocaleString('en-IN')}
+                  </div>
+                )}
               </div>
               <div style={{ padding: '10px 12px' }}>
                 <input type="number" min="0" value={row.quantity || ''} onChange={e => updateRow(product.id, 'quantity', e.target.value)}
                   disabled={inputDisabled}
-                  style={{ width: '100%', boxSizing: 'border-box', padding: '8px 9px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: inputDisabled ? '#f3f4f6' : '#fff', color: inputDisabled ? '#6b7280' : '#111827' }} />
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '8px 9px', border: belowPrevious ? '1px solid #f59e0b' : '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: inputDisabled ? '#f3f4f6' : '#fff', color: inputDisabled ? '#6b7280' : '#111827' }} />
               </div>
               <div style={{ padding: '10px 12px' }}>
                 <input type="number" min="0" value={row.price || ''} onChange={e => updateRow(product.id, 'price', e.target.value)}
