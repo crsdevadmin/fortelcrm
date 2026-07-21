@@ -100,6 +100,7 @@ def task_assignees(manager_id: int, db: Session = Depends(get_db)):
             "city": user.city,
             "state": user.state,
             "display_role": user.display_role,
+            "reports_to_id": user.reports_to_id,
         }
         for user in q.order_by(User.name).all()
     ]
@@ -124,13 +125,14 @@ def create_task(payload: TaskCreateRequest, db: Session = Depends(get_db)):
     doctor = db.query(Doctor).filter(Doctor.id == payload.doctor_id, Doctor.is_active != False).first()
     if not doctor:
         raise HTTPException(status_code=404, detail="Doctor not found")
-    doctor_reportee_ids = {doctor.manager_id} | {
+    doctor_owner_ids = {doctor.manager_id} | {
         mapping.associate_id
         for mapping in doctor.rep_mappings
         if mapping.is_active and mapping.associate_id
     }
-    if assignee.id not in doctor_reportee_ids:
-        raise HTTPException(status_code=400, detail="Select a doctor attached to this reportee")
+    assignee_scope = get_subtree_ids(assignee.id, db)
+    if assignee_scope is not None and doctor_owner_ids.isdisjoint(assignee_scope):
+        raise HTTPException(status_code=400, detail="Select a doctor attached to this reportee or their team")
 
     details = re.sub(r"\s+", " ", (payload.details or "").strip())
     if len(details) < 3:

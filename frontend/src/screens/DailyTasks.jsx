@@ -17,10 +17,25 @@ const STATE_NAMES = {
 };
 const toStateName = value => STATE_NAMES[NORMALIZE(value)] || (value || '').trim();
 const normCity = value => (value || '').trim().toLowerCase().replace(/\b\w/g, letter => letter.toUpperCase());
-const doctorBelongsTo = (doctor, userId) => {
+const reporteeScopeIds = (reportees, userId) => {
+  const scope = new Set([String(userId)]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    reportees.forEach(reportee => {
+      if (scope.has(String(reportee.reports_to_id)) && !scope.has(String(reportee.id))) {
+        scope.add(String(reportee.id));
+        changed = true;
+      }
+    });
+  }
+  return scope;
+};
+const doctorBelongsTo = (doctor, userId, reportees = []) => {
   if (!userId) return true;
-  if (String(doctor.manager_id) === String(userId)) return true;
-  return (doctor.reps || []).some(rep => String(rep.id) === String(userId));
+  const scope = reporteeScopeIds(reportees, userId);
+  if (scope.has(String(doctor.manager_id))) return true;
+  return (doctor.reps || []).some(rep => scope.has(String(rep.id)));
 };
 
 const todayIso = () => {
@@ -119,7 +134,7 @@ export default function DailyTasks() {
       setDoctors(doctorList);
       setForm(prev => {
         const selectedReporteeIsAvailable = reps.some(rep => String(rep.id) === String(prev.assigned_to_id));
-        const selectedDoctorIsAvailable = selectedReporteeIsAvailable && doctorList.some(doctor => String(doctor.id) === String(prev.doctor_id) && doctorBelongsTo(doctor, prev.assigned_to_id));
+        const selectedDoctorIsAvailable = selectedReporteeIsAvailable && doctorList.some(doctor => String(doctor.id) === String(prev.doctor_id) && doctorBelongsTo(doctor, prev.assigned_to_id, reps));
         return { ...prev, assigned_to_id: selectedReporteeIsAvailable ? prev.assigned_to_id : '', doctor_id: selectedDoctorIsAvailable ? prev.doctor_id : '' };
       });
     }).catch(err => {
@@ -169,13 +184,13 @@ export default function DailyTasks() {
 
   const filteredAssignees = useMemo(() => {
     if (!form.region && !form.city) return assignees;
-    return assignees.filter(reportee => locationDoctors.some(doctor => doctorBelongsTo(doctor, reportee.id)));
+    return assignees.filter(reportee => locationDoctors.some(doctor => doctorBelongsTo(doctor, reportee.id, assignees)));
   }, [assignees, locationDoctors, form.region, form.city]);
 
   const filteredDoctors = useMemo(() => {
     if (!form.assigned_to_id) return locationDoctors;
-    return locationDoctors.filter(doctor => doctorBelongsTo(doctor, form.assigned_to_id));
-  }, [locationDoctors, form.assigned_to_id]);
+    return locationDoctors.filter(doctor => doctorBelongsTo(doctor, form.assigned_to_id, assignees));
+  }, [locationDoctors, form.assigned_to_id, assignees]);
 
   const selectedAssignee = assignees.find(rep => String(rep.id) === String(form.assigned_to_id));
   const selectedDoctor = filteredDoctors.find(doctor => String(doctor.id) === String(form.doctor_id));
