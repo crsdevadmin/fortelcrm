@@ -339,3 +339,35 @@ class VisitLog(Base):
 
     associate = relationship("User",   foreign_keys=[associate_id], back_populates="visit_logs")
     doctor    = relationship("Doctor", back_populates="visit_logs")
+
+
+# DAILY TASK ASSIGNMENT
+
+class DailyTask(Base):
+    __tablename__ = "daily_tasks"
+
+    id                  = Column(Integer, primary_key=True, index=True)
+    assigned_by_id      = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    assigned_to_id      = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    doctor_id           = Column(Integer, ForeignKey("doctors.id"), nullable=False, index=True)
+    hospital            = Column(String(250), nullable=True)
+    task_date           = Column(String(10), nullable=False, index=True)
+    details             = Column(Text, nullable=False)
+    details_fingerprint = Column(String(64), nullable=False)
+    status              = Column(String(20), nullable=False, default="pending", index=True)
+    completion_comments = Column(Text, nullable=True)
+    read_at             = Column(DateTime, nullable=True)
+    completed_at        = Column(DateTime, nullable=True)
+    created_at          = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at          = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    assigned_by = relationship("User", foreign_keys=[assigned_by_id])
+    assigned_to = relationship("User", foreign_keys=[assigned_to_id])
+    doctor      = relationship("Doctor", foreign_keys=[doctor_id])
+
+    __table_args__ = (
+        UniqueConstraint(
+            "assigned_to_id", "doctor_id", "task_date", "details_fingerprint",
+            name="uq_daily_task_rep_doctor_date_details",
+        ),
+    )

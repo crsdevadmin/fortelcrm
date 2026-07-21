@@ -2,7 +2,7 @@ import InstallBanner from './InstallBanner';
 import React, { useEffect, useState } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { salesAPI, targetsAPI } from '../api';
+import { salesAPI, targetsAPI, tasksAPI } from '../api';
 
 // ── Nav config ───────────────────────────────────
 const NAV = {
@@ -126,6 +126,7 @@ const PAGE_TITLES = {
   '/product-sales':  'Sales by Product',
   '/target-setting': 'Target Setting',
   '/rep-activity':   'Rep Activity',
+  '/tasks':          'Daily Tasks',
   '/users':         'User Management',
   '/admin-doctors': 'Customer Master',
 };
@@ -172,16 +173,20 @@ export default function Layout({ children }) {
   const [targetSummary, setTargetSummary]   = useState(null);
   const [salesReminder, setSalesReminder]   = useState(null);
   const [salesReminderHiddenUntil, setSalesReminderHiddenUntil] = useState(0);
+  const [unreadTasks, setUnreadTasks] = useState([]);
 
   const role = user?.role || 'custom';
-  const navSections = (NAV[role] || NAV.custom)
+  const navSections = [
+    ...(NAV[role] || NAV.custom)
     .map(section => ({
       ...section,
       items: [
         ...section.items,
       ].filter(item => item.to !== '/my-team'),
     }))
-    .filter(section => section.items.length > 0);
+    .filter(section => section.items.length > 0),
+    { label: 'Daily Work', items: [{ to: '/tasks', icon: '✓', label: 'Daily Tasks' }] },
+  ];
   const pageTitle = PAGE_TITLES[location.pathname] || 'Fortel CRM';
   const showTargetSummary = user?.id && !['admin', 'md'].includes(role);
   const showSalesReminderForRole = user?.id && !['admin', 'md'].includes(role);
@@ -253,6 +258,36 @@ export default function Layout({ children }) {
     const timer = setInterval(checkReminder, 30 * 60 * 1000);
     return () => clearInterval(timer);
   }, [showSalesReminderForRole, user?.id, location.pathname]);
+
+  useEffect(() => {
+    if (!user?.id || role !== 'rep') {
+      setUnreadTasks([]);
+      return undefined;
+    }
+    const checkTasks = async () => {
+      try {
+        const res = await tasksAPI.list(user.id, { unread_only: true, status: 'pending' });
+        const pending = res.data || [];
+        setUnreadTasks(pending);
+        const newest = pending[0];
+        if (newest && window.Notification?.permission === 'granted') {
+          const notificationKey = `fortel_task_notice_${user.id}_${newest.id}`;
+          if (!localStorage.getItem(notificationKey)) {
+            new Notification(`New task: ${newest.doctor_name}`, {
+              body: newest.details,
+              tag: notificationKey,
+            });
+            localStorage.setItem(notificationKey, 'shown');
+          }
+        }
+      } catch (_) {
+        setUnreadTasks([]);
+      }
+    };
+    checkTasks();
+    const timer = setInterval(checkTasks, 2 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, [user?.id, role, location.pathname]);
 
   useEffect(() => {
     setSidebarOpen(false);
@@ -337,6 +372,9 @@ export default function Layout({ children }) {
                 >
                   <span className="icon" style={{ fontSize: 13, opacity: 0.9, flexShrink: 0 }}>{item.icon}</span>
                   <span className="link-label">{item.label}</span>
+                  {item.to === '/tasks' && unreadTasks.length > 0 && (
+                    <span style={{ marginLeft: 'auto', minWidth: 18, height: 18, padding: '0 5px', borderRadius: 999, background: '#ef4444', color: '#fff', fontSize: 10, fontWeight: 900, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{unreadTasks.length}</span>
+                  )}
                 </NavLink>
               ))}
             </div>
@@ -590,6 +628,16 @@ export default function Layout({ children }) {
             >
               Remind Later
             </button>
+          </div>
+        )}
+        {unreadTasks.length > 0 && location.pathname !== '/tasks' && (
+          <div style={{ margin: '14px 24px 0', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 12, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', color: '#1e3a8a' }}>
+            <div style={{ flex: 1, minWidth: 240 }}>
+              <div style={{ fontSize: 13, fontWeight: 900 }}>{unreadTasks.length} new daily task{unreadTasks.length === 1 ? '' : 's'}</div>
+              <div style={{ fontSize: 12, marginTop: 2 }}>{unreadTasks[0]?.doctor_name}: {unreadTasks[0]?.details}</div>
+            </div>
+            {window.Notification && Notification.permission === 'default' && <button onClick={() => Notification.requestPermission()} style={{ border: '1px solid #93c5fd', background: '#fff', color: '#1e40af', borderRadius: 8, padding: '8px 10px', fontWeight: 800, cursor: 'pointer' }}>Enable Alerts</button>}
+            <button onClick={() => navigate('/tasks')} style={{ border: 'none', background: '#1d4ed8', color: '#fff', borderRadius: 8, padding: '8px 12px', fontWeight: 900, cursor: 'pointer' }}>View Tasks</button>
           </div>
         )}
         <div className="page-content">

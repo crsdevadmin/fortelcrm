@@ -101,6 +101,14 @@ export const targetsAPI = {
   save: (payload) => client.post('/targets/', payload),
 };
 
+export const tasksAPI = {
+  assignees: (managerId) => client.get('/tasks/assignees', { params: { manager_id: managerId } }),
+  list: (viewerId, params = {}) => client.get('/tasks/', { params: { viewer_id: viewerId, ...params } }),
+  create: (payload) => client.post('/tasks/', payload),
+  markRead: (taskId, userId) => client.patch(`/tasks/${taskId}/read`, null, { params: { user_id: userId } }),
+  complete: (taskId, userId, comments) => client.patch(`/tasks/${taskId}/complete`, { user_id: userId, comments }),
+};
+
 // ── EXPORTS ───────────────────────────────────
 const API_BASE = process.env.REACT_APP_API_URL || '';
 

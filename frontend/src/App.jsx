@@ -20,6 +20,7 @@ import ProductSales from './screens/ProductSales';
 import VisitLog from './screens/VisitLog';
 import RepActivity from './screens/RepActivity';
 import TargetSetting from './screens/TargetSetting';
+import DailyTasks from './screens/DailyTasks';
 
 // Route guard — redirects to / if role not allowed
 function RoleGuard({ children, allowedRoles }) {
@@ -59,6 +60,7 @@ function PrivateRoutes() {
             <TargetSetting />
           </RoleGuard>
         } />
+        <Route path="/tasks"            element={<DailyTasks />} />
 
         {/* Admin + MD only */}
         <Route path="/users"            element={
