@@ -46,7 +46,7 @@ export default function DailyTasks() {
     setLoading(true);
     tasksAPI.list(user.id, { task_date: filterDate || undefined, status: statusFilter })
       .then(res => {
-        const rows = res.data || [];
+        const rows = Array.isArray(res.data) ? res.data : [];
         setTasks(rows);
         if (user.role === 'rep') {
           rows.filter(task => !task.is_read).forEach(task => tasksAPI.markRead(task.id, user.id).catch(() => {}));
@@ -64,9 +64,10 @@ export default function DailyTasks() {
       tasksAPI.assignees(user.id),
       axios.get(`${API}/doctors/`, { params: { viewer_id: user.id, include_inactive: false } }),
     ]).then(([assigneeRes, doctorRes]) => {
-      const reps = assigneeRes.data || [];
+      const reps = Array.isArray(assigneeRes.data) ? assigneeRes.data : [];
+      const doctorList = Array.isArray(doctorRes.data) ? doctorRes.data : [];
       setAssignees(reps);
-      setDoctors(doctorRes.data || []);
+      setDoctors(doctorList);
       setForm(prev => ({ ...prev, assigned_to_id: prev.assigned_to_id || String(reps[0]?.id || '') }));
     }).catch(err => setError(err?.response?.data?.detail || 'Unable to load representatives and doctors'));
   }, [user?.id, canAssign]);
@@ -76,12 +77,12 @@ export default function DailyTasks() {
     localStorage.setItem(draftKey, JSON.stringify(form));
   }, [form, canAssign, draftKey]);
 
-  const selectedDoctor = doctors.find(doctor => String(doctor.id) === String(form.doctor_id));
-  const duplicatePreview = useMemo(() => tasks.find(task =>
+  const selectedDoctor = (Array.isArray(doctors) ? doctors : []).find(doctor => String(doctor.id) === String(form.doctor_id));
+  const duplicatePreview = useMemo(() => (Array.isArray(tasks) ? tasks : []).find(task =>
     String(task.assigned_to_id) === String(form.assigned_to_id)
     && String(task.doctor_id) === String(form.doctor_id)
     && task.task_date === form.task_date
-    && task.details.trim().toLowerCase().replace(/\s+/g, ' ') === form.details.trim().toLowerCase().replace(/\s+/g, ' ')
+    && (task.details || '').trim().toLowerCase().replace(/\s+/g, ' ') === form.details.trim().toLowerCase().replace(/\s+/g, ' ')
   ), [tasks, form]);
 
   const updateForm = (field, value) => {
