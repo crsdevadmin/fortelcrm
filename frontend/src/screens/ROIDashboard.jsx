@@ -1103,53 +1103,6 @@ function RegionalSalesPanel({ year, month }) {
     }
   };
 
-  const resetRegionalMonth = async () => {
-    if (!me?.id || isAggregateRegionalView) return;
-    if (!window.confirm(`Reset all regional sales for ${city}, ${toStateName(stateCode)} in ${MONTHS[salesMonth]} ${salesYear}?`)) return;
-    setSaving(true);
-    setError('');
-    setMessage('');
-    try {
-      const res = await salesAPI.regional(me.id, salesYear, salesMonth, null, regionalStateFilter, regionalCityFilter);
-      const monthRows = (res.data || []).filter(row => Number(row.quantity) > 0 || Number(row.value) > 0);
-      const byWeek = monthRows.reduce((acc, row) => {
-        const wk = Number(row.week) || 0;
-        acc[wk] = acc[wk] || [];
-        acc[wk].push({ id: row.id, product_id: row.product_id, quantity: 0, price: 0 });
-        return acc;
-      }, {});
-      const weeks = Object.keys(byWeek).map(Number);
-      if (!weeks.length) {
-        setMessage(`No regional sales found to reset for ${MONTHS[salesMonth]} ${salesYear}.`);
-        return;
-      }
-      await Promise.all(weeks.map(wk => salesAPI.submitRegional({
-        associate_id: me.id,
-        state_code: stateCode,
-        city,
-        year: salesYear,
-        month: salesMonth,
-        week: wk,
-        entries: byWeek[wk],
-      })));
-      setMessage(`Regional sales reset for ${city}, ${toStateName(stateCode)} · ${MONTHS[salesMonth]} ${salesYear}.`);
-      setRows(prev => Object.fromEntries(Object.entries(prev).map(([productId, row]) => [productId, {
-        ...row,
-        quantity: '',
-        price: row.price || '',
-        existing: false,
-        id: null,
-      }])));
-      setEditingRegionalRows({});
-      setDirtyRegionalRows({});
-      loadRegional();
-    } catch (err) {
-      setError(err?.response?.data?.detail || 'Failed to reset regional sales for this month.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
   return (
     <div style={{ padding: '16px 24px 40px' }}>
       <div style={{
@@ -1173,11 +1126,6 @@ function RegionalSalesPanel({ year, month }) {
             <div style={{ fontSize: 11, opacity: 0.55, marginTop: 3 }}>Product-wise sales by region · week-wise quantity and price</div>
           </div>
           <div style={{ display: 'flex', gap: 8, marginLeft: 'auto', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            <button onClick={resetRegionalMonth} disabled={saving || loading || isAggregateRegionalView}
-              title={isAggregateRegionalView ? 'Select a specific state and city to reset regional sales.' : 'Reset selected month regional sales to zero'}
-              style={{ padding: '9px 15px', borderRadius: 9, border: '1px solid rgba(255,255,255,0.28)', background: (saving || isAggregateRegionalView) ? 'rgba(255,255,255,0.12)' : 'rgba(248,113,113,0.22)', color: '#fff', cursor: (saving || isAggregateRegionalView) ? 'default' : 'pointer', fontWeight: 900 }}>
-              Reset Month
-            </button>
             <button onClick={saveRegionalSales} disabled={saving || loading || isAggregateRegionalView || pendingRows.length === 0}
               title={isAggregateRegionalView ? 'Select a specific state and city to save regional sales.' : pendingRows.length === 0 ? 'Click Edit on a saved row or enter a new row before saving.' : 'Save regional sales'}
               style={{ padding: '9px 15px', borderRadius: 9, border: 'none', background: (saving || isAggregateRegionalView || pendingRows.length === 0) ? '#9ca3af' : '#0F6E56', color: '#fff', cursor: (saving || isAggregateRegionalView || pendingRows.length === 0) ? 'default' : 'pointer', fontWeight: 900 }}>
