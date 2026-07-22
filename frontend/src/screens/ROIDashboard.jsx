@@ -1997,7 +1997,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
               }}>
               {showForm ? '✕ Cancel' : '+ Add Investment'}
             </button>
-            <button onClick={() => { setShowForm(false); navigate('/my-sales'); }}
+            <button onClick={() => { setShowForm(false); navigate('/my-sales?add=1'); }}
               style={{
                 background: '#F5B800',
                 color: '#111827', border: 'none', borderRadius: 12, padding: '10px 20px',
@@ -2273,30 +2273,6 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
         </div>
       )}
 
-      {/* Saved entries remain visible so accidental values can be corrected. */}
-      {visibleMyInvestments.length > 0 && (
-        <div style={{ margin: '14px 24px 0', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 14, overflow: 'hidden' }}>
-          <div style={{ padding: '11px 14px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 900, color: '#111827' }}>Saved Investments · {MONTHS[month]} {year}</div>
-              <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>Use Edit to correct an entered value. Approved entries return for approval after editing.</div>
-            </div>
-            <span style={{ fontSize: 11, color: '#6b7280' }}>{visibleMyInvestments.length} entr{visibleMyInvestments.length === 1 ? 'y' : 'ies'}</span>
-          </div>
-          {visibleMyInvestments.map(investment => (
-            <div key={investment.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1.4fr) minmax(110px, .7fr) minmax(90px, .5fr) auto', gap: 10, alignItems: 'center', padding: '10px 14px', borderTop: '1px solid #f3f4f6' }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 12, fontWeight: 800, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{investment.doctor_name}</div>
-                <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>{investment.commercial_model_type || 'Investment'}{investment.sub_category ? ` · ${investment.sub_category}` : ''}</div>
-              </div>
-              <div style={{ fontSize: 12, fontWeight: 900, color: '#0F6E56' }}>{fmtInr(investment.amount)}</div>
-              <div style={{ fontSize: 10, color: investment.is_approved ? '#166534' : '#92400e', fontWeight: 800 }}>{investment.is_approved ? 'Approved' : 'Pending'}</div>
-              <button type="button" onClick={() => editInvestment(investment)} style={{ padding: '6px 11px', borderRadius: 8, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', fontSize: 11, fontWeight: 900, cursor: 'pointer' }}>Edit</button>
-            </div>
-          ))}
-        </div>
-      )}
-
       {/* ── INLINE INVESTMENT FORM */}
       {showForm && (
         <div style={{ margin: '16px 24px 0', background: '#fff', borderRadius: 16, border: '1.5px solid #1D9E75', padding: 20, boxShadow: '0 4px 20px rgba(29,158,117,0.1)' }}>
@@ -2434,6 +2410,29 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
               </button>
             </div>
           </form>
+
+          {visibleMyInvestments.length > 0 && (
+            <div style={{ marginTop: 18, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 14, overflow: 'hidden' }}>
+              <div style={{ padding: '11px 14px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 900, color: '#111827' }}>Saved Investments · {MONTHS[month]} {year}</div>
+                  <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>Use Edit to correct an entered value. Approved entries return for approval after editing.</div>
+                </div>
+                <span style={{ fontSize: 11, color: '#6b7280' }}>{visibleMyInvestments.length} entr{visibleMyInvestments.length === 1 ? 'y' : 'ies'}</span>
+              </div>
+              {visibleMyInvestments.map(investment => (
+                <div key={investment.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1.4fr) minmax(110px, .7fr) minmax(90px, .5fr) auto', gap: 10, alignItems: 'center', padding: '10px 14px', borderTop: '1px solid #f3f4f6' }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 800, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{investment.doctor_name}</div>
+                    <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>{investment.commercial_model_type || 'Investment'}{investment.sub_category ? ` · ${investment.sub_category}` : ''}</div>
+                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 900, color: '#0F6E56' }}>{fmtInr(investment.amount)}</div>
+                  <div style={{ fontSize: 10, color: investment.is_approved ? '#166534' : '#92400e', fontWeight: 800 }}>{investment.is_approved ? 'Approved' : 'Pending'}</div>
+                  <button type="button" onClick={() => editInvestment(investment)} style={{ padding: '6px 11px', borderRadius: 8, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', fontSize: 11, fontWeight: 900, cursor: 'pointer' }}>Edit</button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

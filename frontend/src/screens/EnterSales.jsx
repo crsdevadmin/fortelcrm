@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import { useLocation } from 'react-router-dom';
 import { salesAPI } from '../api';
 import { useAuth } from '../context/AuthContext';
 
@@ -20,6 +21,7 @@ const daysInMonth = (y, m) => new Date(y, m, 0).getDate();
 
 export default function SalesScreen() {
   const { user: me } = useAuth();
+  const location = useLocation();
 
   /* ── master data ── */
   const [doctors,  setDoctors]  = useState([]);
@@ -52,6 +54,12 @@ export default function SalesScreen() {
   const [editSaleForm, setEditSaleForm] = useState({ quantity: '', value: '' });
   const [editSaleBusy, setEditSaleBusy] = useState(false);
   const [editSaleError, setEditSaleError] = useState('');
+
+  useEffect(() => {
+    if (new URLSearchParams(location.search).get('add') === '1') {
+      setShowForm(true);
+    }
+  }, [location.search]);
 
   /* ── outside-click refs ── */
   const docRef  = useRef(null);
@@ -668,6 +676,13 @@ export default function SalesScreen() {
                 <div style={{ fontSize: 12, color: '#bbb' }}>{entries.length} product{entries.length!==1?'s':''} · {fmtD(saleDate)} · {selDoctor.name}</div>
               </div>
             )}
+          </div>
+        )}
+
+        {showForm && !histLoad && histData.length > 0 && (
+          <div style={{ marginBottom: 12, padding: '11px 14px', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 900, color: '#111827' }}>Saved Sales · {MN[month]} {year}</div>
+            <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>Your saved entries are shown below. Use Edit to correct quantity or value.</div>
           </div>
         )}
 
