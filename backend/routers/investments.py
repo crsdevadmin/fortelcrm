@@ -171,6 +171,44 @@ def create_investment(payload: InvestmentPayload, db: Session = Depends(get_db))
         raise HTTPException(status_code=500, detail=f"DB error: {str(e)}")
 
 
+@router.patch("/{investment_id}")
+def update_investment(investment_id: int, payload: InvestmentPayload, db: Session = Depends(get_db)):
+    inv = db.query(Investment).filter(Investment.id == investment_id).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Investment not found")
+    if not payload.associate_id or inv.associate_id != payload.associate_id:
+        raise HTTPException(status_code=403, detail="You can edit only your own investment entries")
+    if payload.amount <= 0:
+        raise HTTPException(status_code=400, detail="Investment amount must be greater than zero")
+    if not db.query(Doctor).filter(Doctor.id == payload.doctor_id, Doctor.is_active != False).first():
+        raise HTTPException(status_code=404, detail="Doctor not found")
+
+    category = payload.category or COMMERCIAL_MODEL_TO_CATEGORY.get(
+        payload.commercial_model_type or "", "PD"
+    )
+    inv.doctor_id = payload.doctor_id
+    inv.commercial_model_type = payload.commercial_model_type
+    inv.expected_multiple = payload.expected_multiple or 5.0
+    inv.year = payload.year
+    inv.month = payload.month
+    inv.week = payload.week or 1
+    inv.category = category
+    inv.sub_category = payload.sub_category
+    inv.amount = payload.amount
+    inv.expected_sales = payload.expected_sales if payload.expected_sales is not None else round(payload.amount * (payload.expected_multiple or 5.0), 2)
+    inv.purpose = payload.purpose
+    if payload.bill_url is not None:
+        inv.bill_url = payload.bill_url
+    inv.submitted_at = datetime.utcnow()
+    # Any correction must be reviewed again if the original entry was approved.
+    inv.is_approved = False
+    inv.approved_by_id = None
+    inv.approved_at = None
+    db.commit()
+    db.refresh(inv)
+    return {"id": inv.id, "status": "updated", "requires_approval": True}
+
+
 @router.get("/")
 def list_investments(
     doctor_id: Optional[int] = None,

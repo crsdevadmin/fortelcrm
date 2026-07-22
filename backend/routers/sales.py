@@ -35,6 +35,13 @@ class SalesEntryRequest(BaseModel):
     remarks:      Optional[str] = None
 
 
+class SalesEntryUpdateRequest(BaseModel):
+    associate_id: int
+    quantity: float = 0
+    value: float = 0
+    remarks: Optional[str] = None
+
+
 class RegionalSalesItem(BaseModel):
     id: Optional[int] = None
     product_id: int
@@ -114,6 +121,24 @@ def delete_sales_entry(entry_id: int, db: Session = Depends(get_db)):
     db.delete(entry)
     db.commit()
     return {"status": "deleted", "entry_id": entry_id}
+
+
+@router.patch("/{entry_id}")
+def update_sales_entry(entry_id: int, payload: SalesEntryUpdateRequest, db: Session = Depends(get_db)):
+    entry = db.query(SalesEntry).filter(SalesEntry.id == entry_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Sales entry not found")
+    if entry.associate_id != payload.associate_id:
+        raise HTTPException(status_code=403, detail="You can edit only your own sales entries")
+    if payload.quantity < 0 or payload.value < 0:
+        raise HTTPException(status_code=400, detail="Quantity and value cannot be negative")
+    entry.qty = payload.quantity
+    entry.value = payload.value
+    if payload.remarks is not None:
+        entry.remarks = payload.remarks
+    entry.submitted_at = datetime.utcnow()
+    db.commit()
+    return {"status": "updated", "entry_id": entry.id}
 
 
 @router.post("/regional/submit")
@@ -381,6 +406,7 @@ def get_my_sales(associate_id: int, year: int, month: int, db: Session = Depends
         prod = db.query(Product).filter(Product.id == r.product_id).first()
         dates_map[date_key][did]["products"].append({
             "entry_id":     r.id,
+            "associate_id": r.associate_id,
             "product_id":   r.product_id,
             "product_name": prod.name if prod else f"Product {r.product_id}",
             "quantity":     r.qty or 0,

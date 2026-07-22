@@ -33,6 +33,7 @@ export const salesAPI = {
     client.get('/sales/weekly-reminder-status', { params: { user_id: userId, today } }),
   approveEntry: (id, approverId) =>
     client.post(`/sales/${id}/approve`, null, { params: { approver_id: approverId } }),
+  updateEntry: (id, payload) => client.patch(`/sales/${id}`, payload),
   deleteEntry: (id) => client.delete(`/sales/${id}`),
   regional: (associateId, year, month, week, stateCode, city) => {
     const params = { associate_id: associateId };
@@ -49,6 +50,8 @@ export const salesAPI = {
 // ── INVESTMENTS ───────────────────────────────
 export const investmentsAPI = {
   submit: (payload) => client.post('/investments/', payload),
+  update: (id, payload) => client.patch(`/investments/${id}`, payload),
+  my: (associateId, year, month) => client.get('/investments/my', { params: { associate_id: associateId, year, month } }),
   doctorInvestments: (doctorId) => client.get(`/investments/doctor/${doctorId}`),
   doctorTotal: (doctorId) => client.get(`/investments/doctor/${doctorId}/total`),
   byCategory: (year, month) => client.get('/investments/summary/by-category', { params: { year, month } }),

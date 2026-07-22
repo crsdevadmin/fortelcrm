@@ -48,6 +48,10 @@ export default function SalesScreen() {
   const [pdfCheck, setPdfCheck] = useState(null);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [reminder, setReminder] = useState('');
+  const [editingSaleId, setEditingSaleId] = useState(null);
+  const [editSaleForm, setEditSaleForm] = useState({ quantity: '', value: '' });
+  const [editSaleBusy, setEditSaleBusy] = useState(false);
+  const [editSaleError, setEditSaleError] = useState('');
 
   /* ── outside-click refs ── */
   const docRef  = useRef(null);
@@ -129,6 +133,38 @@ export default function SalesScreen() {
   };
 
   const toggleDay = date => setExpanded(prev => ({ ...prev, [date]: !prev[date] }));
+
+  const startEditSale = product => {
+    setEditingSaleId(product.entry_id);
+    setEditSaleForm({ quantity: String(product.quantity ?? ''), value: String(product.value ?? '') });
+    setEditSaleError('');
+  };
+
+  const cancelEditSale = () => {
+    setEditingSaleId(null);
+    setEditSaleForm({ quantity: '', value: '' });
+    setEditSaleError('');
+  };
+
+  const saveEditedSale = async () => {
+    const quantity = Number(editSaleForm.quantity || 0);
+    const value = Number(editSaleForm.value || 0);
+    if (!Number.isFinite(quantity) || !Number.isFinite(value) || quantity < 0 || value < 0) {
+      setEditSaleError('Enter a valid quantity and value.');
+      return;
+    }
+    setEditSaleBusy(true);
+    setEditSaleError('');
+    try {
+      await salesAPI.updateEntry(editingSaleId, { associate_id: me.id, quantity, value });
+      cancelEditSale();
+      loadHistory(year, month);
+    } catch (error) {
+      setEditSaleError(error?.response?.data?.detail || 'Unable to update this sales entry.');
+    } finally {
+      setEditSaleBusy(false);
+    }
+  };
 
   /* ── form helpers ── */
   const docList = docQ.trim()
@@ -703,15 +739,34 @@ export default function SalesScreen() {
                     </div>
                     <div style={{ fontWeight: 700, fontSize: 13, color: '#3D8C40' }}>{fmtV(doc.total)}</div>
                   </div>
-                  {doc.products.map((p, pi) => (
-                    <div key={p.entry_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 18px 6px 32px', borderTop: '0.5px solid #f5f5f5', background: pi % 2 === 0 ? '#fff' : '#fafafa' }}>
-                      <div style={{ fontSize: 12, color: '#555' }}>· {p.product_name}</div>
-                      <div style={{ fontSize: 12, color: '#777', display: 'flex', gap: 12, alignItems: 'center' }}>
-                        {p.quantity > 0 && <span style={{ color: '#aaa' }}>{p.quantity} qty</span>}
-                        <span style={{ fontWeight: 700, color: '#1A1A1A' }}>₹{p.value.toLocaleString('en-IN')}</span>
+                  {doc.products.map((p, pi) => {
+                    const editing = editingSaleId === p.entry_id;
+                    return (
+                      <div key={p.entry_id} style={{ padding: editing ? '9px 18px 9px 32px' : '6px 18px 6px 32px', borderTop: '0.5px solid #f5f5f5', background: editing ? '#eff6ff' : pi % 2 === 0 ? '#fff' : '#fafafa' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                          <div style={{ fontSize: 12, color: '#555', minWidth: 0 }}>· {p.product_name}</div>
+                          {!editing && (
+                            <div style={{ fontSize: 12, color: '#777', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                              {p.quantity > 0 && <span style={{ color: '#aaa' }}>{p.quantity} qty</span>}
+                              <span style={{ fontWeight: 700, color: '#1A1A1A' }}>₹{p.value.toLocaleString('en-IN')}</span>
+                              {String(p.associate_id) === String(me.id) && <button type="button" onClick={() => startEditSale(p)} style={{ padding: '4px 9px', borderRadius: 7, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>Edit</button>}
+                            </div>
+                          )}
+                        </div>
+                        {editing && (
+                          <div style={{ marginTop: 8 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(90px, 1fr) minmax(120px, 1fr) auto auto', gap: 7, alignItems: 'end' }}>
+                              <label style={{ fontSize: 10, color: '#6b7280', fontWeight: 700 }}>QUANTITY<input type="number" min="0" step="any" value={editSaleForm.quantity} onChange={event => setEditSaleForm(form => ({ ...form, quantity: event.target.value }))} style={{ width: '100%', boxSizing: 'border-box', marginTop: 3, padding: '7px 8px', border: '1px solid #bfdbfe', borderRadius: 7 }} /></label>
+                              <label style={{ fontSize: 10, color: '#6b7280', fontWeight: 700 }}>SALES VALUE (₹)<input type="number" min="0" step="any" value={editSaleForm.value} onChange={event => setEditSaleForm(form => ({ ...form, value: event.target.value }))} style={{ width: '100%', boxSizing: 'border-box', marginTop: 3, padding: '7px 8px', border: '1px solid #bfdbfe', borderRadius: 7 }} /></label>
+                              <button type="button" onClick={saveEditedSale} disabled={editSaleBusy} style={{ padding: '8px 11px', borderRadius: 7, border: 'none', background: '#1d4ed8', color: '#fff', fontSize: 11, fontWeight: 800, cursor: editSaleBusy ? 'default' : 'pointer' }}>{editSaleBusy ? 'Saving...' : 'Save'}</button>
+                              <button type="button" onClick={cancelEditSale} disabled={editSaleBusy} style={{ padding: '8px 11px', borderRadius: 7, border: '1px solid #d1d5db', background: '#fff', color: '#4b5563', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>Cancel</button>
+                            </div>
+                            {editSaleError && <div style={{ marginTop: 6, fontSize: 11, color: '#dc2626' }}>{editSaleError}</div>}
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   {doc.products.length > 1 && (
                     <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '5px 18px', background: '#f0faf0', borderTop: '0.5px solid #e0f0e0' }}>
                       <span style={{ fontSize: 11, color: '#3D8C40', fontWeight: 700 }}>{doc.products.length} products · {fmtV(doc.total)}</span>

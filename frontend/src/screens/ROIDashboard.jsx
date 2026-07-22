@@ -682,11 +682,13 @@ function AddBusinessModal({ doctor, year, month, onClose, onSaved }) {
           (day.doctors || [])
             .filter(d => d.doctor_id === doctor.doctor_id)
             .forEach(d => {
-              (d.products || []).forEach(product => rows.push({
-                ...product,
-                date: day.date,
-                doctor_name: d.doctor_name,
-              }));
+              (d.products || [])
+                .filter(product => String(product.associate_id) === String(user.id))
+                .forEach(product => rows.push({
+                  ...product,
+                  date: day.date,
+                  doctor_name: d.doctor_name,
+                }));
             });
         });
         setSavedSales(rows);
@@ -1431,6 +1433,8 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
   const [invSaving,   setInvSaving]   = useState(false);
   const [invError,    setInvError]    = useState('');
   const [invSuccess,  setInvSuccess]  = useState('');
+  const [myInvestments, setMyInvestments] = useState([]);
+  const [editingInvestmentId, setEditingInvestmentId] = useState(null);
 
   // Analytics panels
   const [spendData,    setSpendData]    = useState(null);
@@ -1465,6 +1469,15 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
       .then(r => setMyDoctors(r.data))
       .catch(() => axios.get(`${API}/doctors/`).then(r => setMyDoctors(r.data)));
   }, [me?.id]);
+
+  const loadMyInvestments = useCallback(() => {
+    if (!me?.id) return;
+    investmentsAPI.my(me.id, year, month)
+      .then(response => setMyInvestments(Array.isArray(response.data) ? response.data : []))
+      .catch(() => setMyInvestments([]));
+  }, [me?.id, year, month]);
+
+  useEffect(() => { loadMyInvestments(); }, [loadMyInvestments, refreshKey]);
 
   // Load analytics panels
   useEffect(() => {
@@ -1512,6 +1525,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
     return (roiStateCode === 'ALL' || toStateName(locationDoctor.state_code) === toStateName(roiStateCode))
       && (roiCity === 'ALL' || groupedCityName(locationDoctor) === roiCity);
   };
+  const visibleMyInvestments = myInvestments.filter(investment => matchesRoiLocation({ doctor_id: investment.doctor_id }));
 
   const filteredFormDocs = myDoctors.filter(d =>
     matchesRoiLocation(d) && (
@@ -1526,13 +1540,47 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
     setDocSearch('');
   };
 
+  const resetInvestmentForm = () => {
+    setInvForm(EMPTY_INV);
+    setSelDoc(null);
+    setDocSearch('');
+    setEditingInvestmentId(null);
+    setShowForm(false);
+    setInvError('');
+  };
+
+  const editInvestment = investment => {
+    const doctor = myDoctors.find(row => row.id === investment.doctor_id) || {
+      id: investment.doctor_id,
+      name: investment.doctor_name,
+      city: '',
+      specialty: '',
+      commercial_model: investment.doctor_commercial_model,
+    };
+    setEditingInvestmentId(investment.id);
+    setSelDoc(doctor);
+    setInvForm({
+      doctor_id: investment.doctor_id,
+      commercial_model_type: investment.commercial_model_type || investment.doctor_commercial_model || '',
+      sub_category: investment.sub_category || '',
+      week: investment.week || 1,
+      amount: String(investment.amount ?? ''),
+      purpose: investment.purpose || '',
+      expected_multiple: investment.expected_multiple || 5,
+    });
+    setShowForm(true);
+    setInvError('');
+    setInvSuccess('');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const submitInvestment = async (e) => {
     e.preventDefault();
     if (!invForm.doctor_id || !invForm.amount) { setInvError('Doctor and amount are required'); return; }
     if (!invForm.commercial_model_type) { setInvError('Please select an investment type (U1–R1)'); return; }
     setInvSaving(true); setInvError('');
     try {
-      await investmentsAPI.submit({
+      const payload = {
         doctor_id: invForm.doctor_id,
         associate_id: me?.id || 1,
         year, month,
@@ -1542,9 +1590,16 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
         amount: Number(invForm.amount),
         expected_multiple: Number(invForm.expected_multiple) || 5,
         purpose: invForm.purpose || null,
-      });
-      setInvSuccess(`Investment of ₹${Number(invForm.amount).toLocaleString()} added for ${selDoc?.name}`);
-      setInvForm(EMPTY_INV); setSelDoc(null); setShowForm(false);
+      };
+      if (editingInvestmentId) {
+        await investmentsAPI.update(editingInvestmentId, payload);
+        setInvSuccess(`Investment updated for ${selDoc?.name}. It will require approval again.`);
+      } else {
+        await investmentsAPI.submit(payload);
+        setInvSuccess(`Investment of ₹${Number(invForm.amount).toLocaleString()} added for ${selDoc?.name}`);
+      }
+      resetInvestmentForm();
+      loadMyInvestments();
       setTimeout(() => setInvSuccess(''), 4000);
       setRefreshKey(k => k + 1);
     } catch (err) {
@@ -1872,7 +1927,10 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
                 This Month
               </button>
             )}
-            <button onClick={() => { setShowForm(s => !s); setInvError(''); setSelDoc(null); setInvForm(EMPTY_INV); }}
+            <button onClick={() => {
+              if (showForm) resetInvestmentForm();
+              else { setEditingInvestmentId(null); setInvError(''); setSelDoc(null); setInvForm(EMPTY_INV); setShowForm(true); }
+            }}
               style={{
                 background: showForm ? 'rgba(255,255,255,0.15)' : '#1D9E75',
                 color: '#fff', border: 'none', borderRadius: 12, padding: '10px 20px',
@@ -2156,9 +2214,34 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
         </div>
       )}
 
+      {/* Saved entries remain visible so accidental values can be corrected. */}
+      {visibleMyInvestments.length > 0 && (
+        <div style={{ margin: '14px 24px 0', background: '#fff', border: '1px solid #e5e7eb', borderRadius: 14, overflow: 'hidden' }}>
+          <div style={{ padding: '11px 14px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 900, color: '#111827' }}>Saved Investments · {MONTHS[month]} {year}</div>
+              <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>Use Edit to correct an entered value. Approved entries return for approval after editing.</div>
+            </div>
+            <span style={{ fontSize: 11, color: '#6b7280' }}>{visibleMyInvestments.length} entr{visibleMyInvestments.length === 1 ? 'y' : 'ies'}</span>
+          </div>
+          {visibleMyInvestments.map(investment => (
+            <div key={investment.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1.4fr) minmax(110px, .7fr) minmax(90px, .5fr) auto', gap: 10, alignItems: 'center', padding: '10px 14px', borderTop: '1px solid #f3f4f6' }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{investment.doctor_name}</div>
+                <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>{investment.commercial_model_type || 'Investment'}{investment.sub_category ? ` · ${investment.sub_category}` : ''}</div>
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 900, color: '#0F6E56' }}>{fmtInr(investment.amount)}</div>
+              <div style={{ fontSize: 10, color: investment.is_approved ? '#166534' : '#92400e', fontWeight: 800 }}>{investment.is_approved ? 'Approved' : 'Pending'}</div>
+              <button type="button" onClick={() => editInvestment(investment)} style={{ padding: '6px 11px', borderRadius: 8, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', fontSize: 11, fontWeight: 900, cursor: 'pointer' }}>Edit</button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* ── INLINE INVESTMENT FORM */}
       {showForm && (
         <div style={{ margin: '16px 24px 0', background: '#fff', borderRadius: 16, border: '1.5px solid #1D9E75', padding: 20, boxShadow: '0 4px 20px rgba(29,158,117,0.1)' }}>
+          {editingInvestmentId && <div style={{ marginBottom: 12, fontSize: 13, fontWeight: 900, color: '#1d4ed8' }}>Editing saved investment</div>}
           <form onSubmit={submitInvestment}>
             {/* Doctor search */}
             <div style={{ marginBottom: 16 }}>
@@ -2282,13 +2365,13 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
             {invError && <div style={{ color: '#D85A30', fontSize: 12, marginBottom: 10 }}>{invError}</div>}
 
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button type="button" onClick={() => { setShowForm(false); setInvForm(EMPTY_INV); setSelDoc(null); }}
+              <button type="button" onClick={resetInvestmentForm}
                 style={{ padding: '9px 20px', borderRadius: 10, border: '1px solid #e5e7eb', background: '#fff', cursor: 'pointer', fontSize: 13 }}>
                 Cancel
               </button>
               <button type="submit" disabled={invSaving}
                 style={{ padding: '9px 24px', borderRadius: 10, border: 'none', background: '#1D9E75', color: '#fff', cursor: invSaving ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 700, opacity: invSaving ? 0.7 : 1 }}>
-                {invSaving ? 'Saving…' : 'Save Investment'}
+                {invSaving ? 'Saving…' : editingInvestmentId ? 'Save Changes' : 'Save Investment'}
               </button>
             </div>
           </form>
