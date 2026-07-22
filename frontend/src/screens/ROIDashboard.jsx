@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { roiAPI, investmentsAPI, salesAPI } from '../api';
 import { useAuth } from '../context/AuthContext';
@@ -1494,6 +1494,15 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
   const [invSuccess,  setInvSuccess]  = useState('');
   const [myInvestments, setMyInvestments] = useState([]);
   const [editingInvestmentId, setEditingInvestmentId] = useState(null);
+  const investmentFormRef = useRef(null);
+  const investmentAmountRef = useRef(null);
+
+  useEffect(() => {
+    if (!editingInvestmentId) return;
+    investmentFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    investmentAmountRef.current?.focus();
+    investmentAmountRef.current?.select();
+  }, [editingInvestmentId]);
 
   // Analytics panels
   const [spendData,    setSpendData]    = useState(null);
@@ -1630,7 +1639,6 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
     setShowForm(true);
     setInvError('');
     setInvSuccess('');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const submitInvestment = async (e) => {
@@ -2275,7 +2283,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
 
       {/* ── INLINE INVESTMENT FORM */}
       {showForm && (
-        <div style={{ margin: '16px 24px 0', background: '#fff', borderRadius: 16, border: '1.5px solid #1D9E75', padding: 20, boxShadow: '0 4px 20px rgba(29,158,117,0.1)' }}>
+        <div ref={investmentFormRef} style={{ margin: '16px 24px 0', scrollMarginTop: 16, background: '#fff', borderRadius: 16, border: editingInvestmentId ? '2px solid #2563eb' : '1.5px solid #1D9E75', padding: 20, boxShadow: editingInvestmentId ? '0 4px 24px rgba(37,99,235,0.18)' : '0 4px 20px rgba(29,158,117,0.1)' }}>
           {editingInvestmentId && <div style={{ marginBottom: 12, fontSize: 13, fontWeight: 900, color: '#1d4ed8' }}>Editing saved investment</div>}
           <form onSubmit={submitInvestment}>
             {/* Doctor search */}
@@ -2363,7 +2371,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <label style={{ fontSize: 10, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5 }}>Amount (₹) *</label>
-                <input type="number" value={invForm.amount} onChange={e => setInvForm(f => ({ ...f, amount: e.target.value }))}
+                <input ref={investmentAmountRef} type="number" value={invForm.amount} onChange={e => setInvForm(f => ({ ...f, amount: e.target.value }))}
                   placeholder="e.g. 15000"
                   style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 13, outline: 'none', background: '#fafafa' }} />
               </div>
@@ -2428,7 +2436,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
                   </div>
                   <div style={{ fontSize: 12, fontWeight: 900, color: '#0F6E56' }}>{fmtInr(investment.amount)}</div>
                   <div style={{ fontSize: 10, color: investment.is_approved ? '#166534' : '#92400e', fontWeight: 800 }}>{investment.is_approved ? 'Approved' : 'Pending'}</div>
-                  <button type="button" onClick={() => editInvestment(investment)} style={{ padding: '6px 11px', borderRadius: 8, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', fontSize: 11, fontWeight: 900, cursor: 'pointer' }}>Edit</button>
+                  <button type="button" onClick={() => editInvestment(investment)} style={{ padding: '6px 11px', borderRadius: 8, border: '1px solid #bfdbfe', background: editingInvestmentId === investment.id ? '#dbeafe' : '#eff6ff', color: '#1d4ed8', fontSize: 11, fontWeight: 900, cursor: 'pointer' }}>{editingInvestmentId === investment.id ? 'Editing' : 'Edit'}</button>
                 </div>
               ))}
             </div>
