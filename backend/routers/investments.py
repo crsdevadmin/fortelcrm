@@ -209,6 +209,18 @@ def update_investment(investment_id: int, payload: InvestmentPayload, db: Sessio
     return {"id": inv.id, "status": "updated", "requires_approval": True}
 
 
+@router.delete("/{investment_id}")
+def delete_investment(investment_id: int, associate_id: int, db: Session = Depends(get_db)):
+    inv = db.query(Investment).filter(Investment.id == investment_id).first()
+    if not inv:
+        raise HTTPException(status_code=404, detail="Investment not found")
+    if inv.associate_id != associate_id:
+        raise HTTPException(status_code=403, detail="You can delete only your own investment entries")
+    db.delete(inv)
+    db.commit()
+    return {"id": investment_id, "status": "deleted"}
+
+
 @router.get("/")
 def list_investments(
     doctor_id: Optional[int] = None,

@@ -54,6 +54,8 @@ export default function SalesScreen() {
   const [editSaleForm, setEditSaleForm] = useState({ quantity: '', value: '' });
   const [editSaleBusy, setEditSaleBusy] = useState(false);
   const [editSaleError, setEditSaleError] = useState('');
+  const [deletingSaleId, setDeletingSaleId] = useState(null);
+  const [saleActionError, setSaleActionError] = useState('');
 
   useEffect(() => {
     if (new URLSearchParams(location.search).get('add') === '1') {
@@ -171,6 +173,21 @@ export default function SalesScreen() {
       setEditSaleError(error?.response?.data?.detail || 'Unable to update this sales entry.');
     } finally {
       setEditSaleBusy(false);
+    }
+  };
+
+  const deleteSale = async product => {
+    if (!window.confirm(`Delete the ${product.product_name} sales entry?`)) return;
+    setDeletingSaleId(product.entry_id);
+    setSaleActionError('');
+    try {
+      await salesAPI.deleteEntry(product.entry_id, me.id);
+      if (editingSaleId === product.entry_id) cancelEditSale();
+      loadHistory(year, month);
+    } catch (error) {
+      setSaleActionError(error?.response?.data?.detail || 'Unable to delete this sales entry.');
+    } finally {
+      setDeletingSaleId(null);
     }
   };
 
@@ -686,6 +703,10 @@ export default function SalesScreen() {
           </div>
         )}
 
+        {saleActionError && (
+          <div style={{ marginBottom: 12, padding: '9px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10, color: '#dc2626', fontSize: 12 }}>{saleActionError}</div>
+        )}
+
         {/* ══ HISTORY ═══════════════════════════════════════════════════════ */}
         {histLoad && <div style={{ textAlign: 'center', padding: 40, color: '#aaa' }}>Loading…</div>}
 
@@ -764,7 +785,12 @@ export default function SalesScreen() {
                             <div style={{ fontSize: 12, color: '#777', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                               {p.quantity > 0 && <span style={{ color: '#aaa' }}>{p.quantity} qty</span>}
                               <span style={{ fontWeight: 700, color: '#1A1A1A' }}>₹{p.value.toLocaleString('en-IN')}</span>
-                              {String(p.associate_id) === String(me.id) && <button type="button" onClick={() => startEditSale(p)} style={{ padding: '4px 9px', borderRadius: 7, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>Edit</button>}
+                              {String(p.associate_id) === String(me.id) && (
+                                <>
+                                  <button type="button" onClick={() => startEditSale(p)} disabled={deletingSaleId === p.entry_id} style={{ padding: '4px 9px', borderRadius: 7, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>Edit</button>
+                                  <button type="button" onClick={() => deleteSale(p)} disabled={deletingSaleId === p.entry_id} style={{ padding: '4px 9px', borderRadius: 7, border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', fontSize: 11, fontWeight: 800, cursor: deletingSaleId === p.entry_id ? 'default' : 'pointer' }}>{deletingSaleId === p.entry_id ? 'Deleting…' : 'Delete'}</button>
+                                </>
+                              )}
                             </div>
                           )}
                         </div>

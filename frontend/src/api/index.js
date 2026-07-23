@@ -34,7 +34,7 @@ export const salesAPI = {
   approveEntry: (id, approverId) =>
     client.post(`/sales/${id}/approve`, null, { params: { approver_id: approverId } }),
   updateEntry: (id, payload) => client.patch(`/sales/${id}`, payload),
-  deleteEntry: (id) => client.delete(`/sales/${id}`),
+  deleteEntry: (id, associateId) => client.delete(`/sales/${id}`, { params: { associate_id: associateId } }),
   regional: (associateId, year, month, week, stateCode, city) => {
     const params = { associate_id: associateId };
     if (year !== undefined && year !== null) params.year = year;
@@ -51,6 +51,7 @@ export const salesAPI = {
 export const investmentsAPI = {
   submit: (payload) => client.post('/investments/', payload),
   update: (id, payload) => client.patch(`/investments/${id}`, payload),
+  delete: (id, associateId) => client.delete(`/investments/${id}`, { params: { associate_id: associateId } }),
   my: (associateId, year, month) => client.get('/investments/my', { params: { associate_id: associateId, year, month } }),
   doctorInvestments: (doctorId) => client.get(`/investments/doctor/${doctorId}`),
   doctorTotal: (doctorId) => client.get(`/investments/doctor/${doctorId}/total`),

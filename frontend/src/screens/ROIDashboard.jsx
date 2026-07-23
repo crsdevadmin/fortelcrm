@@ -716,7 +716,7 @@ function AddBusinessModal({ doctor, year, month, onClose, onSaved }) {
     setSaving(true);
     setError('');
     try {
-      await salesAPI.deleteEntry(row.entry_id);
+      await salesAPI.deleteEntry(row.entry_id, user.id);
       await loadSavedSales();
       onSaved();
     } catch (err) {
@@ -1494,6 +1494,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
   const [invSuccess,  setInvSuccess]  = useState('');
   const [myInvestments, setMyInvestments] = useState([]);
   const [editingInvestmentId, setEditingInvestmentId] = useState(null);
+  const [deletingInvestmentId, setDeletingInvestmentId] = useState(null);
   const investmentFormRef = useRef(null);
   const investmentAmountRef = useRef(null);
 
@@ -1639,6 +1640,30 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
     setShowForm(true);
     setInvError('');
     setInvSuccess('');
+  };
+
+  const deleteInvestment = async investment => {
+    if (!window.confirm(`Delete the ₹${Number(investment.amount || 0).toLocaleString('en-IN')} investment for ${investment.doctor_name}?`)) return;
+    setDeletingInvestmentId(investment.id);
+    setInvError('');
+    setInvSuccess('');
+    try {
+      await investmentsAPI.delete(investment.id, me.id);
+      if (editingInvestmentId === investment.id) {
+        setEditingInvestmentId(null);
+        setInvForm(EMPTY_INV);
+        setSelDoc(null);
+        setDocSearch('');
+      }
+      setInvSuccess(`Investment deleted for ${investment.doctor_name}.`);
+      loadMyInvestments();
+      setRefreshKey(key => key + 1);
+      setTimeout(() => setInvSuccess(''), 4000);
+    } catch (error) {
+      setInvError(error?.response?.data?.detail || 'Unable to delete this investment.');
+    } finally {
+      setDeletingInvestmentId(null);
+    }
   };
 
   const submitInvestment = async (e) => {
@@ -2436,7 +2461,10 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
                   </div>
                   <div style={{ fontSize: 12, fontWeight: 900, color: '#0F6E56' }}>{fmtInr(investment.amount)}</div>
                   <div style={{ fontSize: 10, color: investment.is_approved ? '#166534' : '#92400e', fontWeight: 800 }}>{investment.is_approved ? 'Approved' : 'Pending'}</div>
-                  <button type="button" onClick={() => editInvestment(investment)} style={{ padding: '6px 11px', borderRadius: 8, border: '1px solid #bfdbfe', background: editingInvestmentId === investment.id ? '#dbeafe' : '#eff6ff', color: '#1d4ed8', fontSize: 11, fontWeight: 900, cursor: 'pointer' }}>{editingInvestmentId === investment.id ? 'Editing' : 'Edit'}</button>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button type="button" onClick={() => editInvestment(investment)} disabled={deletingInvestmentId === investment.id} style={{ padding: '6px 11px', borderRadius: 8, border: '1px solid #bfdbfe', background: editingInvestmentId === investment.id ? '#dbeafe' : '#eff6ff', color: '#1d4ed8', fontSize: 11, fontWeight: 900, cursor: 'pointer' }}>{editingInvestmentId === investment.id ? 'Editing' : 'Edit'}</button>
+                    <button type="button" onClick={() => deleteInvestment(investment)} disabled={deletingInvestmentId === investment.id} style={{ padding: '6px 11px', borderRadius: 8, border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', fontSize: 11, fontWeight: 900, cursor: deletingInvestmentId === investment.id ? 'default' : 'pointer' }}>{deletingInvestmentId === investment.id ? 'Deleting…' : 'Delete'}</button>
+                  </div>
                 </div>
               ))}
             </div>

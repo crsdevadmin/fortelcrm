@@ -114,10 +114,12 @@ def submit_sales(payload: SalesEntryRequest, db: Session = Depends(get_db)):
 
 
 @router.delete("/{entry_id}")
-def delete_sales_entry(entry_id: int, db: Session = Depends(get_db)):
+def delete_sales_entry(entry_id: int, associate_id: int, db: Session = Depends(get_db)):
     entry = db.query(SalesEntry).filter(SalesEntry.id == entry_id).first()
     if not entry:
         raise HTTPException(status_code=404, detail="Sales entry not found")
+    if entry.associate_id != associate_id:
+        raise HTTPException(status_code=403, detail="You can delete only your own sales entries")
     db.delete(entry)
     db.commit()
     return {"status": "deleted", "entry_id": entry_id}
