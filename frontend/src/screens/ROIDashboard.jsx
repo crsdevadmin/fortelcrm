@@ -916,6 +916,7 @@ function RegionalSalesPanel({ year, month }) {
   const [previousRegionalQty, setPreviousRegionalQty] = useState({});
   const [history, setHistory] = useState([]);
   const [consolidated, setConsolidated] = useState({ qty: 0, value: 0 });
+  const [monthlyConsolidated, setMonthlyConsolidated] = useState({ qty: 0, value: 0 });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -941,7 +942,12 @@ function RegionalSalesPanel({ year, month }) {
     ]).then(([productRes, doctorRes, regionalRes, monthRes, consolidatedRes]) => {
       const productList = productRes.data || [];
       const doctorList = doctorRes.data || [];
+      const monthRows = monthRes.data || [];
       const consolidatedRows = consolidatedRes.data || [];
+      setMonthlyConsolidated({
+        qty: monthRows.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0),
+        value: monthRows.reduce((sum, row) => sum + (Number(row.value) || 0), 0),
+      });
       setConsolidated({
         qty: consolidatedRows.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0),
         value: consolidatedRows.reduce((sum, row) => sum + (Number(row.value) || 0), 0),
@@ -971,7 +977,7 @@ function RegionalSalesPanel({ year, month }) {
       }
       const savedRows = regionalRes.data || [];
       const previousQty = isCurrentSalesMonth
-        ? (monthRes.data || []).filter(row => Number(row.week) < activeSalesWeek).reduce((acc, row) => {
+        ? monthRows.filter(row => Number(row.week) < activeSalesWeek).reduce((acc, row) => {
           acc[row.product_id] = (acc[row.product_id] || 0) + (Number(row.quantity) || 0);
           return acc;
         }, {})
@@ -1322,6 +1328,7 @@ function RegionalSalesPanel({ year, month }) {
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14 }}>
           {[
             ['Consolidated Sales', fmtInr(consolidated.value), '#8B5CF6'],
+            [`${MONTHS[salesMonth]} · All Weeks`, fmtInr(monthlyConsolidated.value), '#0F766E'],
             ['Products', products.length, '#3B82F6'],
             ['Total Qty', totalQty.toLocaleString('en-IN'), '#10B981'],
             ['Total Value', fmtInr(totalValue), '#F59E0B'],
