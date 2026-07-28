@@ -916,6 +916,12 @@ function RegionalSalesPanel({ year, month }) {
   const [history, setHistory] = useState([]);
   const [consolidated, setConsolidated] = useState({ qty: 0, value: 0 });
   const [monthlyConsolidated, setMonthlyConsolidated] = useState({ qty: 0, value: 0 });
+  const [weekContext, setWeekContext] = useState({
+    previousWeek: { qty: 0, value: 0 },
+    earlierWeeks: { qty: 0, value: 0 },
+    previousWeekByProduct: {},
+    earlierWeeksByProduct: {},
+  });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -946,6 +952,31 @@ function RegionalSalesPanel({ year, month }) {
       setMonthlyConsolidated({
         qty: monthRows.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0),
         value: monthRows.reduce((sum, row) => sum + (Number(row.value) || 0), 0),
+      });
+      const previousWeekRows = isCurrentSalesMonth
+        ? monthRows.filter(row => Number(row.week) === activeSalesWeek - 1)
+        : [];
+      const earlierWeekRows = isCurrentSalesMonth
+        ? monthRows.filter(row => Number(row.week) < activeSalesWeek)
+        : [];
+      const summarizeByProduct = sourceRows => sourceRows.reduce((acc, row) => {
+        const current = acc[row.product_id] || { qty: 0, value: 0 };
+        current.qty += Number(row.quantity) || 0;
+        current.value += Number(row.value) || 0;
+        acc[row.product_id] = current;
+        return acc;
+      }, {});
+      setWeekContext({
+        previousWeek: {
+          qty: previousWeekRows.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0),
+          value: previousWeekRows.reduce((sum, row) => sum + (Number(row.value) || 0), 0),
+        },
+        earlierWeeks: {
+          qty: earlierWeekRows.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0),
+          value: earlierWeekRows.reduce((sum, row) => sum + (Number(row.value) || 0), 0),
+        },
+        previousWeekByProduct: summarizeByProduct(previousWeekRows),
+        earlierWeeksByProduct: summarizeByProduct(earlierWeekRows),
       });
       setConsolidated({
         qty: consolidatedRows.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0),
@@ -1355,6 +1386,41 @@ function RegionalSalesPanel({ year, month }) {
           Enter sales for <strong>Week {week}</strong> only. Each week is saved independently; no subtraction is applied.
         </div>
       )}
+      {!loading && isCurrentSalesMonth && week > 1 && !isAggregateRegionalView && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10, marginBottom: 12 }}>
+          {[
+            {
+              label: `Week ${week - 1} saved`,
+              qty: weekContext.previousWeek.qty,
+              value: weekContext.previousWeek.value,
+              background: '#eff6ff',
+              border: '#bfdbfe',
+              color: '#1e40af',
+            },
+            {
+              label: `Weeks 1–${week - 1} total`,
+              qty: weekContext.earlierWeeks.qty,
+              value: weekContext.earlierWeeks.value,
+              background: '#f5f3ff',
+              border: '#ddd6fe',
+              color: '#6d28d9',
+            },
+            {
+              label: `Through Week ${week}`,
+              qty: weekContext.earlierWeeks.qty + totalQty,
+              value: weekContext.earlierWeeks.value + totalValue,
+              background: '#ecfdf5',
+              border: '#a7f3d0',
+              color: '#047857',
+            },
+          ].map(item => (
+            <div key={item.label} style={{ background: item.background, border: `1px solid ${item.border}`, borderRadius: 12, padding: '11px 13px' }}>
+              <div style={{ fontSize: 10, fontWeight: 900, color: item.color, textTransform: 'uppercase', letterSpacing: 0.5 }}>{item.label}</div>
+              <div style={{ marginTop: 5, fontSize: 14, fontWeight: 900, color: item.color }}>{item.qty.toLocaleString('en-IN')} qty · {fmtInr(item.value)}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 120px 120px 130px 86px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', fontSize: 11, fontWeight: 900, color: '#4b5563', textTransform: 'uppercase' }}>
@@ -1369,11 +1435,19 @@ function RegionalSalesPanel({ year, month }) {
           const editing = Boolean(editingRegionalRows[product.id]);
           const isLockedSavedRow = Boolean(row.existing) && !editing;
           const inputDisabled = isAggregateRegionalView || isLockedSavedRow;
+          const previousWeekProduct = weekContext.previousWeekByProduct[product.id] || { qty: 0, value: 0 };
+          const earlierWeeksProduct = weekContext.earlierWeeksByProduct[product.id] || { qty: 0, value: 0 };
           return (
             <div key={product.id} style={{ display: 'grid', gridTemplateColumns: '1.5fr 120px 120px 130px 86px', alignItems: 'center', borderBottom: '1px solid #f3f4f6', background: isLockedSavedRow ? '#f9fafb' : '#fff' }}>
               <div style={{ padding: '10px 12px', minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 800, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{product.name}</div>
                 {(product.pack || product.composition) && <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>{[product.pack, product.composition].filter(Boolean).join(' | ')}</div>}
+                {isCurrentSalesMonth && week > 1 && (
+                  <div style={{ fontSize: 10, color: '#6b7280', marginTop: 3 }}>
+                    W{week - 1}: {previousWeekProduct.qty.toLocaleString('en-IN')} qty · {fmtInr(previousWeekProduct.value)}
+                    {week > 2 && <> · W1–{week - 1}: {earlierWeeksProduct.qty.toLocaleString('en-IN')} qty · {fmtInr(earlierWeeksProduct.value)}</>}
+                  </div>
+                )}
               </div>
               <div style={{ padding: '10px 12px' }}>
                 <input type="number" min="0" value={row.quantity || ''} onChange={e => updateRow(product.id, 'quantity', e.target.value)}
