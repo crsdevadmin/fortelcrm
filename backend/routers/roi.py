@@ -431,7 +431,7 @@ def get_commitment_recovery(
         expected_multiple = float(inv.expected_multiple or _expected_mult(doc) or 5.0)
         expected_sales = float(inv.expected_sales or (invested * expected_multiple))
         investment_date = _safe_date(inv.year, inv.month, inv.week)
-        deadline = _add_months(investment_date, 3)
+        deadline = _add_months(investment_date, 6)
         sales_captured = _sales_between_for_doctor(db, inv.doctor_id, investment_date, min(ref_date, deadline))
         row_status, expected_progress, days_left = _commitment_status(
             sales_captured, expected_sales, investment_date, deadline, ref_date

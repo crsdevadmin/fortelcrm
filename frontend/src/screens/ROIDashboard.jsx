@@ -3038,7 +3038,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
               gap: 10,
             }}>
               {[
-                ['Open', displayCommitmentData?.summary?.open_commitments || 0, 'Inside 3-month window', '#042C53'],
+                ['Open', displayCommitmentData?.summary?.open_commitments || 0, 'Inside 6-month window', '#042C53'],
                 ['Achieved', displayCommitmentData?.summary?.achieved || 0, 'Reached 5x', '#085041'],
                 ['At Risk', displayCommitmentData?.summary?.at_risk || 0, 'Behind time progress', '#BA7517'],
                 ['Breached', displayCommitmentData?.summary?.breached || 0, 'Past deadline below 5x', '#D85A30'],
@@ -3058,9 +3058,9 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
             <div style={{ background: '#fff', borderRadius: 12, border: '0.5px solid #e5e7eb', overflow: 'hidden' }}>
               <div style={{ padding: '14px 20px', borderBottom: '1px solid #f3f4f6', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
                 <div>
-                  <div style={{ fontSize: 15, fontWeight: 800 }}>3-Month 5x Commitment Recovery</div>
+                  <div style={{ fontSize: 15, fontWeight: 800 }}>6-Month 5x Commitment Recovery</div>
                   <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
-                    Each investment is tracked separately from investment date to 3-month deadline.
+                    Each investment is tracked separately from investment date to 6-month deadline.
                   </div>
                 </div>
                 <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 700, whiteSpace: 'nowrap' }}>
