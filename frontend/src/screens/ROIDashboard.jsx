@@ -111,8 +111,8 @@ function fmtROIValue(sales, invested, roi) {
 function investmentTooltip(doc) {
   const total = fmtInr(doc.total_invested || 0);
   const rows = Array.isArray(doc.investment_months) ? doc.investment_months : [];
-  if (!rows.length) return `Cumulative investment: ${total}`;
-  return [`Cumulative investment: ${total}`, ...rows.map(r => `${r.label}: ${fmtInr(r.amount || 0)}`)].join('\n');
+  if (!rows.length) return `Six-month investment: ${total}`;
+  return [`Six-month investment: ${total}`, ...rows.map(r => `${r.label}: ${fmtInr(r.amount || 0)}`)].join('\n');
 }
 
 function InvestmentBar({ doc, pct, value, color = '#f97316', labelColor = '#f97316' }) {
@@ -294,11 +294,11 @@ function DoctorCard({ d, onClick, selected }) {
       {/* Numbers */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 12px', marginBottom: 10 }}>
         <div>
-          <div style={{ fontSize: 10, color: '#888' }}>Investment</div>
+          <div style={{ fontSize: 10, color: '#888' }}>6M Investment</div>
           <div style={{ fontSize: 13, fontWeight: 600 }}>{fmtInr(d.total_invested)}</div>
         </div>
         <div>
-          <div style={{ fontSize: 10, color: '#888' }}>Business</div>
+          <div style={{ fontSize: 10, color: '#888' }}>6M Business</div>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#0F6E56' }}>{fmtInr(d.actual_sales)}</div>
         </div>
         <div>
@@ -1959,22 +1959,32 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
     } finally { setInvSaving(false); }
   };
 
+  const selectedMonthIndex = (year * 12) + (month - 1);
+  const isInSixMonthWindow = row => {
+    const rowMonthIndex = (Number(row.year) * 12) + (Number(row.month) - 1);
+    return rowMonthIndex >= selectedMonthIndex - 5 && rowMonthIndex <= selectedMonthIndex;
+  };
   const doctorsForSelectedMonth = doctors.map(doc => {
-    const monthlyInvestment = (doc.investment_months || [])
-      .filter(row => Number(row.year) === year && Number(row.month) === month)
+    const sixMonthInvestmentRows = (doc.investment_months || []).filter(isInSixMonthWindow);
+    const sixMonthSalesRows = (doc.sales_months || []).filter(isInSixMonthWindow);
+    const sixMonthInvestment = sixMonthInvestmentRows
       .reduce((sum, row) => sum + toNum(row.amount), 0);
-    const sales = toNum(doc.actual_sales);
+    const sales = sixMonthSalesRows.reduce((sum, row) => sum + toNum(row.amount), 0);
     const expectedMultiple = toNum(doc.expected_multiple) || 5;
-    const expectedSales = monthlyInvestment * expectedMultiple;
-    const roiMultiple = monthlyInvestment > 0 ? Math.round((sales / monthlyInvestment) * 100) / 100 : 0;
-    const roiGrade = monthlyInvestment <= 0 || roiMultiple < 3
+    const expectedSales = sixMonthInvestment * expectedMultiple;
+    const roiMultiple = sixMonthInvestment > 0 ? Math.round((sales / sixMonthInvestment) * 100) / 100 : 0;
+    const roiGrade = sixMonthInvestment <= 0 || roiMultiple < 3
       ? 'Bronze'
       : roiMultiple > 8 ? 'Platinum' : roiMultiple >= 5 ? 'Gold' : 'Silver';
     const caPercent = expectedSales > 0 ? Math.round((sales / expectedSales) * 100) : 0;
     return {
       ...doc,
       cumulative_invested: toNum(doc.total_invested),
-      total_invested: monthlyInvestment,
+      investment_months: sixMonthInvestmentRows,
+      sales_months: sixMonthSalesRows,
+      total_invested: sixMonthInvestment,
+      actual_sales: sales,
+      total_sales: sales,
       expected_sales: expectedSales,
       roi_multiple: roiMultiple,
       roi_grade: roiGrade,
@@ -2365,8 +2375,8 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
         <div style={{ display: 'flex', alignItems: 'stretch', gap: 10, flexWrap: 'wrap' }}>
           {/* Regular metric chips */}
           {[
-            { label: 'Invested',    val: fmtInr(summaryTotals.total_invested),  color: '#4ade80' },
-            { label: 'Business',    val: fmtInr(summaryTotals.total_sales),     color: '#60a5fa' },
+            { label: 'Invested · 6M', val: fmtInr(summaryTotals.total_invested), color: '#4ade80' },
+            { label: 'Business · 6M', val: fmtInr(summaryTotals.total_sales), color: '#60a5fa' },
             { label: 'ROI',         val: fmtROIValue(summaryTotals.total_sales, summaryTotals.total_invested, summaryTotals.overall_roi_multiple), color: '#fbbf24' },
             { label: 'Achievement', val: `${summaryTotals.overall_ca_percent || 0}%`, color: summaryTotals.overall_ca_percent >= 100 ? '#4ade80' : summaryTotals.overall_ca_percent >= 80 ? '#fbbf24' : '#f87171' },
           ].map(chip => (
@@ -2900,9 +2910,9 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
 
           {SHOW_INDIVIDUAL_DOCTOR_CARDS && activityFilter !== 'prescribed' && !loading && displayDoctors.length > 0 && (
             <div style={{ margin: '18px 0 10px' }}>
-              <div style={{ fontSize: 15, fontWeight: 900, color: '#111827' }}>All Active Doctors</div>
+              <div style={{ fontSize: 15, fontWeight: 900, color: '#111827' }}>Top Invested Doctors · 6 Months</div>
               <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
-                {displayDoctors.length} active doctor{displayDoctors.length === 1 ? '' : 's'} · use the search box to find a doctor
+                Top 10 shown first from {displayDoctors.length} active doctor{displayDoctors.length === 1 ? '' : 's'} · use Show more or search by name
               </div>
             </div>
           )}
@@ -2912,9 +2922,14 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
           ) : displayDoctors.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 48, color: '#888', fontSize: 13 }}>No doctors found for this period.</div>
           ) : (() => {
-            const PREVIEW = 12;
-            const visible = expandDoctors ? displayDoctors : displayDoctors.slice(0, PREVIEW);
-            const hidden  = displayDoctors.length - PREVIEW;
+            const PREVIEW = 10;
+            const rankedDoctors = [...displayDoctors].sort((a, b) =>
+              toNum(b.total_invested) - toNum(a.total_invested)
+              || toNum(b.actual_sales) - toNum(a.actual_sales)
+              || (a.doctor_name || '').localeCompare(b.doctor_name || '')
+            );
+            const visible = expandDoctors ? rankedDoctors : rankedDoctors.slice(0, PREVIEW);
+            const hidden  = rankedDoctors.length - PREVIEW;
             return (
               <div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
@@ -2924,7 +2939,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
                       onClick={doc => setSelectedDoctor(prev => prev?.doctor_id === doc.doctor_id ? null : doc)} />
                   ))}
                 </div>
-                {displayDoctors.length > PREVIEW && (
+                {rankedDoctors.length > PREVIEW && (
                   <button
                     onClick={() => setExpandDoctors(e => !e)}
                     style={{
@@ -2936,7 +2951,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
                     }}>
                     {expandDoctors
                       ? <><span style={{ fontSize: 14 }}>▲</span> Show less</>
-                      : <><span style={{ fontSize: 14 }}>▼</span> Show {hidden} more doctors<span style={{ fontWeight: 400, color: '#9ca3af' }}> · {displayDoctors.length} total</span></>
+                      : <><span style={{ fontSize: 14 }}>▼</span> Show {hidden} more doctors<span style={{ fontWeight: 400, color: '#9ca3af' }}> · {rankedDoctors.length} total</span></>
                     }
                   </button>
                 )}
