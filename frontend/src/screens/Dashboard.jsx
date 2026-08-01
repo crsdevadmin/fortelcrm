@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { roiAPI } from '../api';
+import { roiAPI, salesAPI } from '../api';
 
 const API   = process.env.REACT_APP_API_URL || '';
 const NOW   = new Date();
@@ -430,6 +430,7 @@ export default function Dashboard() {
   const [docCounts,   setDocCounts]   = useState({});
   const [topProducts, setTopProducts] = useState([]);
   const [clientStats, setClientStats] = useState(null);
+  const [regionalSalesRows, setRegionalSalesRows] = useState([]);
   const [loading,     setLoading]     = useState(true);
 
   const [selRegion,     setSelRegion]     = useState(null);
@@ -480,6 +481,13 @@ export default function Dashboard() {
       .then(r => setClientStats(r.data)).catch(() => {});
   }, [me?.id, startDate, endDate, year, month]);
 
+  useEffect(() => {
+    if (!me?.id) return;
+    salesAPI.regional(me.id, year, month, null)
+      .then(response => setRegionalSalesRows(Array.isArray(response.data) ? response.data : []))
+      .catch(() => setRegionalSalesRows([]));
+  }, [me?.id, year, month]);
+
   const allRegions = useMemo(() => {
     const seen = new Set();
     allDoctors.forEach(d => { const s = toStateName(d.state_code); if (s) seen.add(s); });
@@ -498,6 +506,12 @@ export default function Dashboard() {
     if (selCity) d = d.filter(x => normCity(x.city) === selCity);
     return d;
   }, [allDoctors, selRegion, selCity]);
+
+  const totalRegionalSales = useMemo(() => regionalSalesRows
+    .filter(row => !selRegion || toStateName(row.state_code) === selRegion)
+    .filter(row => !selCity || normCity(row.city) === selCity)
+    .reduce((sum, row) => sum + (Number(row.value) || 0), 0),
+  [regionalSalesRows, selRegion, selCity]);
 
   const {
     totalSales, totalInvested, overallROI,
@@ -699,19 +713,20 @@ export default function Dashboard() {
 
         {/* Metric cards */}
         {(() => {
-          const CARD_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#0F6E56'];
+          const CARD_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#0F6E56', '#C2410C'];
           const roiStatus = fmtROIStatus(totalSales, totalInvested, overallROI);
           const cards = [
             ...(hasReports ? [
               { icon: '◈', label: 'Team', val: totalTeams, action: () => { closeAllPanels(); setView('all-teams'); setSelUser(null); } },
             ] : []),
             { icon: '✦', label: 'Clients',    val: totalDocs,             action: () => { closeAllPanels(); setView('all-clients'); setClientSearch(''); setClientsVisible(8); }, prescribed: clientStats?.prescribed, notPrescribed: clientStats?.not_prescribed },
-            { icon: '◆', label: 'Sales',      val: fmtInr(totalSales),    action: () => { setView('overview'); setShowInvestPanel(false); setShowROIPanel(false); setShowSalesPanel(s => !s); setSelProduct(null); setShowAllProducts(false); setShowAllProdDoctors(false); } },
+            { icon: '◆', label: 'Doctor-wise Sales', val: fmtInr(totalSales), action: () => { setView('overview'); setShowInvestPanel(false); setShowROIPanel(false); setShowSalesPanel(s => !s); setSelProduct(null); setShowAllProducts(false); setShowAllProdDoctors(false); } },
+            { icon: '▦', label: 'Regional Sales', val: fmtInr(totalRegionalSales), action: () => navigate('/regional-sales') },
             { icon: '◈', label: 'Investment', val: fmtInr(totalInvested), action: () => { setView('overview'); setShowSalesPanel(false); setShowROIPanel(false); setShowInvestPanel(s => !s); setShowAllInvest(false); } },
             { icon: '◇', label: 'ROI',        val: fmtROIValue(totalSales, totalInvested, overallROI),      action: () => { setView('overview'); setShowSalesPanel(false); setShowInvestPanel(false); setShowROIPanel(s => !s); }, sub: roiStatus },
           ];
           return (
-            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cards.length}, 1fr)`, gap: 12, marginTop: 20, position: 'relative', zIndex: 2 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12, marginTop: 20, position: 'relative', zIndex: 2 }}>
               {cards.map((m, i) => {
                 const c = CARD_COLORS[i % CARD_COLORS.length];
                 return (
