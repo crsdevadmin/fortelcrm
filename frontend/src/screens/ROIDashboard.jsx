@@ -34,12 +34,25 @@ const CHENNAI_AREAS = new Set([
 ]);
 const HYDERABAD_AREAS = new Set(['gachibowli', 'nallagandla', 'lakdikapul', 'redhills', 'red hills']);
 const TAMIL_NADU_REGIONAL_CITIES = ['Chennai', 'Madurai', 'Coimbatore 1', 'Coimbatore 2'];
-const tamilNaduRegionalCityForUser = user => {
-  const city = (user?.city || '').trim().toLowerCase();
+const MADURAI_REGIONAL_AREAS = new Set([
+  'madurai', 'trichy', 'tiruchirappalli', 'tirnalveli', 'tirunelveli',
+  'trivanduram', 'trivandrum', 'thiruvananthapuram', 'nagarkoil', 'nagercoil',
+  'kuturkorin', 'tuticorin', 'thoothukudi', 'kulasegaram', 'kulasekaram',
+  'tanjavoor', 'thanjavur', 'thinducal', 'dindigul',
+]);
+const COIMBATORE_REGIONAL_AREAS = new Set([
+  'coimbatore', 'salem', 'erode', 'namakal', 'namakkal',
+  'tharmapuri', 'dharmapuri', 'thirupur', 'tiruppur',
+]);
+const tamilNaduRegionalCity = (rawCity, ownerId) => {
+  const city = (rawCity || '').trim().toLowerCase().replace(/\s+/g, ' ');
   if (city === 'chennai' || CHENNAI_AREAS.has(city)) return 'Chennai';
-  if (city === 'madurai') return 'Madurai';
-  if (city === 'coimbatore') return Number(user?.id) === 9 ? 'Coimbatore 2' : 'Coimbatore 1';
+  if (MADURAI_REGIONAL_AREAS.has(city)) return 'Madurai';
+  if (COIMBATORE_REGIONAL_AREAS.has(city)) return Number(ownerId) === 9 ? 'Coimbatore 2' : 'Coimbatore 1';
   return '';
+};
+const tamilNaduRegionalCityForUser = user => {
+  return tamilNaduRegionalCity(user?.city, user?.id);
 };
 const groupedCityName = doctor => {
   const rawCity = (doctor.city || '').trim();
@@ -49,6 +62,11 @@ const groupedCityName = doctor => {
   if (stateName === 'Tamil Nadu' && (pincode.startsWith('600') || CHENNAI_AREAS.has(cityKey))) return 'Chennai';
   if (stateName === 'Telangana' && (pincode.startsWith('500') || HYDERABAD_AREAS.has(cityKey))) return 'Hyderabad';
   return rawCity;
+};
+const groupedRegionalSalesCityName = doctor => {
+  const groupedCity = groupedCityName(doctor);
+  if (toStateName(doctor.state_code || '') !== 'Tamil Nadu') return groupedCity;
+  return tamilNaduRegionalCity(groupedCity, doctor.manager_id);
 };
 
 const GRADE_COLORS = {
@@ -999,7 +1017,7 @@ function RegionalSalesPanel({ year, month }) {
       });
       const locationList = Object.values(doctorList.reduce((acc, doctor) => {
         const st = (doctor.state_code || me.state || '').trim();
-        const ct = (groupedCityName(doctor) || me.city || '').trim();
+        const ct = (groupedRegionalSalesCityName(doctor) || '').trim();
         if (!st || !ct) return acc;
         const stateName = toStateName(st);
         const key = `${stateName}__${ct}`.toLowerCase();
