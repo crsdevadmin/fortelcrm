@@ -33,6 +33,14 @@ const CHENNAI_AREAS = new Set([
   'guindy', 'pallikaranai', 'porur', 'tambaram', 'velachery', 'vellore',
 ]);
 const HYDERABAD_AREAS = new Set(['gachibowli', 'nallagandla', 'lakdikapul', 'redhills', 'red hills']);
+const TAMIL_NADU_REGIONAL_CITIES = ['Chennai', 'Madurai', 'Coimbatore 1', 'Coimbatore 2'];
+const tamilNaduRegionalCityForUser = user => {
+  const city = (user?.city || '').trim().toLowerCase();
+  if (city === 'chennai' || CHENNAI_AREAS.has(city)) return 'Chennai';
+  if (city === 'madurai') return 'Madurai';
+  if (city === 'coimbatore') return Number(user?.id) === 9 ? 'Coimbatore 2' : 'Coimbatore 1';
+  return '';
+};
 const groupedCityName = doctor => {
   const rawCity = (doctor.city || '').trim();
   const cityKey = rawCity.toLowerCase().replace(/\s+/g, ' ');
@@ -1001,8 +1009,12 @@ function RegionalSalesPanel({ year, month }) {
       }, {})).sort((a, b) => `${a.state_name} ${a.city}`.localeCompare(`${b.state_name} ${b.city}`));
       setLocations(locationList);
       if (shouldDefaultToEntryLocation && !regionalSelectionTouched && stateCode === 'ALL' && city === 'ALL' && locationList.length) {
-        setStateCode(locationList[0].state_code);
-        setCity(locationList[0].city);
+        const defaultLocation = locationList[0];
+        const defaultCity = toStateName(defaultLocation.state_code) === 'Tamil Nadu'
+          ? tamilNaduRegionalCityForUser(me) || TAMIL_NADU_REGIONAL_CITIES[0]
+          : defaultLocation.city;
+        setStateCode(defaultLocation.state_code);
+        setCity(defaultCity);
         setProducts(productList);
         setRows(productList.reduce((acc, product) => {
           acc[product.id] = { quantity: '', value: '', price: product.rate || '' };
@@ -1158,7 +1170,9 @@ function RegionalSalesPanel({ year, month }) {
       if (loc.city) acc[loc.city] = (acc[loc.city] || 0) + (loc.count || 1);
       return acc;
     }, {});
-  const cityEntries = Object.entries(cityCounts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const cityEntries = toStateName(stateCode) === 'Tamil Nadu'
+    ? TAMIL_NADU_REGIONAL_CITIES.map(cityName => [cityName, null])
+    : Object.entries(cityCounts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   const topCities = cityEntries.slice(0, 5);
   const extraCities = cityEntries.slice(5);
   const goSalesMonth = delta => {
@@ -1370,7 +1384,9 @@ function RegionalSalesPanel({ year, month }) {
                 const ac = regionAccents[st.state_name] || '#F5B800';
                 return (
                   <button key={st.state_name} onClick={() => {
-                    const firstCity = locations.find(loc => toStateName(loc.state_code) === st.state_name)?.city || '';
+                    const firstCity = st.state_name === 'Tamil Nadu'
+                      ? tamilNaduRegionalCityForUser(me) || TAMIL_NADU_REGIONAL_CITIES[0]
+                      : locations.find(loc => toStateName(loc.state_code) === st.state_name)?.city || '';
                     setRegionalSelectionTouched(true);
                     setStateCode(st.state_code);
                     setCity(canUseAggregateRegionalView ? 'ALL' : firstCity);
@@ -1417,7 +1433,7 @@ function RegionalSalesPanel({ year, month }) {
                         color: active ? '#fff' : 'rgba(255,255,255,0.7)',
                         flex: '0 0 auto',
                       }}>
-                      {ct} <span style={{ opacity: 0.65 }}>({count})</span>
+                      {ct} {count !== null && <span style={{ opacity: 0.65 }}>({count})</span>}
                     </button>
                   );
                 })}
