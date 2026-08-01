@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { roiAPI, investmentsAPI, salesAPI } from '../api';
 
-const SHOW_INDIVIDUAL_DOCTOR_CARDS = false;
+const SHOW_INDIVIDUAL_DOCTOR_CARDS = true;
 import { useAuth } from '../context/AuthContext';
 import EnterSales from './EnterSales';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -2898,12 +2898,21 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
             </div>
           )}
 
+          {SHOW_INDIVIDUAL_DOCTOR_CARDS && activityFilter !== 'prescribed' && !loading && displayDoctors.length > 0 && (
+            <div style={{ margin: '18px 0 10px' }}>
+              <div style={{ fontSize: 15, fontWeight: 900, color: '#111827' }}>All Active Doctors</div>
+              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+                {displayDoctors.length} active doctor{displayDoctors.length === 1 ? '' : 's'} · use the search box to find a doctor
+              </div>
+            </div>
+          )}
+
           {SHOW_INDIVIDUAL_DOCTOR_CARDS && activityFilter !== 'prescribed' && (loading ? (
             <div style={{ textAlign: 'center', padding: 48, color: '#888', fontSize: 13 }}>Loading…</div>
           ) : displayDoctors.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 48, color: '#888', fontSize: 13 }}>No doctors found for this period.</div>
           ) : (() => {
-            const PREVIEW = 6;
+            const PREVIEW = 12;
             const visible = expandDoctors ? displayDoctors : displayDoctors.slice(0, PREVIEW);
             const hidden  = displayDoctors.length - PREVIEW;
             return (
