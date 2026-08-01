@@ -926,7 +926,8 @@ function RegionalSalesPanel({ year, month }) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const activeSalesWeek = week;
+  const isWeeklyRegionalMonth = salesYear === 2026 && salesMonth === 7;
+  const activeSalesWeek = isWeeklyRegionalMonth ? week : 0;
   const regionalStateFilter = stateCode === 'ALL' ? '' : stateCode;
   const regionalCityFilter = city === 'ALL' ? '' : city;
   const isAggregateRegionalView = stateCode === 'ALL' || city === 'ALL';
@@ -952,8 +953,12 @@ function RegionalSalesPanel({ year, month }) {
         qty: monthRows.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0),
         value: monthRows.reduce((sum, row) => sum + (Number(row.value) || 0), 0),
       });
-      const previousWeekRows = monthRows.filter(row => Number(row.week) === activeSalesWeek - 1);
-      const earlierWeekRows = monthRows.filter(row => Number(row.week) > 0 && Number(row.week) < activeSalesWeek);
+      const previousWeekRows = isWeeklyRegionalMonth
+        ? monthRows.filter(row => Number(row.week) === activeSalesWeek - 1)
+        : [];
+      const earlierWeekRows = isWeeklyRegionalMonth
+        ? monthRows.filter(row => Number(row.week) > 0 && Number(row.week) < activeSalesWeek)
+        : [];
       const summarizeByProduct = sourceRows => sourceRows.reduce((acc, row) => {
         const current = acc[row.product_id] || { qty: 0, value: 0 };
         current.qty += Number(row.quantity) || 0;
@@ -1031,7 +1036,7 @@ function RegionalSalesPanel({ year, month }) {
       setHistory(savedRows);
     }).catch(() => setError('Unable to load regional sales.'))
       .finally(() => setLoading(false));
-  }, [me?.id, me?.state, me?.city, me?.role, salesYear, salesMonth, activeSalesWeek, regionalStateFilter, regionalCityFilter, shouldDefaultToEntryLocation, regionalSelectionTouched, stateCode, city]);
+  }, [me?.id, me?.state, me?.city, me?.role, salesYear, salesMonth, activeSalesWeek, isWeeklyRegionalMonth, regionalStateFilter, regionalCityFilter, shouldDefaultToEntryLocation, regionalSelectionTouched, stateCode, city]);
 
   useEffect(() => { loadRegional(); }, [loadRegional]);
 
@@ -1111,7 +1116,7 @@ function RegionalSalesPanel({ year, month }) {
     setMessage('');
     try {
       const res = await salesAPI.submitRegional({ associate_id: me.id, state_code: stateCode, city, year: salesYear, month: salesMonth, week: activeSalesWeek, entries: payloadRows });
-      setMessage(`${res.data?.entries_saved || 0} Week ${week} regional sales rows saved.`);
+      setMessage(`${res.data?.entries_saved || 0} ${isWeeklyRegionalMonth ? `Week ${week}` : 'full-month'} regional sales rows saved.`);
       setEditingRegionalRows({});
       setDirtyRegionalRows({});
       loadRegional();
@@ -1319,13 +1324,21 @@ function RegionalSalesPanel({ year, month }) {
               </div>
             </div>
             <span style={{ width: '100%' }} />
-            <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', fontWeight: 900, letterSpacing: 1.5, textTransform: 'uppercase', marginRight: 2 }}>Week</span>
-            {[1, 2, 3, 4].map(w => (
-              <button key={w} onClick={() => setWeek(w)}
-                style={{ padding: '5px 14px', borderRadius: 20, fontSize: 11, border: week === w ? '2px solid #F5B800' : '2px solid rgba(255,255,255,0.12)', background: week === w ? '#F5B800' : 'rgba(255,255,255,0.07)', cursor: 'pointer', fontWeight: 800, color: week === w ? '#0B1E10' : 'rgba(255,255,255,0.72)', boxShadow: week === w ? '0 2px 12px rgba(245,184,0,0.3)' : 'none' }}>
-                Week {w}
-              </button>
-            ))}
+            {isWeeklyRegionalMonth ? (
+              <>
+                <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', fontWeight: 900, letterSpacing: 1.5, textTransform: 'uppercase', marginRight: 2 }}>Week</span>
+                {[1, 2, 3, 4].map(w => (
+                  <button key={w} onClick={() => setWeek(w)}
+                    style={{ padding: '5px 14px', borderRadius: 20, fontSize: 11, border: week === w ? '2px solid #F5B800' : '2px solid rgba(255,255,255,0.12)', background: week === w ? '#F5B800' : 'rgba(255,255,255,0.07)', cursor: 'pointer', fontWeight: 800, color: week === w ? '#0B1E10' : 'rgba(255,255,255,0.72)', boxShadow: week === w ? '0 2px 12px rgba(245,184,0,0.3)' : 'none' }}>
+                    Week {w}
+                  </button>
+                ))}
+              </>
+            ) : (
+              <div style={{ padding: '5px 14px', borderRadius: 20, fontSize: 11, fontWeight: 800, border: '2px solid rgba(245,184,0,0.35)', background: 'rgba(245,184,0,0.16)', color: '#F5B800' }}>
+                Full month entry
+              </div>
+            )}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14 }}>
@@ -1368,12 +1381,12 @@ function RegionalSalesPanel({ year, month }) {
           Consolidated view is read-only. Select a specific region and city to enter quantity and price.
         </div>
       )}
-      {!loading && !isAggregateRegionalView && (
+      {!loading && isWeeklyRegionalMonth && !isAggregateRegionalView && (
         <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534', borderRadius: 10, padding: 12, marginBottom: 12, fontSize: 13 }}>
           Enter sales for <strong>Week {week}</strong> only. Each week is saved independently; no subtraction is applied.
         </div>
       )}
-      {!loading && week > 1 && !isAggregateRegionalView && (
+      {!loading && isWeeklyRegionalMonth && week > 1 && !isAggregateRegionalView && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10, marginBottom: 12 }}>
           {[
             {
@@ -1411,7 +1424,7 @@ function RegionalSalesPanel({ year, month }) {
 
       <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 120px 120px 130px 86px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb', fontSize: 11, fontWeight: 900, color: '#4b5563', textTransform: 'uppercase' }}>
-          {['Product', `Week ${week} Qty`, 'Rate', `Week ${week} Total`, 'Action'].map(label => <div key={label} style={{ padding: '10px 12px' }}>{label}</div>)}
+          {['Product', isWeeklyRegionalMonth ? `Week ${week} Qty` : 'Qty', 'Rate', isWeeklyRegionalMonth ? `Week ${week} Total` : 'Total', 'Action'].map(label => <div key={label} style={{ padding: '10px 12px' }}>{label}</div>)}
         </div>
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: '#6b7280' }}>Loading products...</div>
@@ -1429,7 +1442,7 @@ function RegionalSalesPanel({ year, month }) {
               <div style={{ padding: '10px 12px', minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 800, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{product.name}</div>
                 {(product.pack || product.composition) && <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>{[product.pack, product.composition].filter(Boolean).join(' | ')}</div>}
-                {week > 1 && (
+                {isWeeklyRegionalMonth && week > 1 && (
                   <div style={{ fontSize: 10, color: '#6b7280', marginTop: 3 }}>
                     W{week - 1}: {previousWeekProduct.qty.toLocaleString('en-IN')} qty · {fmtInr(previousWeekProduct.value)}
                     {week > 2 && <> · W1–{week - 1}: {earlierWeeksProduct.qty.toLocaleString('en-IN')} qty · {fmtInr(earlierWeeksProduct.value)}</>}
@@ -1466,7 +1479,7 @@ function RegionalSalesPanel({ year, month }) {
 
       {history.length > 0 && (
         <div style={{ marginTop: 14, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 14 }}>
-          <div style={{ fontSize: 13, fontWeight: 900, marginBottom: 10 }}>Saved rows for {city === 'ALL' ? 'All cities' : city || 'City'}, {stateCode === 'ALL' ? 'All regions' : stateCode || 'State'} · Week {week}</div>
+          <div style={{ fontSize: 13, fontWeight: 900, marginBottom: 10 }}>Saved rows for {city === 'ALL' ? 'All cities' : city || 'City'}, {stateCode === 'ALL' ? 'All regions' : stateCode || 'State'} · {isWeeklyRegionalMonth ? `Week ${week}` : 'Full month'}</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {history.filter(row => Number(row.quantity) > 0).slice(0, 16).map(row => (
               <div key={row.id} style={{ border: '1px solid #eef2f7', borderRadius: 8, padding: '8px 10px', background: '#f9fafb' }}>
