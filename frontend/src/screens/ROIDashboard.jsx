@@ -928,7 +928,9 @@ function RegionalSalesPanel({ year, month }) {
   const [regionalPdfs, setRegionalPdfs] = useState([]);
   const [regionalPdfBusy, setRegionalPdfBusy] = useState(false);
   const [regionalPdfError, setRegionalPdfError] = useState('');
-  const isWeeklyRegionalMonth = salesYear === 2026 && salesMonth === 7;
+  const isLegacyJulyWeeklyMonth = salesYear === 2026 && salesMonth === 7;
+  const isCumulativeWeeklyMonth = salesYear > 2026 || (salesYear === 2026 && salesMonth >= 8);
+  const isWeeklyRegionalMonth = isLegacyJulyWeeklyMonth || isCumulativeWeeklyMonth;
   const activeSalesWeek = isWeeklyRegionalMonth ? week : 0;
   const regionalStateFilter = stateCode === 'ALL' ? '' : stateCode;
   const regionalCityFilter = city === 'ALL' ? '' : city;
@@ -1034,8 +1036,8 @@ function RegionalSalesPanel({ year, month }) {
           }), { qty: 0, value: 0 });
         const price = weeklyQuantity ? saved.value / weeklyQuantity : product.rate || '';
         acc[product.id] = {
-          quantity: isWeeklyRegionalMonth ? (previousProduct.qty + weeklyQuantity) || '' : weeklyQuantity || '',
-          value: isWeeklyRegionalMonth ? (previousProduct.value + weeklyValue) || '' : '',
+          quantity: isCumulativeWeeklyMonth ? (previousProduct.qty + weeklyQuantity) || '' : weeklyQuantity || '',
+          value: isCumulativeWeeklyMonth ? (previousProduct.value + weeklyValue) || '' : '',
           price,
           existing: Boolean(saved?.existing),
           id: saved?.count === 1 ? saved.id : null,
@@ -1047,12 +1049,12 @@ function RegionalSalesPanel({ year, month }) {
       setHistory(savedRows);
     }).catch(() => setError('Unable to load regional sales.'))
       .finally(() => setLoading(false));
-  }, [me?.id, me?.state, me?.city, me?.role, salesYear, salesMonth, activeSalesWeek, isWeeklyRegionalMonth, regionalStateFilter, regionalCityFilter, shouldDefaultToEntryLocation, regionalSelectionTouched, stateCode, city]);
+  }, [me?.id, me?.state, me?.city, me?.role, salesYear, salesMonth, activeSalesWeek, isWeeklyRegionalMonth, isCumulativeWeeklyMonth, regionalStateFilter, regionalCityFilter, shouldDefaultToEntryLocation, regionalSelectionTouched, stateCode, city]);
 
   useEffect(() => { loadRegional(); }, [loadRegional]);
 
   const loadRegionalPdfs = useCallback(() => {
-    if (!me?.id || !isWeeklyRegionalMonth || stateCode === 'ALL' || city === 'ALL') {
+    if (!me?.id || !isCumulativeWeeklyMonth || stateCode === 'ALL' || city === 'ALL') {
       setRegionalPdfs([]);
       return;
     }
@@ -1071,7 +1073,7 @@ function RegionalSalesPanel({ year, month }) {
       setRegionalPdfs([]);
       setRegionalPdfError(error?.response?.data?.detail || 'Unable to load weekly PDFs.');
     });
-  }, [me?.id, isWeeklyRegionalMonth, stateCode, city, salesYear, salesMonth, week]);
+  }, [me?.id, isCumulativeWeeklyMonth, stateCode, city, salesYear, salesMonth, week]);
 
   useEffect(() => { loadRegionalPdfs(); }, [loadRegionalPdfs]);
 
@@ -1093,17 +1095,17 @@ function RegionalSalesPanel({ year, month }) {
       totals.value += Number(previous.value) || 0;
       return totals;
     }, { qty: 0, value: 0 });
-    const belowPrevious = isWeeklyRegionalMonth && (
+    const belowPrevious = isCumulativeWeeklyMonth && (
       cumulativeQuantity < previousProduct.qty
       || cumulativeValue < previousProduct.value
     );
-    const quantity = isWeeklyRegionalMonth
+    const quantity = isCumulativeWeeklyMonth
       ? belowPrevious ? 0 : Math.max(0, cumulativeQuantity - previousProduct.qty)
       : cumulativeQuantity;
-    const value = isWeeklyRegionalMonth
+    const value = isCumulativeWeeklyMonth
       ? belowPrevious ? 0 : Math.max(0, cumulativeValue - previousProduct.value)
       : quantity * (Number(row.price) || 0);
-    const price = isWeeklyRegionalMonth
+    const price = isCumulativeWeeklyMonth
       ? (quantity > 0 ? value / quantity : 0)
       : Number(row.price) || 0;
     return {
@@ -1125,13 +1127,19 @@ function RegionalSalesPanel({ year, month }) {
   const previousWeekNumbers = showPreviousWeekProductData
     ? Array.from({ length: week - 1 }, (_, index) => index + 1)
     : [];
-  const regionalGridTemplate = isWeeklyRegionalMonth
+  const regionalGridTemplate = isCumulativeWeeklyMonth
     ? `minmax(190px, 1.5fr) ${previousWeekNumbers.map(() => '125px').join(' ')} 120px 135px 140px 86px`
-    : 'minmax(190px, 1.5fr) 120px 120px 130px 86px';
-  const regionalGridMinWidth = isWeeklyRegionalMonth ? 670 + (previousWeekNumbers.length * 125) : 650;
-  const regionalHeaders = isWeeklyRegionalMonth
+    : showPreviousWeekProductData
+      ? `minmax(190px, 1.5fr) ${previousWeekNumbers.map(() => '125px').join(' ')} 120px 120px 130px 86px`
+      : 'minmax(190px, 1.5fr) 120px 120px 130px 86px';
+  const regionalGridMinWidth = isCumulativeWeeklyMonth
+    ? 670 + (previousWeekNumbers.length * 125)
+    : showPreviousWeekProductData ? 650 + (previousWeekNumbers.length * 125) : 650;
+  const regionalHeaders = isCumulativeWeeklyMonth
     ? ['Product', ...previousWeekNumbers.map(previousWeek => `Week ${previousWeek}`), 'Cumulative Qty', 'Cumulative Value', `Week ${week} Result`, 'Action']
-    : ['Product', 'Qty', 'Rate', 'Total', 'Action'];
+    : isLegacyJulyWeeklyMonth
+      ? ['Product', ...previousWeekNumbers.map(previousWeek => `Week ${previousWeek}`), `Week ${week} Qty`, 'Rate', `Week ${week} Total`, 'Action']
+      : ['Product', 'Qty', 'Rate', 'Total', 'Action'];
   const pendingRows = entries.filter(row => {
     const saved = rows[row.product.id] || {};
     return Boolean(dirtyRegionalRows[row.product.id]) || (!saved.existing && row.quantity > 0);
@@ -1179,7 +1187,7 @@ function RegionalSalesPanel({ year, month }) {
         price: row.quantity > 0 ? row.price : 0,
       }));
     if (!payloadRows.length) {
-      setError(isWeeklyRegionalMonth ? 'Enter cumulative quantity and value for at least one product.' : 'Enter quantity for at least one product.');
+      setError(isCumulativeWeeklyMonth ? 'Enter cumulative quantity and value for at least one product.' : 'Enter quantity for at least one product.');
       return;
     }
     setSaving(true);
@@ -1485,7 +1493,11 @@ function RegionalSalesPanel({ year, month }) {
       )}
       {!loading && isWeeklyRegionalMonth && !isAggregateRegionalView && (
         <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534', borderRadius: 10, padding: 12, marginBottom: 12, fontSize: 13 }}>
-          Enter the <strong>cumulative quantity and cumulative value</strong> shown in the Week {week} PDF. Earlier weeks are subtracted product-wise, and only the Week {week} difference is saved.
+          {isCumulativeWeeklyMonth ? (
+            <>Enter the <strong>cumulative quantity and cumulative value</strong> shown in the Week {week} PDF. Earlier weeks are subtracted product-wise, and only the Week {week} difference is saved.</>
+          ) : (
+            <>July data remains unchanged. Enter and edit the <strong>Week {week} quantity and rate</strong> directly; no cumulative subtraction is applied.</>
+          )}
         </div>
       )}
       {!loading && isWeeklyRegionalMonth && week > 1 && !isAggregateRegionalView && (
@@ -1528,7 +1540,7 @@ function RegionalSalesPanel({ year, month }) {
           Some cumulative quantities or values are below the earlier-weeks total. Their current-week result has been set to zero.
         </div>
       )}
-      {!loading && isWeeklyRegionalMonth && !isAggregateRegionalView && (
+      {!loading && isCumulativeWeeklyMonth && !isAggregateRegionalView && (
         <div style={{ marginBottom: 12, padding: 14, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <div>
@@ -1602,13 +1614,13 @@ function RegionalSalesPanel({ year, month }) {
                   style={{ width: '100%', boxSizing: 'border-box', padding: '8px 9px', border: calculated.belowPrevious ? '1px solid #f59e0b' : '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: inputDisabled ? '#f3f4f6' : '#fff', color: inputDisabled ? '#6b7280' : '#111827' }} />
               </div>
               <div style={{ padding: '10px 12px' }}>
-                <input type="number" min="0" value={(isWeeklyRegionalMonth ? row.value : row.price) || ''}
-                  onChange={e => updateRow(product.id, isWeeklyRegionalMonth ? 'value' : 'price', e.target.value)}
+                <input type="number" min="0" value={(isCumulativeWeeklyMonth ? row.value : row.price) || ''}
+                  onChange={e => updateRow(product.id, isCumulativeWeeklyMonth ? 'value' : 'price', e.target.value)}
                   disabled={inputDisabled}
                   style={{ width: '100%', boxSizing: 'border-box', padding: '8px 9px', border: calculated.belowPrevious ? '1px solid #f59e0b' : '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: inputDisabled ? '#f3f4f6' : '#fff', color: inputDisabled ? '#6b7280' : '#111827' }} />
               </div>
               <div style={{ padding: '10px 12px', color: quantity || calculated.value ? '#0F6E56' : '#9ca3af' }}>
-                {isWeeklyRegionalMonth ? (
+                {isCumulativeWeeklyMonth ? (
                   <>
                     <div style={{ fontSize: 13, fontWeight: 900 }}>{quantity.toLocaleString('en-IN')} qty</div>
                     <div style={{ marginTop: 2, fontSize: 11, fontWeight: 800 }}>{fmtInr(calculated.value)}</div>
