@@ -10,8 +10,25 @@ import re
 from ..database import get_db
 from ..models.models import SalesEntry, RegionalSalesEntry, RegionalSalesWeekPDF, Doctor, Product
 from ..utils.hierarchy import get_subtree_ids
+from ..utils.regional_territories import TERRITORY_STATES, visible_territories
 
 router = APIRouter(prefix="/sales", tags=["Sales"])
+
+
+def _enforce_regional_territory_access(
+    user_id: int,
+    city: str,
+    db: Session,
+    state_code: Optional[str] = None,
+):
+    allowed = visible_territories(user_id, db)
+    if allowed is not None and city not in allowed:
+        raise HTTPException(status_code=403, detail=f"You are not assigned to the {city} territory")
+    expected_state = TERRITORY_STATES.get(city)
+    if expected_state and state_code:
+        normalized_state = "".join(state_code.upper().split())
+        if normalized_state != "".join(expected_state.upper().split()):
+            raise HTTPException(status_code=400, detail=f"{city} belongs to {expected_state}")
 
 
 def _week_bounds(week: int):
@@ -153,6 +170,7 @@ def submit_regional_sales(payload: RegionalSalesRequest, db: Session = Depends(g
     city = (payload.city or "").strip()
     if not state_code or not city:
         raise HTTPException(status_code=400, detail="State and city are required")
+    _enforce_regional_territory_access(payload.associate_id, city, db, state_code)
 
     product_ids = {p.id for p in db.query(Product.id).filter(Product.is_active == True).all()}
     saved = 0
@@ -222,6 +240,9 @@ def get_regional_sales(
     db: Session = Depends(get_db),
 ):
     visible_ids = get_subtree_ids(associate_id, db)
+    allowed_territories = visible_territories(associate_id, db)
+    if city and allowed_territories is not None and city.strip() not in allowed_territories:
+        raise HTTPException(status_code=403, detail=f"You are not assigned to the {city.strip()} territory")
 
     q = db.query(RegionalSalesEntry)
     if year is not None:
@@ -230,6 +251,10 @@ def get_regional_sales(
         q = q.filter(RegionalSalesEntry.month == month)
     if visible_ids is not None:
         q = q.filter(RegionalSalesEntry.associate_id.in_(visible_ids))
+    if allowed_territories is not None:
+        if not allowed_territories:
+            return []
+        q = q.filter(RegionalSalesEntry.city.in_(allowed_territories))
     if week is not None:
         q = q.filter(RegionalSalesEntry.week == week)
     if state_code:
@@ -308,6 +333,7 @@ async def upload_regional_week_pdf(
     city = city.strip()
     if not state_code or not city:
         raise HTTPException(status_code=400, detail="State and city are required")
+    _enforce_regional_territory_access(associate_id, city, db, state_code)
     if month < 1 or month > 12 or week < 1 or week > 4:
         raise HTTPException(status_code=400, detail="Invalid month or week")
 
@@ -389,6 +415,7 @@ def get_regional_week_pdf_status(
     visible_ids = get_subtree_ids(viewer_id, db)
     if visible_ids is not None and associate_id not in visible_ids:
         raise HTTPException(status_code=403, detail="You cannot view this representative's PDF")
+    _enforce_regional_territory_access(viewer_id, city.strip(), db, state_code)
     records = _regional_pdf_query(db, associate_id, state_code, city, year, month, week)\
         .order_by(RegionalSalesWeekPDF.uploaded_at.desc(), RegionalSalesWeekPDF.id.desc()).all()
     return [_regional_pdf_metadata(record) for record in records]
@@ -406,6 +433,7 @@ def download_regional_week_pdf(
     visible_ids = get_subtree_ids(viewer_id, db)
     if visible_ids is not None and record.associate_id not in visible_ids:
         raise HTTPException(status_code=403, detail="You cannot download this representative's PDF")
+    _enforce_regional_territory_access(viewer_id, record.city, db, record.state_code)
     safe_filename = (record.filename or "regional-sales.pdf").replace('"', "").replace("\r", "").replace("\n", "")
     return Response(
         content=record.file_data,

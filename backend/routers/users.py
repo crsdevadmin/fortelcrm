@@ -4,13 +4,20 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import Optional, List
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
 
 from ..database import get_db
-from ..models.models import User, UserRole
+from ..models.models import User, UserRole, UserRegionalTerritory
 from ..auth.auth import hash_password, generate_password
 from ..utils.hierarchy import get_subtree_ids
+from ..utils.regional_territories import (
+    REGIONAL_TERRITORIES,
+    can_manage_multiple_territories,
+    direct_territories,
+    normalize_territories,
+    visible_territories,
+)
 
 router = APIRouter(prefix="/users", tags=["Users"])
 
@@ -28,6 +35,7 @@ class CreateUserRequest(BaseModel):
     city: Optional[str] = None
     state: Optional[str] = None
     password: Optional[str] = None
+    regional_territories: List[str] = Field(default_factory=list)
 
 
 class UpdateUserRequest(BaseModel):
@@ -40,6 +48,22 @@ class UpdateUserRequest(BaseModel):
     city: Optional[str] = None
     state: Optional[str] = None
     is_active: Optional[bool] = None
+    regional_territories: Optional[List[str]] = None
+
+
+class UserTerritoriesRequest(BaseModel):
+    territories: List[str] = Field(default_factory=list)
+
+
+def _replace_user_territories(user_id: int, territories, db: Session):
+    try:
+        normalized = normalize_territories(territories)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    db.query(UserRegionalTerritory).filter(UserRegionalTerritory.user_id == user_id).delete()
+    for territory in normalized:
+        db.add(UserRegionalTerritory(user_id=user_id, territory=territory))
+    return normalized
 
 
 # ── Create user (Admin only) ──────────────────
@@ -73,6 +97,8 @@ def create_user(payload: CreateUserRequest, db: Session = Depends(get_db)):
         is_active=True,
     )
     db.add(user)
+    db.flush()
+    assigned_territories = _replace_user_territories(user.id, payload.regional_territories, db)
     db.commit()
     db.refresh(user)
 
@@ -82,6 +108,7 @@ def create_user(payload: CreateUserRequest, db: Session = Depends(get_db)):
         "email": user.email,
         "role": user.role,
         "display_role": user.display_role,
+        "regional_territories": assigned_territories,
         "temp_password": auto_pwd,    # admin shows this to the user for first login
         "must_reset_password": True,
     }
@@ -116,6 +143,7 @@ def list_users(role: Optional[str] = None, viewer_id: Optional[int] = None, db: 
             "must_reset_password": getattr(u, "must_reset_password", False),
             "reports_to_id": u.reports_to_id,
             "reports_to_name": u.reports_to.name if u.reports_to else None,
+            "regional_territories": direct_territories(u.id, db),
             "created_at": u.created_at,
         }
         for u in users
@@ -141,12 +169,18 @@ def get_hierarchy_tree(db: Session = Depends(get_db)):
             "role": user.role,
             "display_role": user.display_role,
             "custom_role_name": user.custom_role_name,
+            "regional_territories": direct_territories(user.id, db),
             "is_active": user.is_active,
             "reports": [build_node(c) for c in children],
         }
 
     roots = [u for u in all_users if u.reports_to_id is None and u.role != "admin"]
     return [build_node(r) for r in roots]
+
+
+@router.get("/regional-territories/options")
+def get_regional_territory_options():
+    return list(REGIONAL_TERRITORIES)
 
 
 # ── Get single user ───────────────────────────
@@ -164,7 +198,39 @@ def get_user(user_id: int, db: Session = Depends(get_db)):
         "must_reset_password": getattr(user, "must_reset_password", False),
         "reports_to_id": user.reports_to_id,
         "reports_to_name": user.reports_to.name if user.reports_to else None,
+        "regional_territories": direct_territories(user.id, db),
+        "has_reportees": db.query(User.id).filter(User.reports_to_id == user.id, User.is_active == True).first() is not None,
     }
+
+
+@router.get("/{user_id}/regional-territories/access")
+def get_user_regional_territory_access(user_id: int, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    visible = visible_territories(user_id, db)
+    return {
+        "direct_territories": direct_territories(user_id, db),
+        "visible_territories": list(REGIONAL_TERRITORIES) if visible is None else [
+            territory for territory in REGIONAL_TERRITORIES if territory in visible
+        ],
+        "can_view_all": visible is None,
+        "can_manage_multiple": can_manage_multiple_territories(user_id, db),
+    }
+
+
+@router.put("/{user_id}/regional-territories")
+def update_user_regional_territories(
+    user_id: int,
+    payload: UserTerritoriesRequest,
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    territories = _replace_user_territories(user_id, payload.territories, db)
+    db.commit()
+    return {"status": "updated", "user_id": user_id, "regional_territories": territories}
 
 
 # ── Update user ───────────────────────────────
@@ -183,6 +249,8 @@ def update_user(user_id: int, payload: UpdateUserRequest, db: Session = Depends(
     if payload.city is not None:             user.city = payload.city
     if payload.state is not None:            user.state = payload.state
     if payload.is_active is not None:        user.is_active = payload.is_active
+    if payload.regional_territories is not None:
+        _replace_user_territories(user_id, payload.regional_territories, db)
     db.commit()
     return {"status": "updated", "user_id": user_id}
 

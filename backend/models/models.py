@@ -98,6 +98,21 @@ class User(Base):
         return self.reports_to.name if self.reports_to else None
 
 
+class UserRegionalTerritory(Base):
+    __tablename__ = "user_regional_territories"
+
+    id         = Column(Integer, primary_key=True, index=True)
+    user_id    = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    territory  = Column(String(100), nullable=False)
+    assigned_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User", foreign_keys=[user_id])
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "territory", name="uq_user_regional_territory"),
+    )
+
+
 # REGION
 
 class Region(Base):

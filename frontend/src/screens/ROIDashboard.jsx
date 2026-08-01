@@ -34,6 +34,14 @@ const CHENNAI_AREAS = new Set([
 ]);
 const HYDERABAD_AREAS = new Set(['gachibowli', 'nallagandla', 'lakdikapul', 'redhills', 'red hills']);
 const TAMIL_NADU_REGIONAL_CITIES = ['Chennai', 'Madurai', 'Coimbatore 1', 'Coimbatore 2'];
+const REGIONAL_TERRITORY_STATES = {
+  Chennai: 'Tamil Nadu',
+  Madurai: 'Tamil Nadu',
+  'Coimbatore 1': 'Tamil Nadu',
+  'Coimbatore 2': 'Tamil Nadu',
+  Hyderabad: 'Telangana',
+  Cochin: 'Kerala',
+};
 const MADURAI_REGIONAL_AREAS = new Set([
   'madurai', 'trichy', 'tiruchirappalli', 'tirnalveli', 'tirunelveli',
   'trivanduram', 'trivandrum', 'thiruvananthapuram', 'nagarkoil', 'nagercoil',
@@ -53,6 +61,14 @@ const tamilNaduRegionalCity = (rawCity, ownerId) => {
 };
 const tamilNaduRegionalCityForUser = user => {
   return tamilNaduRegionalCity(user?.city, user?.id);
+};
+const regionalTerritoryForUser = user => {
+  const tamilNaduTerritory = tamilNaduRegionalCityForUser(user);
+  if (tamilNaduTerritory) return tamilNaduTerritory;
+  const city = (user?.city || '').trim().toLowerCase();
+  if (city === 'hyderabad') return 'Hyderabad';
+  if (city === 'cochin' || city === 'kochi') return 'Cochin';
+  return '';
 };
 const groupedCityName = doctor => {
   const rawCity = (doctor.city || '').trim();
@@ -956,6 +972,12 @@ function RegionalSalesPanel({ year, month }) {
   const [regionalPdfs, setRegionalPdfs] = useState([]);
   const [regionalPdfBusy, setRegionalPdfBusy] = useState(false);
   const [regionalPdfError, setRegionalPdfError] = useState('');
+  const [regionalAccess, setRegionalAccess] = useState({
+    direct_territories: [],
+    visible_territories: [],
+    can_view_all: false,
+    can_manage_multiple: false,
+  });
   const isLegacyJulyWeeklyMonth = salesYear === 2026 && salesMonth === 7;
   const isCumulativeWeeklyMonth = salesYear > 2026 || (salesYear === 2026 && salesMonth >= 8);
   const isWeeklyRegionalMonth = isLegacyJulyWeeklyMonth || isCumulativeWeeklyMonth;
@@ -963,8 +985,28 @@ function RegionalSalesPanel({ year, month }) {
   const regionalStateFilter = stateCode === 'ALL' ? '' : stateCode;
   const regionalCityFilter = city === 'ALL' ? '' : city;
   const isAggregateRegionalView = stateCode === 'ALL' || city === 'ALL';
-  const canUseAggregateRegionalView = ['admin', 'md', 'director', 'senior_manager', 'manager'].includes(me?.role);
+  const fallbackTerritory = regionalTerritoryForUser(me);
+  const visibleRegionalTerritories = useMemo(
+    () => regionalAccess.visible_territories?.length
+      ? regionalAccess.visible_territories
+      : fallbackTerritory ? [fallbackTerritory] : [],
+    [regionalAccess.visible_territories, fallbackTerritory]
+  );
+  const visibleRegionalTerritorySet = new Set(visibleRegionalTerritories);
+  const canUseAggregateRegionalView = regionalAccess.can_view_all || regionalAccess.can_manage_multiple;
   const shouldDefaultToEntryLocation = !canUseAggregateRegionalView;
+
+  useEffect(() => {
+    if (!me?.id) return;
+    axios.get(`${API}/users/${me.id}/regional-territories/access`)
+      .then(response => setRegionalAccess(response.data || {}))
+      .catch(() => setRegionalAccess({
+        direct_territories: fallbackTerritory ? [fallbackTerritory] : [],
+        visible_territories: fallbackTerritory ? [fallbackTerritory] : [],
+        can_view_all: ['admin', 'md'].includes(me?.role),
+        can_manage_multiple: ['admin', 'md', 'director', 'senior_manager', 'manager'].includes(me?.role),
+      }));
+  }, [me?.id, me?.role, fallbackTerritory]);
 
   const loadRegional = useCallback(() => {
     if (!me?.id) return;
@@ -1028,10 +1070,11 @@ function RegionalSalesPanel({ year, month }) {
       setLocations(locationList);
       if (shouldDefaultToEntryLocation && !regionalSelectionTouched && stateCode === 'ALL' && city === 'ALL' && locationList.length) {
         const defaultLocation = locationList[0];
-        const defaultCity = toStateName(defaultLocation.state_code) === 'Tamil Nadu'
-          ? tamilNaduRegionalCityForUser(me) || TAMIL_NADU_REGIONAL_CITIES[0]
-          : defaultLocation.city;
-        setStateCode(defaultLocation.state_code);
+        const defaultCity = regionalAccess.direct_territories?.[0]
+          || visibleRegionalTerritories[0]
+          || regionalTerritoryForUser(me)
+          || defaultLocation.city;
+        setStateCode(REGIONAL_TERRITORY_STATES[defaultCity] || defaultLocation.state_code);
         setCity(defaultCity);
         setProducts(productList);
         setRows(productList.reduce((acc, product) => {
@@ -1081,7 +1124,7 @@ function RegionalSalesPanel({ year, month }) {
       setHistory(savedRows);
     }).catch(() => setError('Unable to load regional sales.'))
       .finally(() => setLoading(false));
-  }, [me?.id, me?.state, me?.city, me?.role, salesYear, salesMonth, activeSalesWeek, isWeeklyRegionalMonth, isCumulativeWeeklyMonth, regionalStateFilter, regionalCityFilter, shouldDefaultToEntryLocation, regionalSelectionTouched, stateCode, city]);
+  }, [me?.id, me?.state, me?.city, me?.role, salesYear, salesMonth, activeSalesWeek, isWeeklyRegionalMonth, isCumulativeWeeklyMonth, regionalStateFilter, regionalCityFilter, shouldDefaultToEntryLocation, regionalSelectionTouched, stateCode, city, regionalAccess, visibleRegionalTerritories]);
 
   useEffect(() => { loadRegional(); }, [loadRegional]);
 
@@ -1176,12 +1219,27 @@ function RegionalSalesPanel({ year, month }) {
     const saved = rows[row.product.id] || {};
     return Boolean(dirtyRegionalRows[row.product.id]) || (!saved.existing && row.quantity > 0);
   });
-  const stateOptions = Object.values(locations.reduce((acc, loc) => {
+  const allStateOptions = Object.values(locations.reduce((acc, loc) => {
     const name = loc.state_name || toStateName(loc.state_code);
     acc[name] = acc[name] || { state_code: loc.state_code, state_name: name, count: 0 };
     acc[name].count += loc.count || 1;
     return acc;
   }, {})).sort((a, b) => a.state_name.localeCompare(b.state_name));
+  const visibleRegionalStateNames = new Set(
+    visibleRegionalTerritories.map(territory => REGIONAL_TERRITORY_STATES[territory]).filter(Boolean)
+  );
+  const availableStateOptions = Object.values(visibleRegionalTerritories.reduce((acc, territory) => {
+    const stateName = REGIONAL_TERRITORY_STATES[territory];
+    if (stateName && !acc[stateName]) {
+      acc[stateName] = allStateOptions.find(option => option.state_name === stateName)
+        || { state_code: stateName, state_name: stateName, count: 0 };
+    }
+    return acc;
+  }, allStateOptions.reduce((acc, option) => ({ ...acc, [option.state_name]: option }), {})))
+    .sort((a, b) => a.state_name.localeCompare(b.state_name));
+  const stateOptions = regionalAccess.can_view_all
+    ? availableStateOptions
+    : availableStateOptions.filter(option => visibleRegionalStateNames.has(option.state_name));
   const cityCounts = locations
     .filter(loc => stateCode === 'ALL' || toStateName(loc.state_code) === toStateName(stateCode))
     .reduce((acc, loc) => {
@@ -1191,8 +1249,12 @@ function RegionalSalesPanel({ year, month }) {
   const cityEntries = stateCode === 'ALL'
     ? []
     : toStateName(stateCode) === 'Tamil Nadu'
-      ? TAMIL_NADU_REGIONAL_CITIES.map(cityName => [cityName, null])
-      : Object.entries(cityCounts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+      ? TAMIL_NADU_REGIONAL_CITIES
+        .filter(cityName => regionalAccess.can_view_all || visibleRegionalTerritorySet.has(cityName))
+        .map(cityName => [cityName, null])
+      : visibleRegionalTerritories
+        .filter(territory => REGIONAL_TERRITORY_STATES[territory] === toStateName(stateCode))
+        .map(territory => [territory, cityCounts[territory] ?? null]);
   const topCities = cityEntries.slice(0, 5);
   const extraCities = cityEntries.slice(5);
   const goSalesMonth = delta => {
@@ -1404,9 +1466,9 @@ function RegionalSalesPanel({ year, month }) {
                 const ac = regionAccents[st.state_name] || '#F5B800';
                 return (
                   <button key={st.state_name} onClick={() => {
-                    const firstCity = st.state_name === 'Tamil Nadu'
-                      ? tamilNaduRegionalCityForUser(me) || TAMIL_NADU_REGIONAL_CITIES[0]
-                      : locations.find(loc => toStateName(loc.state_code) === st.state_name)?.city || '';
+                    const firstCity = visibleRegionalTerritories.find(
+                      territory => REGIONAL_TERRITORY_STATES[territory] === st.state_name
+                    ) || locations.find(loc => toStateName(loc.state_code) === st.state_name)?.city || '';
                     setRegionalSelectionTouched(true);
                     setStateCode(st.state_code);
                     setCity(canUseAggregateRegionalView ? 'ALL' : firstCity);

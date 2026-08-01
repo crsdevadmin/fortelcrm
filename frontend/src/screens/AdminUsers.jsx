@@ -13,6 +13,10 @@ const ROLES = [
   { value: 'custom',         label: 'Custom (specify below)' },
 ];
 
+const REGIONAL_TERRITORIES = [
+  'Chennai', 'Madurai', 'Coimbatore 1', 'Coimbatore 2', 'Hyderabad', 'Cochin',
+];
+
 const ROLE_COLORS = {
   admin:          { bg: '#f5f3ff', text: '#7c3aed', border: '#ddd6fe' },
   md:             { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe' },
@@ -96,13 +100,14 @@ export default function AdminUsers() {
   const [users, setUsers]               = useState([]);
   const [hierarchy, setHierarchy]       = useState([]);
   const [tab, setTab]                   = useState('list');
-  const [form, setForm]                 = useState({ name: '', email: '', role: 'rep', custom_role_name: '', reports_to_id: '', phone: '', personal_email: '', city: '', state: '' });
+  const [form, setForm]                 = useState({ name: '', email: '', role: 'rep', custom_role_name: '', reports_to_id: '', phone: '', personal_email: '', city: '', state: '', regional_territories: [] });
   const [showForm, setShowForm]         = useState(false);
   const [newUserResult, setNewUserResult] = useState(null);
   const [resetResult, setResetResult]   = useState(null);
   const [loading, setLoading]           = useState(true);
   const [error, setError]               = useState('');
   const [savedRow, setSavedRow]         = useState(null);
+  const [savedTerritoryRow, setSavedTerritoryRow] = useState(null);
   const [revealedPwd, setRevealedPwd]   = useState(new Set());
   const [viewUser, setViewUser]         = useState(null);
   const [searchQ, setSearchQ]           = useState('');
@@ -126,10 +131,11 @@ export default function AdminUsers() {
         reports_to_id: form.reports_to_id ? Number(form.reports_to_id) : null,
         phone: form.phone || null, personal_email: form.personal_email || null,
         city: form.city || null, state: form.state || null,
+        regional_territories: form.regional_territories,
       };
       const res = await axios.post(`${API}/users/create`, payload);
       setNewUserResult(res.data);
-      setForm({ name: '', email: '', role: 'rep', custom_role_name: '', reports_to_id: '', phone: '', personal_email: '', city: '', state: '' });
+      setForm({ name: '', email: '', role: 'rep', custom_role_name: '', reports_to_id: '', phone: '', personal_email: '', city: '', state: '', regional_territories: [] });
       setShowForm(false); loadUsers();
     } catch (err) { setError(err.response?.data?.detail || 'Failed to create user'); }
   };
@@ -149,6 +155,22 @@ export default function AdminUsers() {
     const params = reportsToId ? { reports_to_id: reportsToId } : {};
     await axios.patch(`${API}/users/${userId}/reports-to`, null, { params });
     setSavedRow(userId); setTimeout(() => setSavedRow(null), 2000); loadUsers();
+  };
+
+  const handleTerritoryToggle = async (user, territory) => {
+    const current = Array.isArray(user.regional_territories) ? user.regional_territories : [];
+    const territories = current.includes(territory)
+      ? current.filter(value => value !== territory)
+      : [...current, territory];
+    setUsers(rows => rows.map(row => row.id === user.id ? { ...row, regional_territories: territories } : row));
+    try {
+      await axios.put(`${API}/users/${user.id}/regional-territories`, { territories });
+      setSavedTerritoryRow(user.id);
+      setTimeout(() => setSavedTerritoryRow(null), 2000);
+    } catch (err) {
+      setUsers(rows => rows.map(row => row.id === user.id ? { ...row, regional_territories: current } : row));
+      setError(err.response?.data?.detail || 'Failed to update regional territories');
+    }
   };
 
   const togglePwd = id => setRevealedPwd(prev => {
@@ -273,6 +295,26 @@ export default function AdminUsers() {
                 {fld('Personal Email', form.personal_email, f('personal_email'), 'email')}
                 {fld('City / Territory', form.city,         f('city'))}
                 {fld('State / Region', form.state,          f('state'))}
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={{ fontSize: 10, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 7 }}>Regional Sales Territories</label>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {REGIONAL_TERRITORIES.map(territory => {
+                      const selected = form.regional_territories.includes(territory);
+                      return (
+                        <button key={territory} type="button"
+                          onClick={() => setForm(current => ({
+                            ...current,
+                            regional_territories: selected
+                              ? current.regional_territories.filter(value => value !== territory)
+                              : [...current.regional_territories, territory],
+                          }))}
+                          style={{ padding: '6px 11px', borderRadius: 20, border: selected ? '2px solid #7c3aed' : '1px solid #d1d5db', background: selected ? '#ede9fe' : '#fff', color: selected ? '#5b21b6' : '#6b7280', fontSize: 11, fontWeight: 800, cursor: 'pointer' }}>
+                          {selected ? '✓ ' : ''}{territory}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
 
               {error && <div style={{ background: '#fef2f2', color: '#dc2626', padding: '8px 12px', borderRadius: 8, fontSize: 12, marginBottom: 10 }}>⚠️ {error}</div>}
@@ -398,6 +440,27 @@ export default function AdminUsers() {
                       {savedRow === u.id && <div style={{ fontSize: 10, color: '#15803d', marginTop: 2, fontWeight: 700 }}>✓ Saved</div>}
                     </div>
 
+                    {/* Regional Sales territory access */}
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5 }}>Regional Sales Territories</div>
+                      {['admin', 'md'].includes(u.role) ? (
+                        <div style={{ fontSize: 11, color: '#166534', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '6px 9px', fontWeight: 700 }}>All territories</div>
+                      ) : (
+                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+                          {REGIONAL_TERRITORIES.map(territory => {
+                            const selected = (u.regional_territories || []).includes(territory);
+                            return (
+                              <button key={territory} type="button" onClick={() => handleTerritoryToggle(u, territory)}
+                                style={{ padding: '4px 8px', borderRadius: 20, border: selected ? '1.5px solid #7c3aed' : '1px solid #e5e7eb', background: selected ? '#ede9fe' : '#fff', color: selected ? '#5b21b6' : '#9ca3af', fontSize: 9, fontWeight: 800, cursor: 'pointer' }}>
+                                {selected ? '✓ ' : ''}{territory}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {savedTerritoryRow === u.id && <div style={{ fontSize: 10, color: '#15803d', marginTop: 3, fontWeight: 700 }}>✓ Territory access saved</div>}
+                    </div>
+
                     {/* Actions */}
                     <div style={{ display: 'flex', gap: 6, borderTop: '1px solid #f3f4f6', paddingTop: 10 }}>
                       <button onClick={() => setViewUser(u)}
@@ -478,6 +541,7 @@ export default function AdminUsers() {
               ['Personal Email', viewUser.personal_email],
               ['City',           viewUser.city],
               ['State',          viewUser.state],
+              ['Regional Territories', (viewUser.regional_territories || []).join(', ') || (['admin', 'md'].includes(viewUser.role) ? 'All territories' : null)],
               ['Reports To',     users.find(u => u.id === viewUser.reports_to_id)?.name],
             ].filter(([, v]) => v).map(([label, value]) => (
               <div key={label} style={{ display: 'flex', padding: '8px 0', borderBottom: '1px solid #f3f4f6', fontSize: 13 }}>
