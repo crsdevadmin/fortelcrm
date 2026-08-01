@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { roiAPI, investmentsAPI, salesAPI } from '../api';
+
+const SHOW_DOCTOR_PORTFOLIO = false;
 import { useAuth } from '../context/AuthContext';
 import EnterSales from './EnterSales';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -2764,7 +2766,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
           </div>
 
           {/* ── INV vs SALES CHART (above cards) */}
-          {!loading && activityFilter !== 'prescribed' && displayDoctors.filter(d => d.total_invested > 0 || d.actual_sales > 0).length > 0 && (() => {
+          {SHOW_DOCTOR_PORTFOLIO && !loading && activityFilter !== 'prescribed' && displayDoctors.filter(d => d.total_invested > 0 || d.actual_sales > 0).length > 0 && (() => {
             const chartDocs = [...displayDoctors]
               .filter(d => d.total_invested > 0 || d.actual_sales > 0)
               .sort(sortByActivity)
@@ -2835,13 +2837,13 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
           })()}
 
           {/* Doctor cards */}
-          {activityFilter === 'prescribed' && loading && (
+          {SHOW_DOCTOR_PORTFOLIO && activityFilter === 'prescribed' && loading && (
             <div style={{ textAlign: 'center', padding: 48, color: '#888', fontSize: 13 }}>Loading...</div>
           )}
-          {activityFilter === 'prescribed' && !loading && displayDoctors.length === 0 && (
+          {SHOW_DOCTOR_PORTFOLIO && activityFilter === 'prescribed' && !loading && displayDoctors.length === 0 && (
             <div style={{ textAlign: 'center', padding: 48, color: '#888', fontSize: 13 }}>No doctors found for this period.</div>
           )}
-          {activityFilter === 'prescribed' && !loading && displayDoctors.length > 0 && (
+          {SHOW_DOCTOR_PORTFOLIO && activityFilter === 'prescribed' && !loading && displayDoctors.length > 0 && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16, alignItems: 'start' }}>
               <div>
                 {renderReturnsTracker(
@@ -2860,7 +2862,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
             </div>
           )}
 
-          {activityFilter !== 'prescribed' && (loading ? (
+          {SHOW_DOCTOR_PORTFOLIO && activityFilter !== 'prescribed' && (loading ? (
             <div style={{ textAlign: 'center', padding: 48, color: '#888', fontSize: 13 }}>Loading…</div>
           ) : displayDoctors.length === 0 ? (
             <div style={{ textAlign: 'center', padding: 48, color: '#888', fontSize: 13 }}>No doctors found for this period.</div>
@@ -2899,7 +2901,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
         </div>
 
         {/* Drill panel */}
-        {selectedDoctor && (
+        {SHOW_DOCTOR_PORTFOLIO && selectedDoctor && (
           <div style={{
             width: 380, flexShrink: 0, marginLeft: 16,
             background: '#fff', borderRadius: 16, border: '0.5px solid #e5e7eb',
