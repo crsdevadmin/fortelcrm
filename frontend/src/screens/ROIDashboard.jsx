@@ -1188,9 +1188,11 @@ function RegionalSalesPanel({ year, month }) {
       if (loc.city) acc[loc.city] = (acc[loc.city] || 0) + (loc.count || 1);
       return acc;
     }, {});
-  const cityEntries = toStateName(stateCode) === 'Tamil Nadu'
-    ? TAMIL_NADU_REGIONAL_CITIES.map(cityName => [cityName, null])
-    : Object.entries(cityCounts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const cityEntries = stateCode === 'ALL'
+    ? []
+    : toStateName(stateCode) === 'Tamil Nadu'
+      ? TAMIL_NADU_REGIONAL_CITIES.map(cityName => [cityName, null])
+      : Object.entries(cityCounts).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
   const topCities = cityEntries.slice(0, 5);
   const extraCities = cityEntries.slice(5);
   const goSalesMonth = delta => {
