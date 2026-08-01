@@ -3,7 +3,7 @@ import enum
 from datetime import datetime
 from sqlalchemy import (
     Column, Integer, String, Float, Boolean, DateTime,
-    ForeignKey, Text, UniqueConstraint
+    ForeignKey, Text, UniqueConstraint, LargeBinary
 )
 from sqlalchemy.orm import relationship
 from ..database import Base
@@ -261,6 +261,30 @@ class RegionalSalesEntry(Base):
         UniqueConstraint("associate_id", "state_code", "city", "product_id", "year", "month", "week",
                          name="uq_regional_sales_region_product_week"),
     )
+
+
+# REGIONAL WEEKLY SALES PDF
+
+class RegionalSalesWeekPDF(Base):
+    __tablename__ = "regional_sales_week_pdfs"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    associate_id   = Column(Integer, ForeignKey("users.id"), nullable=False)
+    state_code     = Column(String(50), nullable=False, default="")
+    city           = Column(String(100), nullable=False, default="")
+    year           = Column(Integer, nullable=False)
+    month          = Column(Integer, nullable=False)
+    week           = Column(Integer, nullable=False)
+    filename       = Column(String(255), nullable=False)
+    content_type   = Column(String(100), nullable=False, default="application/pdf")
+    file_data      = Column(LargeBinary, nullable=False)
+    entered_total  = Column(Float, nullable=False, default=0)
+    pdf_total      = Column(Float, nullable=True)
+    difference     = Column(Float, nullable=True)
+    matches        = Column(Boolean, nullable=False, default=False)
+    uploaded_at    = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    associate = relationship("User", foreign_keys=[associate_id])
 
 
 # PRODUCT TARGET

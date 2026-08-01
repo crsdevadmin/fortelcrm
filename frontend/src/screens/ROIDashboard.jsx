@@ -925,6 +925,9 @@ function RegionalSalesPanel({ year, month }) {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [regionalPdfs, setRegionalPdfs] = useState([]);
+  const [regionalPdfBusy, setRegionalPdfBusy] = useState(false);
+  const [regionalPdfError, setRegionalPdfError] = useState('');
   const isWeeklyRegionalMonth = salesYear === 2026 && salesMonth === 7;
   const activeSalesWeek = isWeeklyRegionalMonth ? week : 0;
   const regionalStateFilter = stateCode === 'ALL' ? '' : stateCode;
@@ -998,7 +1001,7 @@ function RegionalSalesPanel({ year, month }) {
         setCity(locationList[0].city);
         setProducts(productList);
         setRows(productList.reduce((acc, product) => {
-          acc[product.id] = { quantity: '', price: product.rate || '' };
+          acc[product.id] = { quantity: '', value: '', price: product.rate || '' };
           return acc;
         }, {}));
         setHistory([]);
@@ -1022,9 +1025,17 @@ function RegionalSalesPanel({ year, month }) {
       setRows(productList.reduce((acc, product) => {
         const saved = byProduct[product.id];
         const weeklyQuantity = saved?.quantity || 0;
+        const weeklyValue = saved?.value || 0;
+        const previousProduct = earlierWeekRows
+          .filter(row => row.product_id === product.id)
+          .reduce((totals, row) => ({
+            qty: totals.qty + (Number(row.quantity) || 0),
+            value: totals.value + (Number(row.value) || 0),
+          }), { qty: 0, value: 0 });
         const price = weeklyQuantity ? saved.value / weeklyQuantity : product.rate || '';
         acc[product.id] = {
-          quantity: weeklyQuantity || '',
+          quantity: isWeeklyRegionalMonth ? (previousProduct.qty + weeklyQuantity) || '' : weeklyQuantity || '',
+          value: isWeeklyRegionalMonth ? (previousProduct.value + weeklyValue) || '' : '',
           price,
           existing: Boolean(saved?.existing),
           id: saved?.count === 1 ? saved.id : null,
@@ -1040,6 +1051,30 @@ function RegionalSalesPanel({ year, month }) {
 
   useEffect(() => { loadRegional(); }, [loadRegional]);
 
+  const loadRegionalPdfs = useCallback(() => {
+    if (!me?.id || !isWeeklyRegionalMonth || stateCode === 'ALL' || city === 'ALL') {
+      setRegionalPdfs([]);
+      return;
+    }
+    salesAPI.regionalWeekPdfs({
+      viewer_id: me.id,
+      associate_id: me.id,
+      state_code: stateCode,
+      city,
+      year: salesYear,
+      month: salesMonth,
+      week,
+    }).then(response => {
+      setRegionalPdfs(Array.isArray(response.data) ? response.data : []);
+      setRegionalPdfError('');
+    }).catch(error => {
+      setRegionalPdfs([]);
+      setRegionalPdfError(error?.response?.data?.detail || 'Unable to load weekly PDFs.');
+    });
+  }, [me?.id, isWeeklyRegionalMonth, stateCode, city, salesYear, salesMonth, week]);
+
+  useEffect(() => { loadRegionalPdfs(); }, [loadRegionalPdfs]);
+
   const updateRow = (productId, field, value) => {
     setRows(prev => ({
       ...prev,
@@ -1050,28 +1085,53 @@ function RegionalSalesPanel({ year, month }) {
 
   const entries = products.map(product => {
     const row = rows[product.id] || {};
-    const quantity = Number(row.quantity) || 0;
-    const price = Number(row.price) || 0;
+    const cumulativeQuantity = Number(row.quantity) || 0;
+    const cumulativeValue = Number(row.value) || 0;
+    const previousProduct = Object.values(weekContext.weeksByProduct || {}).reduce((totals, weekProducts) => {
+      const previous = weekProducts?.[product.id] || {};
+      totals.qty += Number(previous.qty) || 0;
+      totals.value += Number(previous.value) || 0;
+      return totals;
+    }, { qty: 0, value: 0 });
+    const belowPrevious = isWeeklyRegionalMonth && (
+      cumulativeQuantity < previousProduct.qty
+      || cumulativeValue < previousProduct.value
+    );
+    const quantity = isWeeklyRegionalMonth
+      ? belowPrevious ? 0 : Math.max(0, cumulativeQuantity - previousProduct.qty)
+      : cumulativeQuantity;
+    const value = isWeeklyRegionalMonth
+      ? belowPrevious ? 0 : Math.max(0, cumulativeValue - previousProduct.value)
+      : quantity * (Number(row.price) || 0);
+    const price = isWeeklyRegionalMonth
+      ? (quantity > 0 ? value / quantity : 0)
+      : Number(row.price) || 0;
     return {
       product,
+      cumulativeQuantity,
+      cumulativeValue,
+      previousQuantity: previousProduct.qty,
+      previousValue: previousProduct.value,
       quantity,
       price,
-      value: quantity * price,
+      value,
+      belowPrevious,
     };
   });
   const totalQty = entries.reduce((sum, row) => sum + row.quantity, 0);
   const totalValue = entries.reduce((sum, row) => sum + row.value, 0);
+  const entryByProduct = new Map(entries.map(entry => [entry.product.id, entry]));
   const showPreviousWeekProductData = isWeeklyRegionalMonth && week > 1;
   const previousWeekNumbers = showPreviousWeekProductData
     ? Array.from({ length: week - 1 }, (_, index) => index + 1)
     : [];
-  const regionalGridTemplate = previousWeekNumbers.length
-    ? `minmax(190px, 1.5fr) ${previousWeekNumbers.map(() => '125px').join(' ')} 110px 110px 130px 86px`
+  const regionalGridTemplate = isWeeklyRegionalMonth
+    ? `minmax(190px, 1.5fr) ${previousWeekNumbers.map(() => '125px').join(' ')} 120px 135px 140px 86px`
     : 'minmax(190px, 1.5fr) 120px 120px 130px 86px';
-  const regionalGridMinWidth = previousWeekNumbers.length ? 650 + (previousWeekNumbers.length * 125) : 650;
-  const regionalHeaders = showPreviousWeekProductData
-    ? ['Product', ...previousWeekNumbers.map(previousWeek => `Week ${previousWeek}`), `Week ${week} Qty`, 'Rate', `Week ${week} Total`, 'Action']
-    : ['Product', isWeeklyRegionalMonth ? `Week ${week} Qty` : 'Qty', 'Rate', isWeeklyRegionalMonth ? `Week ${week} Total` : 'Total', 'Action'];
+  const regionalGridMinWidth = isWeeklyRegionalMonth ? 670 + (previousWeekNumbers.length * 125) : 650;
+  const regionalHeaders = isWeeklyRegionalMonth
+    ? ['Product', ...previousWeekNumbers.map(previousWeek => `Week ${previousWeek}`), 'Cumulative Qty', 'Cumulative Value', `Week ${week} Result`, 'Action']
+    : ['Product', 'Qty', 'Rate', 'Total', 'Action'];
   const pendingRows = entries.filter(row => {
     const saved = rows[row.product.id] || {};
     return Boolean(dirtyRegionalRows[row.product.id]) || (!saved.existing && row.quantity > 0);
@@ -1119,7 +1179,7 @@ function RegionalSalesPanel({ year, month }) {
         price: row.quantity > 0 ? row.price : 0,
       }));
     if (!payloadRows.length) {
-      setError('Enter quantity for at least one product.');
+      setError(isWeeklyRegionalMonth ? 'Enter cumulative quantity and value for at least one product.' : 'Enter quantity for at least one product.');
       return;
     }
     setSaving(true);
@@ -1135,6 +1195,36 @@ function RegionalSalesPanel({ year, month }) {
       setError(err?.response?.data?.detail || 'Failed to save regional sales.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const uploadRegionalWeekPdfs = async files => {
+    const selectedFiles = Array.from(files || []);
+    if (!selectedFiles.length || !me?.id) return;
+    if (pendingRows.length > 0) {
+      setRegionalPdfError('Save the current regional sales entries before uploading PDFs.');
+      return;
+    }
+    setRegionalPdfBusy(true);
+    setRegionalPdfError('');
+    try {
+      for (const file of selectedFiles) {
+        const formData = new FormData();
+        formData.append('associate_id', me.id);
+        formData.append('state_code', stateCode);
+        formData.append('city', city);
+        formData.append('year', salesYear);
+        formData.append('month', salesMonth);
+        formData.append('week', week);
+        formData.append('file', file);
+        await salesAPI.uploadRegionalWeekPdf(formData);
+      }
+      setMessage(`${selectedFiles.length} Week ${week} PDF${selectedFiles.length === 1 ? '' : 's'} uploaded and validated.`);
+      loadRegionalPdfs();
+    } catch (error) {
+      setRegionalPdfError(error?.response?.data?.detail || 'Unable to upload and validate the weekly PDF.');
+    } finally {
+      setRegionalPdfBusy(false);
     }
   };
 
@@ -1178,6 +1268,7 @@ function RegionalSalesPanel({ year, month }) {
       setRows(prev => Object.fromEntries(Object.entries(prev).map(([productId, row]) => [productId, {
         ...row,
         quantity: '',
+        value: '',
         price: row.price || '',
         existing: false,
         id: null,
@@ -1389,12 +1480,12 @@ function RegionalSalesPanel({ year, month }) {
       )}
       {!loading && locations.length > 0 && isAggregateRegionalView && (
         <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e3a8a', borderRadius: 10, padding: 12, marginBottom: 12, fontSize: 13, fontWeight: 700 }}>
-          Consolidated view is read-only. Select a specific region and city to enter quantity and price.
+          Consolidated view is read-only. Select a specific region and city to enter sales.
         </div>
       )}
       {!loading && isWeeklyRegionalMonth && !isAggregateRegionalView && (
         <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534', borderRadius: 10, padding: 12, marginBottom: 12, fontSize: 13 }}>
-          Enter sales for <strong>Week {week}</strong> only. Each week is saved independently; no subtraction is applied.
+          Enter the <strong>cumulative quantity and cumulative value</strong> shown in the Week {week} PDF. Earlier weeks are subtracted product-wise, and only the Week {week} difference is saved.
         </div>
       )}
       {!loading && isWeeklyRegionalMonth && week > 1 && !isAggregateRegionalView && (
@@ -1432,6 +1523,49 @@ function RegionalSalesPanel({ year, month }) {
           ))}
         </div>
       )}
+      {entries.some(entry => entry.belowPrevious) && (
+        <div style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', borderRadius: 10, padding: 12, marginBottom: 12, fontSize: 13 }}>
+          Some cumulative quantities or values are below the earlier-weeks total. Their current-week result has been set to zero.
+        </div>
+      )}
+      {!loading && isWeeklyRegionalMonth && !isAggregateRegionalView && (
+        <div style={{ marginBottom: 12, padding: 14, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 900, color: '#111827' }}>Week {week} Sales PDFs</div>
+              <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>Upload one or more PDFs after saving the sales entries. Each PDF is validated against the cumulative total through Week {week}.</div>
+            </div>
+            <label style={{ padding: '8px 13px', borderRadius: 9, background: regionalPdfBusy || pendingRows.length > 0 ? '#9ca3af' : '#1d4ed8', color: '#fff', fontSize: 11, fontWeight: 900, cursor: regionalPdfBusy || pendingRows.length > 0 ? 'default' : 'pointer' }}>
+              {regionalPdfBusy ? 'Uploading…' : '+ Upload PDFs'}
+              <input type="file" accept="application/pdf,.pdf" multiple disabled={regionalPdfBusy || pendingRows.length > 0}
+                onChange={event => {
+                  uploadRegionalWeekPdfs(event.target.files);
+                  event.target.value = '';
+                }}
+                style={{ display: 'none' }} />
+            </label>
+          </div>
+          {regionalPdfError && <div style={{ marginTop: 9, color: '#dc2626', fontSize: 11, fontWeight: 700 }}>{regionalPdfError}</div>}
+          {regionalPdfs.length > 0 && (
+            <div style={{ display: 'grid', gap: 7, marginTop: 10 }}>
+              {regionalPdfs.map(pdf => (
+                <div key={pdf.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '8px 10px', background: pdf.matches ? '#ecfdf5' : '#fff7ed', border: `1px solid ${pdf.matches ? '#a7f3d0' : '#fed7aa'}`, borderRadius: 9, flexWrap: 'wrap' }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 11, fontWeight: 900, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pdf.filename}</div>
+                    <div style={{ fontSize: 10, color: pdf.matches ? '#047857' : '#c2410c', marginTop: 2 }}>
+                      {pdf.matches ? 'Matched' : 'Needs review'} · PDF {pdf.pdf_total == null ? 'total not found' : fmtInr(pdf.pdf_total)} · Entered {fmtInr(pdf.entered_total)}
+                    </div>
+                  </div>
+                  <a href={salesAPI.regionalWeekPdfDownloadUrl(me.id, pdf.id)} target="_blank" rel="noreferrer"
+                    style={{ padding: '6px 10px', borderRadius: 7, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', textDecoration: 'none', fontSize: 10, fontWeight: 900 }}>
+                    Download PDF
+                  </a>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, overflowX: 'auto' }}>
         <div style={{ display: 'grid', gridTemplateColumns: regionalGridTemplate, minWidth: regionalGridMinWidth, background: '#f9fafb', borderBottom: '1px solid #e5e7eb', fontSize: 11, fontWeight: 900, color: '#4b5563', textTransform: 'uppercase' }}>
@@ -1441,8 +1575,9 @@ function RegionalSalesPanel({ year, month }) {
           <div style={{ padding: 40, textAlign: 'center', color: '#6b7280' }}>Loading products...</div>
         ) : products.map(product => {
           const row = rows[product.id] || {};
-          const quantity = Number(row.quantity) || 0;
-          const price = Number(row.price) || 0;
+          const calculated = entryByProduct.get(product.id) || { quantity: 0, value: 0, price: 0, belowPrevious: false };
+          const quantity = calculated.quantity;
+          const price = calculated.price;
           const editing = Boolean(editingRegionalRows[product.id]);
           const isLockedSavedRow = Boolean(row.existing) && !editing;
           const inputDisabled = isAggregateRegionalView || isLockedSavedRow;
@@ -1464,14 +1599,24 @@ function RegionalSalesPanel({ year, month }) {
               <div style={{ padding: '10px 12px' }}>
                 <input type="number" min="0" value={row.quantity || ''} onChange={e => updateRow(product.id, 'quantity', e.target.value)}
                   disabled={inputDisabled}
-                  style={{ width: '100%', boxSizing: 'border-box', padding: '8px 9px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: inputDisabled ? '#f3f4f6' : '#fff', color: inputDisabled ? '#6b7280' : '#111827' }} />
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '8px 9px', border: calculated.belowPrevious ? '1px solid #f59e0b' : '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: inputDisabled ? '#f3f4f6' : '#fff', color: inputDisabled ? '#6b7280' : '#111827' }} />
               </div>
               <div style={{ padding: '10px 12px' }}>
-                <input type="number" min="0" value={row.price || ''} onChange={e => updateRow(product.id, 'price', e.target.value)}
+                <input type="number" min="0" value={(isWeeklyRegionalMonth ? row.value : row.price) || ''}
+                  onChange={e => updateRow(product.id, isWeeklyRegionalMonth ? 'value' : 'price', e.target.value)}
                   disabled={inputDisabled}
-                  style={{ width: '100%', boxSizing: 'border-box', padding: '8px 9px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: inputDisabled ? '#f3f4f6' : '#fff', color: inputDisabled ? '#6b7280' : '#111827' }} />
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '8px 9px', border: calculated.belowPrevious ? '1px solid #f59e0b' : '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: inputDisabled ? '#f3f4f6' : '#fff', color: inputDisabled ? '#6b7280' : '#111827' }} />
               </div>
-              <div style={{ padding: '10px 12px', fontSize: 13, fontWeight: 900, color: quantity && price ? '#0F6E56' : '#9ca3af' }}>{fmtInr(quantity * price)}</div>
+              <div style={{ padding: '10px 12px', color: quantity || calculated.value ? '#0F6E56' : '#9ca3af' }}>
+                {isWeeklyRegionalMonth ? (
+                  <>
+                    <div style={{ fontSize: 13, fontWeight: 900 }}>{quantity.toLocaleString('en-IN')} qty</div>
+                    <div style={{ marginTop: 2, fontSize: 11, fontWeight: 800 }}>{fmtInr(calculated.value)}</div>
+                  </>
+                ) : (
+                  <div style={{ fontSize: 13, fontWeight: 900 }}>{fmtInr(quantity * price)}</div>
+                )}
+              </div>
               <div style={{ padding: '10px 12px' }}>
                 {row.existing && !isAggregateRegionalView ? (
                   <button type="button"

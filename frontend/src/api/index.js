@@ -45,6 +45,14 @@ export const salesAPI = {
     return client.get('/sales/regional', { params });
   },
   submitRegional: (payload) => client.post('/sales/regional/submit', payload),
+  uploadRegionalWeekPdf: (formData) => client.post('/sales/regional/week-pdf', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }),
+  regionalWeekPdfs: (params) => client.get('/sales/regional/week-pdf/status', { params }),
+  regionalWeekPdfDownloadUrl: (viewerId, pdfId) => {
+    const qs = new URLSearchParams({ viewer_id: viewerId, pdf_id: pdfId }).toString();
+    return `${process.env.REACT_APP_API_URL || ''}/sales/regional/week-pdf/download?${qs}`;
+  },
 };
 
 // ── INVESTMENTS ───────────────────────────────

@@ -1,5 +1,5 @@
 # backend/routers/sales.py
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from typing import List, Optional
@@ -8,7 +8,7 @@ from datetime import datetime, date as date_type, timedelta
 import re
 
 from ..database import get_db
-from ..models.models import SalesEntry, RegionalSalesEntry, Doctor, Product
+from ..models.models import SalesEntry, RegionalSalesEntry, RegionalSalesWeekPDF, Doctor, Product
 from ..utils.hierarchy import get_subtree_ids
 
 router = APIRouter(prefix="/sales", tags=["Sales"])
@@ -254,6 +254,164 @@ def get_regional_sales(
         "value": row.value or 0,
         "remarks": row.remarks or "",
     } for row in rows]
+
+
+def _regional_pdf_query(
+    db: Session,
+    associate_id: int,
+    state_code: str,
+    city: str,
+    year: int,
+    month: int,
+    week: int,
+):
+    return db.query(RegionalSalesWeekPDF).filter(
+        RegionalSalesWeekPDF.associate_id == associate_id,
+        RegionalSalesWeekPDF.state_code.ilike(state_code.strip()),
+        RegionalSalesWeekPDF.city.ilike(city.strip()),
+        RegionalSalesWeekPDF.year == year,
+        RegionalSalesWeekPDF.month == month,
+        RegionalSalesWeekPDF.week == week,
+    )
+
+
+def _regional_pdf_metadata(record: RegionalSalesWeekPDF):
+    return {
+        "id": record.id,
+        "associate_id": record.associate_id,
+        "state_code": record.state_code,
+        "city": record.city,
+        "year": record.year,
+        "month": record.month,
+        "week": record.week,
+        "filename": record.filename,
+        "entered_total": round(float(record.entered_total or 0), 2),
+        "pdf_total": round(float(record.pdf_total), 2) if record.pdf_total is not None else None,
+        "difference": round(float(record.difference), 2) if record.difference is not None else None,
+        "matches": bool(record.matches),
+        "uploaded_at": record.uploaded_at.isoformat() if record.uploaded_at else None,
+    }
+
+
+@router.post("/regional/week-pdf")
+async def upload_regional_week_pdf(
+    associate_id: int = Form(...),
+    state_code: str = Form(...),
+    city: str = Form(...),
+    year: int = Form(...),
+    month: int = Form(...),
+    week: int = Form(...),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    state_code = state_code.strip()
+    city = city.strip()
+    if not state_code or not city:
+        raise HTTPException(status_code=400, detail="State and city are required")
+    if month < 1 or month > 12 or week < 1 or week > 4:
+        raise HTTPException(status_code=400, detail="Invalid month or week")
+
+    raw = await file.read()
+    if not raw or len(raw) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="PDF must be between 1 byte and 10 MB")
+    if not raw.startswith(b"%PDF-"):
+        raise HTTPException(status_code=400, detail="Upload a valid PDF file")
+
+    entered_total = float(db.query(func.sum(RegionalSalesEntry.value)).filter(
+        RegionalSalesEntry.associate_id == associate_id,
+        RegionalSalesEntry.state_code.ilike(state_code),
+        RegionalSalesEntry.city.ilike(city),
+        RegionalSalesEntry.year == year,
+        RegionalSalesEntry.month == month,
+        RegionalSalesEntry.week >= 1,
+        RegionalSalesEntry.week <= week,
+    ).scalar() or 0)
+
+    text = ""
+    try:
+        from pypdf import PdfReader
+        import io
+        reader = PdfReader(io.BytesIO(raw))
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    except Exception:
+        text = raw.decode("latin-1", errors="ignore")
+
+    amounts = []
+    for token in re.findall(r"(?:Rs\.?|INR|₹)?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)", text, flags=re.IGNORECASE):
+        try:
+            value = float(token.replace(",", ""))
+            if value > 0:
+                amounts.append(value)
+        except ValueError:
+            pass
+    unique_amounts = sorted(set(round(value, 2) for value in amounts), reverse=True)
+    closest = min(unique_amounts, key=lambda value: abs(value - entered_total)) if unique_amounts else None
+    difference = round((closest or 0) - entered_total, 2) if closest is not None else None
+    tolerance = max(1.0, round(entered_total * 0.001, 2))
+    matches = closest is not None and abs(difference) <= tolerance
+
+    record = RegionalSalesWeekPDF(
+        associate_id=associate_id,
+        state_code=state_code,
+        city=city,
+        year=year,
+        month=month,
+        week=week,
+        filename=(file.filename or f"regional-sales-{year}-{month}-week-{week}.pdf")[:255],
+        content_type="application/pdf",
+        file_data=raw,
+        entered_total=entered_total,
+        pdf_total=closest,
+        difference=difference,
+        matches=matches,
+        uploaded_at=datetime.utcnow(),
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+
+    result = _regional_pdf_metadata(record)
+    result["message"] = "Matched" if matches else "PDF total does not match cumulative regional sales" if closest is not None else "PDF saved, but no total could be extracted"
+    return result
+
+
+@router.get("/regional/week-pdf/status")
+def get_regional_week_pdf_status(
+    viewer_id: int,
+    associate_id: int,
+    state_code: str,
+    city: str,
+    year: int,
+    month: int,
+    week: int,
+    db: Session = Depends(get_db),
+):
+    visible_ids = get_subtree_ids(viewer_id, db)
+    if visible_ids is not None and associate_id not in visible_ids:
+        raise HTTPException(status_code=403, detail="You cannot view this representative's PDF")
+    records = _regional_pdf_query(db, associate_id, state_code, city, year, month, week)\
+        .order_by(RegionalSalesWeekPDF.uploaded_at.desc(), RegionalSalesWeekPDF.id.desc()).all()
+    return [_regional_pdf_metadata(record) for record in records]
+
+
+@router.get("/regional/week-pdf/download")
+def download_regional_week_pdf(
+    viewer_id: int,
+    pdf_id: int,
+    db: Session = Depends(get_db),
+):
+    record = db.query(RegionalSalesWeekPDF).filter(RegionalSalesWeekPDF.id == pdf_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Weekly PDF not found")
+    visible_ids = get_subtree_ids(viewer_id, db)
+    if visible_ids is not None and record.associate_id not in visible_ids:
+        raise HTTPException(status_code=403, detail="You cannot download this representative's PDF")
+    safe_filename = (record.filename or "regional-sales.pdf").replace('"', "").replace("\r", "").replace("\n", "")
+    return Response(
+        content=record.file_data,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'},
+    )
 
 
 @router.get("/doctor/{doctor_id}/monthly")
