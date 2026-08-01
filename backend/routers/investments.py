@@ -312,6 +312,10 @@ def spend_analysis(
     invs = q.all()
 
     allocation_q = db.query(Investment)
+    if year:
+        allocation_q = allocation_q.filter(Investment.year == year)
+    if month:
+        allocation_q = allocation_q.filter(Investment.month == month)
     if viewer_id:
         visible_ids = get_subtree_ids(viewer_id, db)
         if visible_ids is not None:
