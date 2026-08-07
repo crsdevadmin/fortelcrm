@@ -223,6 +223,9 @@ function ProductView({ doctor, repUser, year, month }) {
 
   const trendMax = Math.max(...(data.monthly_trend || []).map(t => t.sales), 1);
   const caColor = data.ca_status === 'green' ? '#3D8C40' : data.ca_status === 'yellow' ? '#D97706' : '#DC2626';
+  const investmentCategories = Object.entries(data.investment_by_category || {})
+    .filter(([, categoryData]) => Number(categoryData?.total) > 0)
+    .sort((a, b) => Number(b[1].total) - Number(a[1].total));
 
   return (
     <div>
@@ -259,6 +262,31 @@ function ProductView({ doctor, repUser, year, month }) {
           </div>
         ))}
       </div>
+
+      {investmentCategories.length > 0 && (
+        <div style={{ background: '#fff', border: '1px solid #BBF7D0', borderRadius: 12, padding: '14px 16px', marginBottom: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: '#065F46', marginBottom: 10 }}>Investment Categories</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 10 }}>
+            {investmentCategories.map(([category, categoryData]) => (
+              <div key={category} style={{ background: '#F8FAFC', border: `1px solid ${INV_CATEGORY_COLORS[category] || '#d1d5db'}33`, borderRadius: 10, padding: '10px 12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start', marginBottom: 6 }}>
+                  <div>
+                    <span style={{ fontSize: 11, fontWeight: 900, color: INV_CATEGORY_COLORS[category] || '#6b7280' }}>{category}</span>
+                    <div style={{ fontSize: 10, color: '#6b7280', marginTop: 1 }}>{INV_CATEGORY_LABELS[category] || category}</div>
+                  </div>
+                  <span style={{ fontSize: 13, fontWeight: 900, color: INV_CATEGORY_COLORS[category] || '#374151' }}>{fmtInr(categoryData.total)}</span>
+                </div>
+                {(categoryData.items || []).map((item, index) => (
+                  <div key={`${item.sub_category}-${index}`} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, paddingTop: 5, marginTop: index ? 5 : 0, borderTop: '1px solid #e5e7eb', fontSize: 10 }}>
+                    <span style={{ color: '#4b5563' }}>{item.sub_category || 'Other'}</span>
+                    <span style={{ color: '#111827', fontWeight: 700 }}>{fmtInr(item.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         <div style={{ background: '#fff', border: '0.5px solid #e5e7eb', borderRadius: 12, padding: '16px 18px' }}>
@@ -953,8 +981,16 @@ export default function Dashboard() {
                         const c = rankColors[Math.min(i, rankColors.length - 1)];
                         const categories = investmentCategorySummary(d);
                         return (
-                          <div key={d.doctor_id} style={{ display: 'flex', alignItems: 'center', gap: 10,
-                            padding: '9px 10px', borderRadius: 10, marginBottom: 4, borderLeft: `3px solid ${c}` }}
+                          <div key={d.doctor_id}
+                            onClick={() => {
+                              const manager = allUsers.find(user => user.id === d.manager_id);
+                              setSelDoctor(d);
+                              setSelUser(manager || null);
+                              setView('product');
+                              setShowInvestPanel(false);
+                            }}
+                            style={{ display: 'flex', alignItems: 'center', gap: 10,
+                            padding: '9px 10px', borderRadius: 10, marginBottom: 4, borderLeft: `3px solid ${c}`, cursor: 'pointer' }}
                             onMouseEnter={e => e.currentTarget.style.background = '#F0FDF4'}
                             onMouseLeave={e => e.currentTarget.style.background = ''}
                           >
