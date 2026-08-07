@@ -625,6 +625,34 @@ def get_all_doctors_roi(
             "amount": round(float(r.total or 0), 2),
         })
 
+    # Keep the category/activity breakdown alongside the monthly totals so
+    # summary cards can explain what the investment amount was spent on.
+    inv_category_rows = db.query(
+        Investment.doctor_id,
+        Investment.year,
+        Investment.month,
+        Investment.category,
+        Investment.sub_category,
+        func.sum(Investment.amount).label("total"),
+    ).filter(Investment.doctor_id.in_(doctor_ids))\
+     .group_by(
+         Investment.doctor_id,
+         Investment.year,
+         Investment.month,
+         Investment.category,
+         Investment.sub_category,
+     )\
+     .order_by(Investment.year, Investment.month).all()
+    inv_category_map = {}
+    for r in inv_category_rows:
+        inv_category_map.setdefault(r.doctor_id, []).append({
+            "year": r.year,
+            "month": r.month,
+            "category": _str_val(r.category) or "PD",
+            "sub_category": _str_val(r.sub_category) or "Other",
+            "amount": round(float(r.total or 0), 2),
+        })
+
     inv_model_q = db.query(
         Investment.doctor_id,
         Investment.commercial_model_type,
@@ -679,6 +707,7 @@ def get_all_doctors_roi(
             "sales_months": sales_month_map.get(doc.id, []),
             "total_invested": round(total_invested, 2),
             "investment_months": inv_month_map.get(doc.id, []),
+            "investment_categories": inv_category_map.get(doc.id, []),
             "expected_sales": round(expected, 2),
             "roi_multiple": roi_multiple,
             "roi_grade": roi_grade.value,

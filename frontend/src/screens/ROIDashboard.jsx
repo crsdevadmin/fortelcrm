@@ -111,6 +111,18 @@ const MODEL_COLORS = {
 const INV_CATEGORY_LABELS = { PD: 'Professional Development', RD: 'Relationship Dev', CS: 'Commercial Support' };
 const INV_CATEGORY_COLORS  = { PD: '#1D9E75', RD: '#534AB7', CS: '#BA7517' };
 
+function investmentCategorySummary(rows) {
+  const grouped = {};
+  (Array.isArray(rows) ? rows : []).forEach(row => {
+    const category = row.category || 'PD';
+    const subCategory = row.sub_category && row.sub_category !== 'Other' ? row.sub_category : '';
+    const key = `${category}__${subCategory}`;
+    if (!grouped[key]) grouped[key] = { category, sub_category: subCategory, amount: 0 };
+    grouped[key].amount += Number(row.amount) || 0;
+  });
+  return Object.values(grouped).sort((a, b) => b.amount - a.amount);
+}
+
 function fmtInr(val) {
   if (!val) return '₹0';
   if (val >= 100000) return `₹${(val/100000).toFixed(1)}L`;
@@ -279,6 +291,7 @@ function StatCard({ label, value, sub, color, icon }) {
 function DoctorCard({ d, onClick, selected }) {
   const gc = GRADE_COLORS[d.roi_grade] || GRADE_COLORS.Bronze;
   const cc = CA_COLORS[d.ca_status]   || CA_COLORS.red;
+  const investmentCategories = investmentCategorySummary(d.investment_categories);
   return (
     <div
       onClick={() => onClick(d)}
@@ -312,6 +325,16 @@ function DoctorCard({ d, onClick, selected }) {
         <div>
           <div style={{ fontSize: 10, color: '#888' }}>6M Investment</div>
           <div style={{ fontSize: 13, fontWeight: 600 }}>{fmtInr(d.total_invested)}</div>
+          {investmentCategories.length > 0 && (
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 3 }}>
+              {investmentCategories.slice(0, 2).map(item => (
+                <span key={`${item.category}-${item.sub_category}`} title={INV_CATEGORY_LABELS[item.category] || item.category}
+                  style={{ fontSize: 8, fontWeight: 800, color: INV_CATEGORY_COLORS[item.category] || '#6b7280' }}>
+                  {item.category}{item.sub_category ? ` · ${item.sub_category}` : ''}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
         <div>
           <div style={{ fontSize: 10, color: '#888' }}>6M Business</div>
@@ -365,6 +388,9 @@ function DrillPanel({ doctorId, year, month, onClose, onAddInvestment, onAddBusi
   const gc = GRADE_COLORS[data.roi_grade] || GRADE_COLORS.Bronze;
   const cc = CA_COLORS[data.ca_status]    || CA_COLORS.red;
   const trendMax = Math.max(...(data.monthly_trend || []).map(t => t.sales), 1);
+  const drillInvestmentCategories = Object.entries(data.investment_by_category || {})
+    .filter(([, categoryData]) => Number(categoryData?.total) > 0)
+    .sort((a, b) => Number(b[1].total) - Number(a[1].total));
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -395,6 +421,14 @@ function DrillPanel({ doctorId, year, month, onClose, onAddInvestment, onAddBusi
         <div style={{ background: '#f5f5f5', borderRadius: 8, padding: '10px 12px', textAlign: 'center' }}>
           <div style={{ fontSize: 10, color: '#888' }}>Invested</div>
           <div style={{ fontSize: 16, fontWeight: 700 }}>{fmtInr(data.total_invested)}</div>
+          {drillInvestmentCategories.length > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 4, flexWrap: 'wrap', marginTop: 3 }}>
+              {drillInvestmentCategories.map(([category]) => (
+                <span key={category} title={INV_CATEGORY_LABELS[category] || category}
+                  style={{ fontSize: 8, fontWeight: 800, color: INV_CATEGORY_COLORS[category] || '#6b7280' }}>{category}</span>
+              ))}
+            </div>
+          )}
         </div>
         <div style={{ background: '#f5f5f5', borderRadius: 8, padding: '10px 12px', textAlign: 'center' }}>
           <div style={{ fontSize: 10, color: '#888' }}>This Month</div>
@@ -2028,6 +2062,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
   };
   const doctorsForSelectedMonth = doctors.map(doc => {
     const sixMonthInvestmentRows = (doc.investment_months || []).filter(isInSixMonthWindow);
+    const sixMonthInvestmentCategories = (doc.investment_categories || []).filter(isInSixMonthWindow);
     const sixMonthSalesRows = (doc.sales_months || []).filter(isInSixMonthWindow);
     const sixMonthInvestment = sixMonthInvestmentRows
       .reduce((sum, row) => sum + toNum(row.amount), 0);
@@ -2043,6 +2078,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
       ...doc,
       cumulative_invested: toNum(doc.total_invested),
       investment_months: sixMonthInvestmentRows,
+      investment_categories: sixMonthInvestmentCategories,
       sales_months: sixMonthSalesRows,
       total_invested: sixMonthInvestment,
       actual_sales: sales,
@@ -2789,7 +2825,11 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
                 <div key={investment.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 1.4fr) minmax(110px, .7fr) minmax(90px, .5fr) auto', gap: 10, alignItems: 'center', padding: '10px 14px', borderTop: '1px solid #f3f4f6' }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 12, fontWeight: 800, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{investment.doctor_name}</div>
-                    <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>{investment.commercial_model_type || 'Investment'}{investment.sub_category ? ` · ${investment.sub_category}` : ''}</div>
+                    <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>
+                      {investment.commercial_model_type || 'Investment'}
+                      {investment.category ? ` · ${investment.category}` : ''}
+                      {investment.sub_category ? ` · ${investment.sub_category}` : ''}
+                    </div>
                   </div>
                   <div style={{ fontSize: 12, fontWeight: 900, color: '#0F6E56' }}>{fmtInr(investment.amount)}</div>
                   <div style={{ fontSize: 10, color: investment.is_approved ? '#166534' : '#92400e', fontWeight: 800 }}>{investment.is_approved ? 'Approved' : 'Pending'}</div>

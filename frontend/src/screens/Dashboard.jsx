@@ -35,6 +35,20 @@ const stateStyle = name => STATE_STYLE[name] || { color: '#6B7280', light: '#F3F
 
 const GRADE_COLOR = { Platinum: '#2563EB', Gold: '#D97706', Silver: '#6B7280', Bronze: '#92400E' };
 const GRADE_BG    = { Platinum: '#DBEAFE', Gold: '#FEF3C7', Silver: '#F3F4F6', Bronze: '#FEF3C7' };
+const INV_CATEGORY_LABELS = { PD: 'Professional Development', RD: 'Relationship Development', CS: 'Commercial Support' };
+const INV_CATEGORY_COLORS = { PD: '#047857', RD: '#6D28D9', CS: '#B45309' };
+
+function investmentCategorySummary(doc) {
+  const grouped = {};
+  (Array.isArray(doc?.investment_categories) ? doc.investment_categories : []).forEach(row => {
+    const category = row.category || 'PD';
+    const subCategory = row.sub_category && row.sub_category !== 'Other' ? row.sub_category : '';
+    const key = `${category}__${subCategory}`;
+    if (!grouped[key]) grouped[key] = { category, sub_category: subCategory, amount: 0 };
+    grouped[key].amount += Number(row.amount) || 0;
+  });
+  return Object.values(grouped).sort((a, b) => b.amount - a.amount);
+}
 
 function fmtInr(v) {
   if (!v) return '₹0';
@@ -937,6 +951,7 @@ export default function Dashboard() {
                         const pct = Math.round((d.total_invested / maxVal) * 100);
                         const rankColors = ['#10B981','#059669','#047857','#6B7280','#9CA3AF'];
                         const c = rankColors[Math.min(i, rankColors.length - 1)];
+                        const categories = investmentCategorySummary(d);
                         return (
                           <div key={d.doctor_id} style={{ display: 'flex', alignItems: 'center', gap: 10,
                             padding: '9px 10px', borderRadius: 10, marginBottom: 4, borderLeft: `3px solid ${c}` }}
@@ -948,6 +963,17 @@ export default function Dashboard() {
                               fontSize: 10, fontWeight: 900, color: '#fff', flexShrink: 0 }}>{i + 1}</div>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: '#065F46' }}>{d.doctor_name}</div>
+                              {categories.length > 0 && (
+                                <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap', marginTop: 3 }}>
+                                  {categories.slice(0, 2).map(item => (
+                                    <span key={`${item.category}-${item.sub_category}`} title={INV_CATEGORY_LABELS[item.category] || item.category}
+                                      style={{ fontSize: 9, fontWeight: 800, color: INV_CATEGORY_COLORS[item.category] || '#6b7280', background: `${INV_CATEGORY_COLORS[item.category] || '#6b7280'}12`, padding: '1px 5px', borderRadius: 8 }}>
+                                      {item.category}{item.sub_category ? ` · ${item.sub_category}` : ''}
+                                    </span>
+                                  ))}
+                                  {categories.length > 2 && <span style={{ fontSize: 9, color: '#9ca3af' }}>+{categories.length - 2} more</span>}
+                                </div>
+                              )}
                               <div style={{ marginTop: 4 }}>
                                 <InvestmentBar doc={d} pct={pct} color={c} labelColor="#065F46" height={12} radius={6} labelLeft={8} />
                               </div>
