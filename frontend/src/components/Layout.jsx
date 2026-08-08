@@ -127,6 +127,7 @@ const PAGE_TITLES = {
   '/target-setting': 'Target Setting',
   '/rep-activity':   'Rep Activity',
   '/tasks':          'Daily Tasks',
+  '/weekly-reports': 'Weekly Reports',
   '/users':         'User Management',
   '/admin-doctors': 'Customer Master',
 };
@@ -185,6 +186,7 @@ export default function Layout({ children }) {
       ].filter(item => item.to !== '/my-team'),
     }))
     .filter(section => section.items.length > 0),
+    { label: 'Management', items: [{ to: '/weekly-reports', icon: '▤', label: 'Weekly Reports' }] },
     { label: 'Daily Work', items: [{ to: '/tasks', icon: '✓', label: 'Daily Tasks' }] },
   ];
   const pageTitle = PAGE_TITLES[location.pathname] || 'Fortel CRM';

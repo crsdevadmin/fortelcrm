@@ -1,0 +1,10 @@
+[Unit]
+Description=Fortel CRM weekly management report generator
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/opt/fortel-crm
+EnvironmentFile=/opt/fortel-crm/.env
+ExecStart=/opt/fortel-crm/venv/bin/python -m backend.scripts.generate_weekly_reports

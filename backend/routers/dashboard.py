@@ -3,7 +3,7 @@ from datetime import date as date_type, datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -31,6 +31,42 @@ from .roi import _add_months, _commitment_status, _expected_mult, _safe_date, _s
 
 
 router = APIRouter(prefix="/targets", tags=["Dashboard"])
+
+
+def _week_for_day(day: int) -> int:
+    return min(4, max(1, ((day - 1) // 7) + 1))
+
+
+def _regional_mtd_entries(entries, year: int, month: int, through_week: int):
+    eligible = [entry for entry in entries if int(entry.week or 0) <= through_week]
+    if (year, month) == (2026, 7):
+        return eligible
+    if (year, month) < (2026, 8):
+        return eligible
+    latest = {}
+    for entry in eligible:
+        key = (entry.associate_id, entry.state_code, entry.city, entry.product_id)
+        if key not in latest or int(entry.week or 0) > int(latest[key].week or 0):
+            latest[key] = entry
+    return list(latest.values())
+
+
+def _regional_week_value(entries, year: int, month: int, week: int) -> float:
+    if (year, month) == (2026, 7):
+        return sum(float(entry.value or 0) for entry in entries if int(entry.week or 0) == week)
+    if (year, month) < (2026, 8):
+        return sum(float(entry.value or 0) for entry in entries)
+    current = _regional_mtd_entries(entries, year, month, week)
+    previous = _regional_mtd_entries(entries, year, month, week - 1) if week > 1 else []
+    current_by_key = {
+        (entry.associate_id, entry.state_code, entry.city, entry.product_id): float(entry.value or 0)
+        for entry in current
+    }
+    previous_by_key = {
+        (entry.associate_id, entry.state_code, entry.city, entry.product_id): float(entry.value or 0)
+        for entry in previous
+    }
+    return sum(max(0.0, value - previous_by_key.get(key, 0.0)) for key, value in current_by_key.items())
 
 
 def _previous_regional_week(ref_date: date_type):
@@ -346,6 +382,9 @@ def get_territory_performance(
     state_code: Optional[str] = None,
     city: Optional[str] = None,
     as_of: Optional[str] = None,
+    submission_year: Optional[int] = None,
+    submission_month: Optional[int] = None,
+    submission_week: Optional[int] = None,
     db: Session = Depends(get_db),
 ):
     """Return one operational and commercial scorecard row per approved territory."""
@@ -737,14 +776,20 @@ def get_rep_scorecard(
         rows[doctor.manager_id]["doctor_count"] += 1
 
     if doctor_ids:
-        for owner_id, total in db.query(
+        doctor_sales_q = db.query(
             Doctor.manager_id,
             func.sum(SalesEntry.value),
         ).join(SalesEntry, SalesEntry.doctor_id == Doctor.id).filter(
             Doctor.id.in_(doctor_ids),
             SalesEntry.year == year,
             SalesEntry.month == month,
-        ).group_by(Doctor.manager_id).all():
+        )
+        if (year, month) == (ref_date.year, ref_date.month):
+            doctor_sales_q = doctor_sales_q.filter(or_(
+                SalesEntry.sale_date <= ref_date.isoformat(),
+                (SalesEntry.sale_date.is_(None)) & (SalesEntry.week <= ref_date.day),
+            ))
+        for owner_id, total in doctor_sales_q.group_by(Doctor.manager_id).all():
             rows[owner_id]["doctor_sales"] = float(total or 0)
 
         visit_cutoff = datetime.combine(ref_date - timedelta(days=30), datetime.min.time())
@@ -797,7 +842,9 @@ def get_rep_scorecard(
         RegionalSalesEntry.year == year,
         RegionalSalesEntry.month == month,
     ).all()
-    for entry in regional_entries:
+    through_week = _week_for_day(ref_date.day) if (year, month) == (ref_date.year, ref_date.month) else 4
+    regional_mtd_entries = _regional_mtd_entries(regional_entries, year, month, through_week)
+    for entry in regional_mtd_entries:
         territory = territory_for_city(entry.city, entry.associate_id)
         if state_keys and "".join((entry.state_code or "").upper().split()) not in state_keys:
             continue
@@ -842,7 +889,7 @@ def get_rep_scorecard(
         if not territories and user_id in historical_users:
             territories.update(
                 territory_for_city(entry.city, user_id)
-                for entry in regional_entries
+                for entry in regional_mtd_entries
                 if entry.associate_id == user_id
             )
         territories.discard(None)
@@ -858,7 +905,12 @@ def get_rep_scorecard(
         rows[user_id]["regional_required"] = bool(territories)
         rows[user_id]["weekly_expected"] = len(territories)
 
-    week_year, week_month, week_number = _previous_regional_week(ref_date)
+    if submission_year is not None and submission_month is not None and submission_week is not None:
+        if submission_month < 1 or submission_month > 12 or submission_week < 1 or submission_week > 4:
+            raise HTTPException(status_code=400, detail="Invalid weekly submission period")
+        week_year, week_month, week_number = submission_year, submission_month, submission_week
+    else:
+        week_year, week_month, week_number = _previous_regional_week(ref_date)
     week_entries = db.query(RegionalSalesEntry).filter(
         RegionalSalesEntry.associate_id.in_(user_ids),
         RegionalSalesEntry.year == week_year,

@@ -443,3 +443,30 @@ class DailyTask(Base):
             name="uq_daily_task_rep_doctor_date_details",
         ),
     )
+
+
+# SAVED WEEKLY MANAGEMENT REPORT
+
+class WeeklyManagementReport(Base):
+    __tablename__ = "weekly_management_reports"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    viewer_id       = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    scope           = Column(String(20), nullable=False, default="overall")
+    year            = Column(Integer, nullable=False)
+    month           = Column(Integer, nullable=False)
+    week            = Column(Integer, nullable=False)
+    week_start      = Column(String(10), nullable=False)
+    week_end        = Column(String(10), nullable=False)
+    payload_json    = Column(Text, nullable=False)
+    generated_at    = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at      = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    viewer = relationship("User", foreign_keys=[viewer_id])
+
+    __table_args__ = (
+        UniqueConstraint(
+            "viewer_id", "scope", "year", "month", "week",
+            name="uq_weekly_management_report_viewer_scope_period",
+        ),
+    )

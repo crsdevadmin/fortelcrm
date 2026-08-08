@@ -1,0 +1,10 @@
+[Unit]
+Description=Generate Fortel CRM management reports every Monday
+
+[Timer]
+OnCalendar=Mon *-*-* 08:05:00 Asia/Kolkata
+Persistent=true
+Unit=fortel-weekly-report.service
+
+[Install]
+WantedBy=timers.target

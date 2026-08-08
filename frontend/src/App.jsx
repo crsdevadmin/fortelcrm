@@ -21,6 +21,7 @@ import VisitLog from './screens/VisitLog';
 import RepActivity from './screens/RepActivity';
 import TargetSetting from './screens/TargetSetting';
 import DailyTasks from './screens/DailyTasks';
+import WeeklyReports from './screens/WeeklyReports';
 
 // Route guard — redirects to / if role not allowed
 function RoleGuard({ children, allowedRoles }) {
@@ -61,6 +62,7 @@ function PrivateRoutes() {
           </RoleGuard>
         } />
         <Route path="/tasks"            element={<DailyTasks />} />
+        <Route path="/weekly-reports"   element={<WeeklyReports />} />
 
         {/* Admin + MD only */}
         <Route path="/users"            element={

@@ -135,6 +135,12 @@ export const dashboardAPI = {
     client.get('/targets/rep-scorecard', { params: { viewer_id: viewerId, year, month, scope, ...params } }),
 };
 
+export const reportsAPI = {
+  weekly: (params = {}) => client.get('/reports/weekly', { params }),
+  history: (viewerId, scope = 'overall') => client.get('/reports/weekly/history', { params: { viewer_id: viewerId, scope } }),
+  pdfUrl: (reportId, viewerId) => `${process.env.REACT_APP_API_URL || ''}/reports/weekly/${reportId}/pdf?viewer_id=${viewerId}`,
+};
+
 // ── EXPORTS ───────────────────────────────────
 const API_BASE = process.env.REACT_APP_API_URL || '';
 
