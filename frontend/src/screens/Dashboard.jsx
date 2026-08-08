@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { roiAPI, salesAPI, targetsAPI } from '../api';
+import { dashboardAPI, roiAPI, salesAPI, targetsAPI } from '../api';
 
 const API   = process.env.REACT_APP_API_URL || '';
 const NOW   = new Date();
@@ -275,6 +275,79 @@ function TargetAchievementCard({ title, subtitle, icon, accent, light, data, loa
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function ActionCentre({ items, loading, onOpen }) {
+  const [showAll, setShowAll] = useState(false);
+  const severityStyle = {
+    critical: { color: '#b91c1c', bg: '#fef2f2', border: '#fecaca', label: 'Urgent' },
+    warning: { color: '#b45309', bg: '#fffbeb', border: '#fde68a', label: 'Attention' },
+    info: { color: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe', label: 'Follow up' },
+  };
+  const typeIcons = {
+    regional_update: '▦', weekly_pdf: 'PDF', task: '✓', approval: '⌁', visit: '⌖',
+    investment: '₹', doctor_target: '✦', regional_target: '◆',
+  };
+  const urgent = items.filter(item => item.severity === 'critical').length;
+  const attention = items.filter(item => item.severity === 'warning').length;
+  const visible = showAll ? items : items.slice(0, 6);
+  return (
+    <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #e5e7eb', marginBottom: 20, overflow: 'hidden' }}>
+      <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, background: 'linear-gradient(135deg,#fff 0%,#f8fafc 100%)', borderBottom: '1px solid #f1f5f9' }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 900, color: '#111827', display: 'flex', alignItems: 'center', gap: 8 }}>
+            Manager Action Centre
+            {!loading && urgent > 0 && <span style={{ fontSize: 10, color: '#b91c1c', background: '#fee2e2', borderRadius: 20, padding: '2px 8px' }}>{urgent} urgent</span>}
+            {!loading && attention > 0 && <span style={{ fontSize: 10, color: '#b45309', background: '#fef3c7', borderRadius: 20, padding: '2px 8px' }}>{attention} need attention</span>}
+          </div>
+          <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>What needs action now · click an item to open the related work</div>
+        </div>
+        <div style={{ fontSize: 10, color: '#9ca3af' }}>{loading ? 'Checking…' : `${items.length} action${items.length === 1 ? '' : 's'}`}</div>
+      </div>
+
+      {loading ? (
+        <div style={{ padding: 28, textAlign: 'center', color: '#9ca3af', fontSize: 12 }}>Checking team activity…</div>
+      ) : items.length === 0 ? (
+        <div style={{ padding: 24, textAlign: 'center', background: '#f0fdf4', color: '#166534', fontSize: 12, fontWeight: 700 }}>
+          ✓ No urgent actions for this selection
+        </div>
+      ) : (
+        <div style={{ padding: 12, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(270px, 1fr))', gap: 8 }}>
+          {visible.map(item => {
+            const style = severityStyle[item.severity] || severityStyle.info;
+            return (
+              <button key={item.id} onClick={() => item.action_path && onOpen(item.action_path)}
+                style={{ border: `1px solid ${style.border}`, background: style.bg, borderRadius: 11, padding: '10px 11px', textAlign: 'left', cursor: item.action_path ? 'pointer' : 'default', minWidth: 0 }}>
+                <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start' }}>
+                  <span style={{ width: 28, height: 28, borderRadius: 8, background: '#fff', color: style.color, border: `1px solid ${style.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: item.type === 'weekly_pdf' ? 8 : 13, fontWeight: 900, flexShrink: 0 }}>
+                    {typeIcons[item.type] || '!'}
+                  </span>
+                  <span style={{ minWidth: 0, flex: 1 }}>
+                    <span style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                      <span style={{ fontSize: 11, fontWeight: 900, color: '#111827' }}>{item.title}</span>
+                      <span style={{ fontSize: 8, fontWeight: 900, color: style.color, textTransform: 'uppercase', flexShrink: 0 }}>{style.label}</span>
+                    </span>
+                    <span style={{ display: 'block', fontSize: 9, color: '#6b7280', marginTop: 2 }}>{item.detail}</span>
+                    {(item.names || []).length > 0 && (
+                      <span style={{ display: 'block', fontSize: 9, color: style.color, marginTop: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {item.names.join(' · ')}{Number(item.count) > item.names.length ? ` · +${Number(item.count) - item.names.length} more` : ''}
+                      </span>
+                    )}
+                  </span>
+                  {item.action_path && <span style={{ color: style.color, fontSize: 14, flexShrink: 0 }}>›</span>}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {!loading && items.length > 6 && (
+        <button onClick={() => setShowAll(value => !value)} style={{ width: '100%', padding: 8, border: 'none', borderTop: '1px solid #f1f5f9', background: '#fff', color: '#4b5563', fontSize: 10, fontWeight: 800, cursor: 'pointer' }}>
+          {showAll ? 'Show fewer actions' : `Show ${items.length - 6} more actions`}
+        </button>
+      )}
     </div>
   );
 }
@@ -566,6 +639,8 @@ export default function Dashboard() {
   const [targetAchievement, setTargetAchievement] = useState(null);
   const [targetLoading, setTargetLoading] = useState(false);
   const [commitmentData, setCommitmentData] = useState(null);
+  const [actionCentreData, setActionCentreData] = useState(null);
+  const [actionCentreLoading, setActionCentreLoading] = useState(false);
   const [loading,     setLoading]     = useState(true);
   const [dashboardScope, setDashboardScope] = useState('overall');
 
@@ -679,6 +754,24 @@ export default function Dashboard() {
   useEffect(() => {
     if (!me?.id) return;
     let cancelled = false;
+    setActionCentreLoading(true);
+    dashboardAPI.actionCenter(me.id, effectiveScope, {
+      today: todayStr(),
+      ...(selRegion ? { state_code: selRegion } : {}),
+      ...(selCity ? { city: selCity } : {}),
+    }).then(response => {
+      if (!cancelled) setActionCentreData(response.data || null);
+    }).catch(() => {
+      if (!cancelled) setActionCentreData(null);
+    }).finally(() => {
+      if (!cancelled) setActionCentreLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [me?.id, effectiveScope, selRegion, selCity]);
+
+  useEffect(() => {
+    if (!me?.id) return;
+    let cancelled = false;
     roiAPI.commitmentRecovery({ viewer_id: me.id, as_of: endDate })
       .then(response => { if (!cancelled) setCommitmentData(response.data || null); })
       .catch(() => { if (!cancelled) setCommitmentData(null); });
@@ -735,15 +828,63 @@ export default function Dashboard() {
     const expected = rows.reduce((sum, row) => sum + (Number(row.expected_sales) || 0), 0);
     const sales = rows.reduce((sum, row) => sum + (Number(row.sales_captured) || 0), 0);
     const atRiskCount = rows.filter(row => ['At Risk', 'Breached'].includes(row.worst_status)).length;
+    const breached = rows.filter(row => row.worst_status === 'Breached').length;
     return {
       doctors: rows.length,
       expected,
       sales,
       shortfall: Math.max(0, expected - sales),
       atRisk: atRiskCount,
+      breached,
       achievementPct: expected > 0 ? Math.round((sales / expected) * 1000) / 10 : 0,
     };
   }, [commitmentData, scopeUserIds, selRegion, selCity]);
+
+  const actionItems = useMemo(() => {
+    const items = [...(actionCentreData?.items || [])];
+    const doctorTarget = targetAchievement?.doctor_sales;
+    const regionalTarget = targetAchievement?.regional_sales;
+    if (doctorTarget?.has_target && doctorTarget.status === 'Below pace') {
+      items.push({
+        id: 'doctor-target-below-pace', type: 'doctor_target', severity: 'warning',
+        title: 'Doctor sales target is below pace',
+        detail: `${doctorTarget.achievement_pct}% achieved · ${fmtInr(doctorTarget.remaining_value)} remaining`,
+        count: 1, names: [], action_path: '/investment-roi',
+      });
+    }
+    if (regionalTarget?.has_target && regionalTarget.status === 'Below pace') {
+      items.push({
+        id: 'regional-target-below-pace', type: 'regional_target', severity: 'warning',
+        title: 'Regional sales target is below pace',
+        detail: `${regionalTarget.achievement_pct}% achieved · ${fmtInr(regionalTarget.remaining_value)} remaining`,
+        count: 1, names: [], action_path: '/regional-sales',
+      });
+    } else if (me?.role === 'md' && regionalTarget && !regionalTarget.has_target) {
+      items.push({
+        id: 'regional-target-not-set', type: 'regional_target', severity: 'info',
+        title: 'Regional sales target is not set',
+        detail: `${MONTH_NAMES[month]} ${year} · add territory-wise product targets`,
+        count: 1, names: [], action_path: '/target-setting',
+      });
+    }
+    if (investmentRecovery.breached > 0) {
+      items.push({
+        id: 'investment-recovery-breached', type: 'investment', severity: 'critical',
+        title: `${investmentRecovery.breached} investment recover${investmentRecovery.breached === 1 ? 'y has' : 'ies have'} breached deadline`,
+        detail: `Six-month recovery · ${fmtInr(investmentRecovery.shortfall)} total shortfall`,
+        count: investmentRecovery.breached, names: [], action_path: '/investment-roi',
+      });
+    } else if (investmentRecovery.atRisk > 0) {
+      items.push({
+        id: 'investment-recovery-risk', type: 'investment', severity: 'warning',
+        title: `${investmentRecovery.atRisk} investment recover${investmentRecovery.atRisk === 1 ? 'y is' : 'ies are'} at risk`,
+        detail: `Six-month recovery · ${fmtInr(investmentRecovery.shortfall)} total shortfall`,
+        count: investmentRecovery.atRisk, names: [], action_path: '/investment-roi',
+      });
+    }
+    const severityOrder = { critical: 0, warning: 1, info: 2 };
+    return items.sort((a, b) => (severityOrder[a.severity] ?? 9) - (severityOrder[b.severity] ?? 9) || (Number(b.count) || 0) - (Number(a.count) || 0));
+  }, [actionCentreData, targetAchievement, investmentRecovery, me?.role, month, year]);
 
   const {
     totalSales, totalInvested, overallROI,
@@ -1060,6 +1201,12 @@ export default function Dashboard() {
         {/* OVERVIEW */}
         {view === 'overview' && (
           <div>
+
+            <ActionCentre
+              items={actionItems}
+              loading={actionCentreLoading || targetLoading}
+              onOpen={path => navigate(path)}
+            />
 
             {/* Sales panel */}
             {showSalesPanel && topProducts.length > 0 && (

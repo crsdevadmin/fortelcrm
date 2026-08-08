@@ -126,6 +126,11 @@ export const tasksAPI = {
   complete: (taskId, userId, comments) => client.patch(`/tasks/${taskId}/complete`, { user_id: userId, comments }),
 };
 
+export const dashboardAPI = {
+  actionCenter: (viewerId, scope = 'overall', params = {}) =>
+    client.get('/dashboard/action-center', { params: { viewer_id: viewerId, scope, ...params } }),
+};
+
 // ── EXPORTS ───────────────────────────────────
 const API_BASE = process.env.REACT_APP_API_URL || '';
 
