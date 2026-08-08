@@ -110,6 +110,11 @@ export const targetsAPI = {
     client.get('/targets/context', { params: { actor_id: actorId, owner_user_id: ownerUserId, year, month } }),
   summary: (userId, year, month) =>
     client.get('/targets/summary', { params: { user_id: userId, year, month } }),
+  dashboard: (viewerId, year, month, scope = 'overall', params = {}) =>
+    client.get('/targets/dashboard', { params: { viewer_id: viewerId, year, month, scope, ...params } }),
+  regionalContext: (actorId, ownerUserId, year, month, territory) =>
+    client.get('/targets/regional-context', { params: { actor_id: actorId, owner_user_id: ownerUserId, year, month, territory } }),
+  saveRegional: (payload) => client.post('/targets/regional', payload),
   save: (payload) => client.post('/targets/', payload),
 };
 

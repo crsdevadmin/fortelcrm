@@ -427,8 +427,8 @@ export default function Layout({ children }) {
               <div
                 className="target-summary-card"
                 title={targetSummary?.has_target
-                  ? `Monthly target ${fmtCompactInr(targetSummary.target_value)} · Sales done ${fmtCompactInr(targetSummary.actual_value)} · ${targetBalanceText}`
-                  : 'No target set for this month'}
+                  ? `Doctor sales target ${fmtCompactInr(targetSummary.target_value)} · Sales done ${fmtCompactInr(targetSummary.actual_value)} · ${targetBalanceText}`
+                  : 'No doctor sales target set for this month'}
                 onClick={() => setTargetOpen(o => !o)}
                 style={{
                   minWidth: 210,
@@ -442,7 +442,7 @@ export default function Layout({ children }) {
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                  <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)', fontWeight: 800, textTransform: 'uppercase' }}>Monthly Target</span>
+                  <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)', fontWeight: 800, textTransform: 'uppercase' }}>Doctor Sales Target</span>
                   <span style={{ fontSize: 11, color: targetSummary?.has_target ? '#F5B800' : 'rgba(255,255,255,0.45)', fontWeight: 900 }}>
                     {targetStatusText}
                   </span>
@@ -469,8 +469,8 @@ export default function Layout({ children }) {
                   <div style={{ padding: '14px 16px', borderBottom: '1px solid #f3f4f6' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
                       <div>
-                        <div style={{ fontSize: 14, fontWeight: 900, color: '#111827' }}>Product Targets</div>
-                        <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>This month target vs sales done</div>
+                        <div style={{ fontSize: 14, fontWeight: 900, color: '#111827' }}>Doctor-wise Product Targets</div>
+                        <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>Doctor sales only · regional sales excluded</div>
                       </div>
                       <div style={{ textAlign: 'right' }}>
                         <div style={{ fontSize: 16, fontWeight: 900, color: rawTargetPct >= 100 ? '#15803d' : '#92400e' }}>{targetStatusText}</div>

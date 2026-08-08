@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 const MONTHS = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const CUR_YEAR = new Date().getFullYear();
 const CUR_MONTH = new Date().getMonth() + 1;
+const REGIONAL_TERRITORIES = ['Chennai', 'Madurai', 'Coimbatore 1', 'Coimbatore 2', 'Hyderabad', 'Cochin'];
 
 const fmtInr = (value) => {
   const n = Number(value) || 0;
@@ -22,6 +23,8 @@ export default function TargetSetting() {
   const { user } = useAuth();
   const [year, setYear] = useState(CUR_YEAR);
   const [month, setMonth] = useState(CUR_MONTH);
+  const [targetType, setTargetType] = useState('doctor');
+  const [territory, setTerritory] = useState(REGIONAL_TERRITORIES[0]);
   const [assignees, setAssignees] = useState([]);
   const [ownerId, setOwnerId] = useState('');
   const [context, setContext] = useState(null);
@@ -33,6 +36,7 @@ export default function TargetSetting() {
   const [error, setError] = useState('');
 
   const isMd = user?.role === 'md';
+  const selectedOwnerHasReports = assignees.some(person => Number(person.reports_to_id) === Number(ownerId));
 
   useEffect(() => {
     if (!user?.id || !isMd) return;
@@ -52,7 +56,10 @@ export default function TargetSetting() {
     setLoadingRows(true);
     setError('');
     setMessage('');
-    targetsAPI.context(user.id, Number(ownerId), year, month)
+    const request = targetType === 'regional'
+      ? targetsAPI.regionalContext(user.id, Number(ownerId), year, month, territory)
+      : targetsAPI.context(user.id, Number(ownerId), year, month);
+    request
       .then(res => {
         setContext(res.data);
         setRows((res.data?.products || []).map(row => ({
@@ -64,7 +71,7 @@ export default function TargetSetting() {
       })
       .catch(err => setError(err?.response?.data?.detail || 'Failed to load target context'))
       .finally(() => setLoadingRows(false));
-  }, [user?.id, ownerId, year, month, isMd]);
+  }, [user?.id, ownerId, year, month, isMd, targetType, territory]);
 
   const totals = useMemo(() => rows.reduce((acc, row) => {
     acc.avgUnits += Number(row.avg_units) || 0;
@@ -122,8 +129,10 @@ export default function TargetSetting() {
           target_value: Number(row.target_value) || 0,
         })),
       };
-      const res = await targetsAPI.save(payload);
-      setMessage(`${res.data?.targets_saved || 0} product targets saved for ${context?.owner?.name || 'selected user'}.`);
+      const res = targetType === 'regional'
+        ? await targetsAPI.saveRegional({ ...payload, territory })
+        : await targetsAPI.save(payload);
+      setMessage(`${res.data?.targets_saved || 0} ${targetType === 'regional' ? `${territory} regional` : 'doctor-sales'} product targets saved for ${context?.owner?.name || 'selected user'}.`);
     } catch (err) {
       setError(err?.response?.data?.detail || 'Failed to save targets');
     } finally {
@@ -147,7 +156,7 @@ export default function TargetSetting() {
         <div>
           <div style={{ fontSize: 22, fontWeight: 900, color: '#111827' }}>Target Setting</div>
           <div style={{ fontSize: 12, color: '#6b7280', marginTop: 3 }}>
-            Set product-wise monthly targets using last 3 months average units and sales.
+            Keep doctor-wise sales targets and regional sales targets separate.
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -162,8 +171,21 @@ export default function TargetSetting() {
         </div>
       </div>
 
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14, padding: 4, background: '#e5e7eb', borderRadius: 11, width: 'fit-content' }}>
+        {[
+          ['doctor', 'Doctor-wise Sales Targets'],
+          ['regional', 'Regional Sales Targets'],
+        ].map(([value, label]) => (
+          <button key={value} onClick={() => { setTargetType(value); setMessage(''); setError(''); }}
+            style={{ padding: '8px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 800,
+              background: targetType === value ? '#0F6E56' : 'transparent', color: targetType === value ? '#fff' : '#4b5563' }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
       <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: 14, marginBottom: 14 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(260px, 420px) repeat(4, minmax(130px, 1fr))', gap: 10, alignItems: 'end' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: targetType === 'regional' ? 'minmax(220px, 1.4fr) minmax(180px, 1fr) repeat(4, minmax(120px, 0.8fr))' : 'minmax(260px, 420px) repeat(4, minmax(130px, 1fr))', gap: 10, alignItems: 'end' }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 11, color: '#6b7280', fontWeight: 700, textTransform: 'uppercase' }}>
             Manager / Rep
             <select value={ownerId} onChange={e => setOwnerId(e.target.value)} disabled={loadingUsers}
@@ -172,7 +194,21 @@ export default function TargetSetting() {
                 <option key={u.id} value={u.id}>{u.name} - {u.display_role || u.role}</option>
               ))}
             </select>
+            {selectedOwnerHasReports && (
+              <span style={{ fontSize: 9, color: '#0F6E56', fontWeight: 700, textTransform: 'none' }}>
+                Roll-up target: covers this manager and their reporting team.
+              </span>
+            )}
           </label>
+          {targetType === 'regional' && (
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 5, fontSize: 11, color: '#6b7280', fontWeight: 700, textTransform: 'uppercase' }}>
+              Regional Territory
+              <select value={territory} onChange={e => setTerritory(e.target.value)}
+                style={{ padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: 8, background: '#fff', fontSize: 13, color: '#111827' }}>
+                {REGIONAL_TERRITORIES.map(value => <option key={value} value={value}>{value}</option>)}
+              </select>
+            </label>
+          )}
           {[
             ['3M Avg Units', fmtNum(totals.avgUnits)],
             ['3M Avg Sales', fmtInr(totals.avgValue)],
@@ -200,7 +236,7 @@ export default function TargetSetting() {
         ))}
         <button onClick={saveTargets} disabled={saving || loadingRows}
           style={{ marginLeft: 'auto', padding: '9px 16px', border: 'none', borderRadius: 9, background: saving ? '#9ca3af' : '#0F6E56', color: '#fff', cursor: saving ? 'default' : 'pointer', fontWeight: 800 }}>
-          {saving ? 'Saving...' : 'Save Targets'}
+          {saving ? 'Saving...' : `Save ${targetType === 'regional' ? 'Regional' : 'Doctor Sales'} Targets`}
         </button>
       </div>
 

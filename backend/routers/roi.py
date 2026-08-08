@@ -472,6 +472,8 @@ def get_commitment_recovery(
             "doctor_name": doc.name,
             "hospital": doc.hospital,
             "city": doc.city,
+            "state_code": doc.state_code,
+            "manager_id": doc.manager_id,
             "manager_name": mgr_map.get(doc.manager_id, ""),
             "commitments": 0,
             "total_invested": 0.0,

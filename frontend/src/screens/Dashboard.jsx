@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { roiAPI, salesAPI } from '../api';
+import { roiAPI, salesAPI, targetsAPI } from '../api';
 
 const API   = process.env.REACT_APP_API_URL || '';
 const NOW   = new Date();
@@ -183,6 +183,98 @@ function CABar({ pct }) {
         <div style={{ height: '100%', width: `${Math.min(p, 100)}%`, background: color, borderRadius: 3, transition: 'width 0.6s' }} />
       </div>
       <div style={{ fontSize: 10, color, fontWeight: 700, marginTop: 2 }}>{p}%</div>
+    </div>
+  );
+}
+
+function TargetAchievementCard({ title, subtitle, icon, accent, light, data, loading, onSetTarget, recovery }) {
+  const target = Number(data?.target_value) || 0;
+  const actual = Number(data?.actual_value) || 0;
+  const remaining = Number(data?.remaining_value) || 0;
+  const projected = Number(data?.projected_value) || 0;
+  const rawPct = Number(data?.achievement_pct) || 0;
+  const pct = Math.max(0, Math.min(100, rawPct));
+  const status = data?.status || 'Target not set';
+  const statusColor = status === 'Achieved' ? '#15803d' : status === 'On track' ? '#b45309' : status === 'Below pace' ? '#dc2626' : '#6b7280';
+  const gapRows = (data?.products || []).filter(product => Number(product.target_value) > 0).slice(0, 4);
+  return (
+    <div style={{ background: '#fff', borderRadius: 16, border: `1.5px solid ${accent}28`, overflow: 'hidden', minWidth: 0 }}>
+      <div style={{ padding: '14px 16px', background: `linear-gradient(135deg, ${light}, #fff)`, borderBottom: `1px solid ${accent}20` }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+          <div style={{ display: 'flex', gap: 9, minWidth: 0 }}>
+            <span style={{ fontSize: 19 }}>{icon}</span>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 900, color: '#111827' }}>{title}</div>
+              <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>{subtitle}</div>
+            </div>
+          </div>
+          <span style={{ padding: '3px 9px', borderRadius: 20, background: `${statusColor}12`, color: statusColor, fontSize: 10, fontWeight: 900, whiteSpace: 'nowrap' }}>
+            {loading ? 'Loading...' : status}
+          </span>
+        </div>
+      </div>
+
+      <div style={{ padding: '14px 16px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 7 }}>
+          {[
+            ['Target', data?.has_target ? fmtInr(target) : 'Not set'],
+            ['Actual', fmtInr(actual)],
+            ['Remaining', data?.has_target ? fmtInr(remaining) : '—'],
+            ['Projected', fmtInr(projected)],
+          ].map(([label, value]) => (
+            <div key={label} style={{ padding: '8px 9px', borderRadius: 9, background: '#f9fafb', border: '1px solid #f1f5f9', minWidth: 0 }}>
+              <div style={{ fontSize: 9, color: '#9ca3af', fontWeight: 800, textTransform: 'uppercase' }}>{label}</div>
+              <div style={{ fontSize: 13, fontWeight: 900, color: label === 'Actual' ? accent : '#111827', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value}</div>
+            </div>
+          ))}
+        </div>
+
+        {data?.has_target ? (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#6b7280', marginTop: 12, marginBottom: 5 }}>
+              <span>{data.target_source || 'Assigned target'}</span>
+              <strong style={{ color: statusColor }}>{rawPct >= 100 ? '100%+' : `${rawPct}%`}</strong>
+            </div>
+            <div style={{ height: 8, borderRadius: 999, background: '#eef2f7', overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${pct}%`, borderRadius: 999, background: statusColor, transition: 'width 0.35s' }} />
+            </div>
+            {gapRows.length > 0 && (
+              <div style={{ marginTop: 11, borderTop: '1px solid #f3f4f6', paddingTop: 8 }}>
+                <div style={{ fontSize: 9, color: '#9ca3af', fontWeight: 800, textTransform: 'uppercase', marginBottom: 3 }}>Largest product gaps</div>
+                {gapRows.map(product => (
+                  <div key={product.product_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', fontSize: 10 }}>
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#374151', fontWeight: 700 }}>{product.product_name}</span>
+                    <span style={{ color: '#6b7280', flexShrink: 0 }}>{fmtInr(product.actual_value)} / {fmtInr(product.target_value)}</span>
+                    <span style={{ color: Number(product.remaining_value) > 0 ? '#dc2626' : '#15803d', fontWeight: 800, width: 55, textAlign: 'right', flexShrink: 0 }}>
+                      {Number(product.remaining_value) > 0 ? `${fmtInr(product.remaining_value)} gap` : 'Done'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          <div style={{ marginTop: 11, padding: '9px 10px', borderRadius: 9, background: light, color: '#4b5563', fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+            <span>Actual sales are shown, but no separate target is saved for this selection.</span>
+            {onSetTarget && <button onClick={onSetTarget} style={{ border: 'none', borderRadius: 7, background: accent, color: '#fff', padding: '5px 8px', fontSize: 9, fontWeight: 800, cursor: 'pointer', whiteSpace: 'nowrap' }}>Set target</button>}
+          </div>
+        )}
+
+        {recovery && (
+          <div style={{ marginTop: 11, padding: '10px 11px', borderRadius: 10, background: '#fff7ed', border: '1px solid #fed7aa' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 900, color: '#9a3412' }}>Six-month Investment Recovery</div>
+                <div style={{ fontSize: 9, color: '#c2410c', marginTop: 2 }}>{recovery.doctors} invested doctor{recovery.doctors === 1 ? '' : 's'} · {recovery.atRisk} at risk/breached</div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 12, fontWeight: 900, color: '#9a3412' }}>{recovery.achievementPct}%</div>
+                <div style={{ fontSize: 9, color: '#c2410c' }}>{fmtInr(recovery.sales)} of {fmtInr(recovery.expected)}</div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -471,6 +563,9 @@ export default function Dashboard() {
   const [allUsers,    setAllUsers]    = useState([]);
   const [topProducts, setTopProducts] = useState([]);
   const [regionalSalesRows, setRegionalSalesRows] = useState([]);
+  const [targetAchievement, setTargetAchievement] = useState(null);
+  const [targetLoading, setTargetLoading] = useState(false);
+  const [commitmentData, setCommitmentData] = useState(null);
   const [loading,     setLoading]     = useState(true);
   const [dashboardScope, setDashboardScope] = useState('overall');
 
@@ -564,6 +659,32 @@ export default function Dashboard() {
     return () => { cancelled = true; };
   }, [me?.id, year, month, startDate, endDate, effectiveScope]);
 
+  useEffect(() => {
+    if (!me?.id) return;
+    let cancelled = false;
+    setTargetLoading(true);
+    targetsAPI.dashboard(me.id, year, month, effectiveScope, {
+      ...(selRegion ? { state_code: selRegion } : {}),
+      ...(selCity ? { city: selCity } : {}),
+    }).then(response => {
+      if (!cancelled) setTargetAchievement(response.data || null);
+    }).catch(() => {
+      if (!cancelled) setTargetAchievement(null);
+    }).finally(() => {
+      if (!cancelled) setTargetLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [me?.id, year, month, effectiveScope, selRegion, selCity]);
+
+  useEffect(() => {
+    if (!me?.id) return;
+    let cancelled = false;
+    roiAPI.commitmentRecovery({ viewer_id: me.id, as_of: endDate })
+      .then(response => { if (!cancelled) setCommitmentData(response.data || null); })
+      .catch(() => { if (!cancelled) setCommitmentData(null); });
+    return () => { cancelled = true; };
+  }, [me?.id, endDate]);
+
   const docCounts = useMemo(() => {
     const counts = {};
     scopedDoctors.forEach(doctor => {
@@ -605,6 +726,24 @@ export default function Dashboard() {
       not_prescribed: Math.max(0, displayDoctors.length - prescribed),
     };
   }, [displayDoctors]);
+
+  const investmentRecovery = useMemo(() => {
+    const rows = (commitmentData?.doctor_summary || [])
+      .filter(row => scopeUserIds.has(Number(row.manager_id)))
+      .filter(row => !selRegion || toStateName(row.state_code) === selRegion)
+      .filter(row => !selCity || normCity(row.city) === selCity);
+    const expected = rows.reduce((sum, row) => sum + (Number(row.expected_sales) || 0), 0);
+    const sales = rows.reduce((sum, row) => sum + (Number(row.sales_captured) || 0), 0);
+    const atRiskCount = rows.filter(row => ['At Risk', 'Breached'].includes(row.worst_status)).length;
+    return {
+      doctors: rows.length,
+      expected,
+      sales,
+      shortfall: Math.max(0, expected - sales),
+      atRisk: atRiskCount,
+      achievementPct: expected > 0 ? Math.round((sales / expected) * 1000) / 10 : 0,
+    };
+  }, [commitmentData, scopeUserIds, selRegion, selCity]);
 
   const {
     totalSales, totalInvested, overallROI,
@@ -1188,6 +1327,31 @@ export default function Dashboard() {
                 </div>
               );
             })()}
+
+            {/* Two independent sales tracks — never combined into one total */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16, marginBottom: 20 }}>
+              <TargetAchievementCard
+                title="Regional Target vs Achievement"
+                subtitle={`${MONTH_NAMES[month]} ${year} · regional entries only · doctor sales excluded`}
+                icon="▦"
+                accent="#2563EB"
+                light="#EFF6FF"
+                data={targetAchievement?.regional_sales}
+                loading={targetLoading}
+                onSetTarget={me?.role === 'md' ? () => navigate('/target-setting') : null}
+              />
+              <TargetAchievementCard
+                title="Doctor Business & Investment Recovery"
+                subtitle={`${MONTH_NAMES[month]} ${year} · doctor-wise entries only · regional sales excluded`}
+                icon="✦"
+                accent="#0F6E56"
+                light="#ECFDF5"
+                data={targetAchievement?.doctor_sales}
+                loading={targetLoading}
+                onSetTarget={me?.role === 'md' ? () => navigate('/target-setting') : null}
+                recovery={investmentRecovery.doctors > 0 ? investmentRecovery : null}
+              />
+            </div>
 
             {/* Investment vs Sales Returns Tracker */}
             {displayDoctors.filter(d => d.total_invested > 0).length > 0 && (() => {
