@@ -469,11 +469,10 @@ export default function Dashboard() {
 
   const [allDoctors,  setAllDoctors]  = useState([]);
   const [allUsers,    setAllUsers]    = useState([]);
-  const [docCounts,   setDocCounts]   = useState({});
   const [topProducts, setTopProducts] = useState([]);
-  const [clientStats, setClientStats] = useState(null);
   const [regionalSalesRows, setRegionalSalesRows] = useState([]);
   const [loading,     setLoading]     = useState(true);
+  const [dashboardScope, setDashboardScope] = useState('overall');
 
   const [selRegion,     setSelRegion]     = useState(null);
   const [selCity,       setSelCity]       = useState(null);
@@ -505,22 +504,13 @@ export default function Dashboard() {
     Promise.all([
       roiAPI.allDoctorsByDate(startDate, endDate, { viewer_id: me.id }),
       axios.get(`${API}/users/`, { params: { viewer_id: me.id } }),
-      axios.get(`${API}/sales/by-product`, { params: { year, month, start_date: startDate, end_date: endDate } }),
-    ]).then(([docRes, userRes, prodRes]) => {
+    ]).then(([docRes, userRes]) => {
       const docs  = docRes.data  || [];
       const users = userRes.data || [];
       setAllDoctors(docs);
       setAllUsers(users);
-      setTopProducts((prodRes.data || []).slice(0, 5));
-      const counts = {};
-      docs.forEach(d => { if (d.manager_id) counts[d.manager_id] = (counts[d.manager_id] || 0) + 1; });
-      setDocCounts(counts);
       setLoading(false);
     }).catch(() => setLoading(false));
-
-    // Client stats — prescribed vs not
-    roiAPI.clientStats(year, month, { viewer_id: me.id })
-      .then(r => setClientStats(r.data)).catch(() => {});
   }, [me?.id, startDate, endDate, year, month]);
 
   useEffect(() => {
@@ -530,30 +520,91 @@ export default function Dashboard() {
       .catch(() => setRegionalSalesRows([]));
   }, [me?.id, year, month]);
 
+  const activeVisibleUsers = useMemo(
+    () => allUsers.filter(user => user.is_active !== false),
+    [allUsers]
+  );
+  const teamUsers = useMemo(
+    () => activeVisibleUsers.filter(user => Number(user.id) !== Number(me?.id)),
+    [activeVisibleUsers, me?.id]
+  );
+  const hasReports = teamUsers.length > 0;
+  const scopeUsers = useMemo(() => {
+    if (!hasReports || dashboardScope === 'mine') {
+      return activeVisibleUsers.filter(user => Number(user.id) === Number(me?.id));
+    }
+    if (dashboardScope === 'team') return teamUsers;
+    return activeVisibleUsers;
+  }, [activeVisibleUsers, dashboardScope, hasReports, me?.id, teamUsers]);
+  const scopeUserIds = useMemo(
+    () => new Set(scopeUsers.map(user => Number(user.id))),
+    [scopeUsers]
+  );
+  const scopedDoctors = useMemo(
+    () => allDoctors.filter(doctor => scopeUserIds.has(Number(doctor.manager_id))),
+    [allDoctors, scopeUserIds]
+  );
+  const effectiveScope = hasReports ? dashboardScope : 'mine';
+
+  useEffect(() => {
+    if (!me?.id) return;
+    let cancelled = false;
+    setTopProducts([]);
+    axios.get(`${API}/sales/by-product`, {
+      params: {
+        year,
+        month,
+        start_date: startDate,
+        end_date: endDate,
+        viewer_id: me.id,
+        owner_scope: effectiveScope,
+      },
+    }).then(response => { if (!cancelled) setTopProducts(response.data || []); })
+      .catch(() => { if (!cancelled) setTopProducts([]); });
+    return () => { cancelled = true; };
+  }, [me?.id, year, month, startDate, endDate, effectiveScope]);
+
+  const docCounts = useMemo(() => {
+    const counts = {};
+    scopedDoctors.forEach(doctor => {
+      if (doctor.manager_id) counts[doctor.manager_id] = (counts[doctor.manager_id] || 0) + 1;
+    });
+    return counts;
+  }, [scopedDoctors]);
+
   const allRegions = useMemo(() => {
     const seen = new Set();
-    allDoctors.forEach(d => { const s = toStateName(d.state_code); if (s) seen.add(s); });
+    scopedDoctors.forEach(d => { const s = toStateName(d.state_code); if (s) seen.add(s); });
     return [...seen].sort();
-  }, [allDoctors]);
+  }, [scopedDoctors]);
 
   const cityList = useMemo(() => {
-    const src = selRegion ? allDoctors.filter(d => toStateName(d.state_code) === selRegion) : allDoctors;
+    const src = selRegion ? scopedDoctors.filter(d => toStateName(d.state_code) === selRegion) : scopedDoctors;
     const counts = {};
     src.forEach(d => { const c = normCity(d.city); if (c) counts[c] = (counts[c] || 0) + 1; });
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  }, [allDoctors, selRegion]);
+  }, [scopedDoctors, selRegion]);
 
   const displayDoctors = useMemo(() => {
-    let d = selRegion ? allDoctors.filter(x => toStateName(x.state_code) === selRegion) : allDoctors;
+    let d = selRegion ? scopedDoctors.filter(x => toStateName(x.state_code) === selRegion) : scopedDoctors;
     if (selCity) d = d.filter(x => normCity(x.city) === selCity);
     return d;
-  }, [allDoctors, selRegion, selCity]);
+  }, [scopedDoctors, selRegion, selCity]);
 
   const totalRegionalSales = useMemo(() => regionalSalesRows
+    .filter(row => scopeUserIds.has(Number(row.associate_id)))
     .filter(row => !selRegion || toStateName(row.state_code) === selRegion)
     .filter(row => !selCity || normCity(row.city) === selCity)
     .reduce((sum, row) => sum + (Number(row.value) || 0), 0),
-  [regionalSalesRows, selRegion, selCity]);
+  [regionalSalesRows, scopeUserIds, selRegion, selCity]);
+
+  const clientStats = useMemo(() => {
+    const prescribed = displayDoctors.filter(doctor => Number(doctor.actual_sales) > 0).length;
+    return {
+      prescribed,
+      not_prescribed: Math.max(0, displayDoctors.length - prescribed),
+    };
+  }, [displayDoctors]);
 
   const {
     totalSales, totalInvested, overallROI,
@@ -580,10 +631,12 @@ export default function Dashboard() {
     return { totalSales, totalInvested, overallROI, top5Doctors, top5Reps, atRisk };
   }, [displayDoctors]);
 
-  const repUsers   = allUsers.filter(u => u.role !== 'admin' && u.role !== 'md' && (docCounts[u.id] || 0) > 0);
-  const totalTeams = allUsers.filter(u => u.role !== 'admin' && u.role !== 'md').length;
+  const teamListUsers = scopeUsers.filter(u => Number(u.id) !== Number(me?.id) && u.role !== 'admin');
+  const totalTeams = teamListUsers.length;
   const totalDocs  = displayDoctors.length;
-  const hasReports = allUsers.some(u => u.reports_to_id === me?.id);
+  const ownDoctorCount = allDoctors.filter(doctor => Number(doctor.manager_id) === Number(me?.id)).length;
+  const teamUserIds = new Set(teamUsers.map(user => Number(user.id)));
+  const teamDoctorCount = allDoctors.filter(doctor => teamUserIds.has(Number(doctor.manager_id))).length;
 
   const crumbMap = {
     'overview':    ['Dashboard'],
@@ -693,6 +746,45 @@ export default function Dashboard() {
         </div>
         <div style={{ fontSize: 11, opacity: 0.4, marginTop: 4 }}>{startDate} to {endDate}</div>
 
+        {/* Ownership scope — managers can have their own doctors as well as a team */}
+        {hasReports && (
+          <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.45)', fontWeight: 800, letterSpacing: 1.5, textTransform: 'uppercase', marginRight: 2 }}>View</span>
+            {[
+              { value: 'overall', label: 'Overall', count: ownDoctorCount + teamDoctorCount, hint: 'Own doctors + reportees' },
+              { value: 'mine', label: 'My Business', count: ownDoctorCount, hint: 'Doctors directly assigned to you' },
+              { value: 'team', label: 'My Team', count: teamDoctorCount, hint: 'Doctors owned by your reportees' },
+            ].map(option => {
+              const active = dashboardScope === option.value;
+              return (
+                <button
+                  key={option.value}
+                  title={option.hint}
+                  onClick={() => {
+                    setDashboardScope(option.value);
+                    setSelRegion(null); setSelCity(null); setSelState(null);
+                    setSelUser(null); setSelDoctor(null); setSelProduct(null);
+                    setShowSalesPanel(false); setShowInvestPanel(false); setShowROIPanel(false);
+                    setView('overview');
+                  }}
+                  style={{
+                    padding: '6px 13px', borderRadius: 9, fontSize: 11, fontWeight: 800, cursor: 'pointer',
+                    border: active ? '1.5px solid #F5B800' : '1.5px solid rgba(255,255,255,0.16)',
+                    background: active ? 'rgba(245,184,0,0.22)' : 'rgba(255,255,255,0.07)',
+                    color: active ? '#FDE68A' : 'rgba(255,255,255,0.72)',
+                    boxShadow: active ? '0 3px 14px rgba(245,184,0,0.18)' : 'none',
+                  }}
+                >
+                  {option.label} <span style={{ opacity: 0.65, fontWeight: 700 }}>· {option.count}</span>
+                </button>
+              );
+            })}
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.48)', marginLeft: 3 }}>
+              {dashboardScope === 'mine' ? 'Your directly assigned doctors' : dashboardScope === 'team' ? `${teamUsers.length} team member${teamUsers.length === 1 ? '' : 's'}` : 'Your business and team combined'}
+            </span>
+          </div>
+        )}
+
         {/* Region chips */}
         {allRegions.length > 1 && (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 14, alignItems: 'center' }}>
@@ -758,7 +850,7 @@ export default function Dashboard() {
           const CARD_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#0F6E56', '#C2410C'];
           const roiStatus = fmtROIStatus(totalSales, totalInvested, overallROI);
           const cards = [
-            ...(hasReports ? [
+            ...(hasReports && dashboardScope !== 'mine' ? [
               { icon: '◈', label: 'Team', val: totalTeams, action: () => { closeAllPanels(); setView('all-teams'); setSelUser(null); } },
             ] : []),
             { icon: '✦', label: 'Clients',    val: totalDocs,             action: () => { closeAllPanels(); setView('all-clients'); setClientSearch(''); setClientsVisible(8); }, prescribed: clientStats?.prescribed, notPrescribed: clientStats?.not_prescribed },
@@ -861,8 +953,11 @@ export default function Dashboard() {
                               setShowAllProdDoctors(false);
                               setProductDoctorsLoading(true);
                               axios.get(`${API}/sales/product/${p.product_id}/doctors`, {
-                                params: { year, month, start_date: startDate, end_date: endDate }
-                              }).then(r => { setProductDoctors(r.data || []); }).finally(() => setProductDoctorsLoading(false));
+                                params: { year, month, start_date: startDate, end_date: endDate, viewer_id: me.id, owner_scope: effectiveScope }
+                              }).then(r => {
+                                const visibleDoctorIds = new Set(displayDoctors.map(doctor => Number(doctor.doctor_id || doctor.id)));
+                                setProductDoctors((r.data || []).filter(doctor => visibleDoctorIds.has(Number(doctor.doctor_id))));
+                              }).finally(() => setProductDoctorsLoading(false));
                             }}
                             style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0',
                               borderBottom: '1px solid #f3f4f6', cursor: 'pointer' }}
@@ -1392,7 +1487,7 @@ export default function Dashboard() {
                 </div>
               )}
               <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14 }}>Teams in {selState}</div>
-              <TeamDrill stateName={selState} users={allUsers} docCounts={docCounts}
+              <TeamDrill stateName={selState} users={teamListUsers} docCounts={docCounts}
                 onSelect={u => { setSelUser(u); setView('team'); }} />
             </div>
           );
@@ -1402,12 +1497,12 @@ export default function Dashboard() {
         {view === 'all-teams' && (
           <div>
             <div style={{ fontSize: 13, color: '#888', marginBottom: 16 }}>
-              {allUsers.filter(u => u.role !== 'admin').length} team members · click a card to see their clients
+              {teamListUsers.length} team members · click a card to see their clients
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 12 }}>
-              {allUsers.filter(u => u.role !== 'admin').map(u => {
+              {teamListUsers.map(u => {
                 const cnt      = docCounts[u.id] || 0;
-                const repSales = allDoctors.filter(d => d.manager_id === u.id).reduce((a,d) => a + (d.actual_sales||0), 0);
+                const repSales = scopedDoctors.filter(d => d.manager_id === u.id).reduce((a,d) => a + (d.actual_sales||0), 0);
                 const sName    = toStateName((u.state||'').split(',')[0].trim());
                 const { color, light } = stateStyle(sName);
                 return (
@@ -1453,7 +1548,7 @@ export default function Dashboard() {
                 fontSize: 13, marginBottom: 16, boxSizing: 'border-box' }}
             />
             {(() => {
-              const filtered = allDoctors.filter(d =>
+              const filtered = displayDoctors.filter(d =>
                 !clientSearch ||
                 (d.doctor_name||'').toLowerCase().includes(clientSearch.toLowerCase()) ||
                 (d.hospital||'').toLowerCase().includes(clientSearch.toLowerCase()) ||

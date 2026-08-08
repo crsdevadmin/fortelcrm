@@ -35,3 +35,23 @@ def get_subtree_ids(viewer_id: int, db: Session) -> Optional[Set[int]]:
         queue.extend(children_map.get(current, []))
 
     return visible
+
+
+def get_dashboard_scope_ids(viewer_id: int, scope: str, db: Session) -> Set[int]:
+    """Resolve an authorised dashboard ownership scope to concrete user IDs."""
+    from ..models.models import User
+
+    viewer = db.query(User).filter(User.id == viewer_id, User.is_active == True).first()
+    if not viewer:
+        return set()
+
+    accessible = get_subtree_ids(viewer_id, db)
+    if accessible is None:
+        accessible = {row.id for row in db.query(User.id).filter(User.is_active == True).all()}
+
+    normalized = (scope or "overall").strip().lower()
+    if normalized == "mine":
+        return {viewer_id}
+    if normalized == "team":
+        return set(accessible) - {viewer_id}
+    return set(accessible)

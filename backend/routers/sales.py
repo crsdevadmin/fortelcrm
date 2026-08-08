@@ -9,7 +9,7 @@ import re
 
 from ..database import get_db
 from ..models.models import SalesEntry, RegionalSalesEntry, RegionalSalesWeekPDF, Doctor, Product
-from ..utils.hierarchy import get_subtree_ids
+from ..utils.hierarchy import get_dashboard_scope_ids, get_subtree_ids
 from ..utils.regional_territories import TERRITORY_STATES, visible_territories
 
 router = APIRouter(prefix="/sales", tags=["Sales"])
@@ -495,6 +495,8 @@ def get_region_monthly_sales(manager_id: int, year: int, month: int, db: Session
 def get_sales_by_product(year: int, month: int,
                           start_date: Optional[str] = None,
                           end_date:   Optional[str] = None,
+                          viewer_id: Optional[int] = None,
+                          owner_scope: str = "overall",
                           db: Session = Depends(get_db)):
     q = db.query(
         SalesEntry.product_id,
@@ -507,6 +509,12 @@ def get_sales_by_product(year: int, month: int,
         q = q.filter(SalesEntry.year == year, SalesEntry.month == month)
     else:
         raise HTTPException(status_code=400, detail="year/month or start_date/end_date required")
+    if viewer_id:
+        owner_ids = get_dashboard_scope_ids(viewer_id, owner_scope, db)
+        if not owner_ids:
+            return []
+        owned_doctor_ids = db.query(Doctor.id).filter(Doctor.manager_id.in_(owner_ids))
+        q = q.filter(SalesEntry.doctor_id.in_(owned_doctor_ids))
     rows = q.group_by(SalesEntry.product_id).all()
 
     result = []
@@ -528,6 +536,8 @@ def get_doctors_by_product(
     month: int = 0,
     start_date: Optional[str] = None,
     end_date:   Optional[str] = None,
+    viewer_id: Optional[int] = None,
+    owner_scope: str = "overall",
     db: Session = Depends(get_db),
 ):
     """Doctors who purchased a given product, sorted by value desc."""
@@ -541,6 +551,13 @@ def get_doctors_by_product(
         q = q.filter(SalesEntry.sale_date >= start_date, SalesEntry.sale_date <= end_date)
     elif year and month:
         q = q.filter(SalesEntry.year == year, SalesEntry.month == month)
+
+    if viewer_id:
+        owner_ids = get_dashboard_scope_ids(viewer_id, owner_scope, db)
+        if not owner_ids:
+            return []
+        owned_doctor_ids = db.query(Doctor.id).filter(Doctor.manager_id.in_(owner_ids))
+        q = q.filter(SalesEntry.doctor_id.in_(owned_doctor_ids))
 
     rows = q.group_by(SalesEntry.doctor_id).order_by(func.sum(SalesEntry.value).desc()).all()
 
