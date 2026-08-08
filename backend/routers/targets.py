@@ -243,13 +243,10 @@ def _dashboard_product_summary(
         actual_model.product_id,
         func.sum(actual_model.qty).label("units"),
         func.sum(actual_model.value).label("value"),
-    ).filter(
-        actual_model.associate_id.in_(scope_ids),
-        actual_model.year == year,
-        actual_model.month == month,
-    )
+    ).filter(actual_model.year == year, actual_model.month == month)
     if doctor_sales:
         actual_q = actual_q.join(Doctor, actual_model.doctor_id == Doctor.id)
+        actual_q = actual_q.filter(Doctor.manager_id.in_(scope_ids))
         if state_keys:
             actual_q = actual_q.filter(
                 func.upper(func.replace(Doctor.state_code, " ", "")).in_(state_keys)
@@ -257,6 +254,7 @@ def _dashboard_product_summary(
         if city:
             actual_q = actual_q.filter(Doctor.city.ilike(city.strip()))
     else:
+        actual_q = actual_q.filter(actual_model.associate_id.in_(scope_ids))
         if state_keys:
             actual_q = actual_q.filter(
                 func.upper(func.replace(actual_model.state_code, " ", "")).in_(state_keys)
@@ -411,7 +409,8 @@ def get_target_context(
                 func.sum(SalesEntry.qty).label("units"),
                 func.sum(SalesEntry.value).label("value"),
             )
-            .filter(SalesEntry.associate_id.in_(sales_user_ids))
+            .join(Doctor, SalesEntry.doctor_id == Doctor.id)
+            .filter(Doctor.manager_id.in_(sales_user_ids))
             .filter(*([] if not month_filters else [month_filters[0] | month_filters[1] | month_filters[2]]))
             .group_by(SalesEntry.product_id, SalesEntry.year, SalesEntry.month)
             .all()
@@ -768,8 +767,8 @@ def get_target_summary(
         SalesEntry.product_id,
         func.sum(SalesEntry.qty).label("units"),
         func.sum(SalesEntry.value).label("value"),
-    ).filter(
-        SalesEntry.associate_id.in_(sales_user_ids),
+    ).join(Doctor, SalesEntry.doctor_id == Doctor.id).filter(
+        Doctor.manager_id.in_(sales_user_ids),
         SalesEntry.year == eff_year,
         SalesEntry.month == eff_month,
     ).group_by(SalesEntry.product_id).all()
