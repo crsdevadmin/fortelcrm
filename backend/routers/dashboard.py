@@ -11,6 +11,7 @@ from ..models.models import (
     DailyTask,
     Doctor,
     Investment,
+    RegionalProductTarget,
     RegionalSalesEntry,
     RegionalSalesWeekPDF,
     SalesEntry,
@@ -19,7 +20,13 @@ from ..models.models import (
     VisitLog,
 )
 from ..utils.hierarchy import get_dashboard_scope_ids
-from ..utils.regional_territories import TERRITORY_STATES, infer_user_territory
+from ..utils.regional_territories import (
+    REGIONAL_TERRITORIES,
+    TERRITORY_STATES,
+    infer_user_territory,
+    territory_for_city,
+)
+from .roi import _add_months, _commitment_status, _expected_mult, _safe_date, _sales_between_for_doctor
 
 
 router = APIRouter(prefix="/targets", tags=["Dashboard"])
@@ -326,4 +333,311 @@ def get_action_center(
             "info": sum(1 for item in items if item["severity"] == "info"),
         },
         "items": items,
+    }
+
+
+@router.get("/territory-performance")
+def get_territory_performance(
+    viewer_id: int,
+    year: int,
+    month: int,
+    scope: str = "overall",
+    state_code: Optional[str] = None,
+    city: Optional[str] = None,
+    as_of: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """Return one operational and commercial scorecard row per approved territory."""
+    viewer = db.query(User).filter(User.id == viewer_id, User.is_active == True).first()
+    if not viewer:
+        raise HTTPException(status_code=404, detail="User not found")
+    if month < 1 or month > 12:
+        raise HTTPException(status_code=400, detail="Invalid month")
+    normalized_scope = (scope or "overall").strip().lower()
+    if normalized_scope not in {"overall", "mine", "team"}:
+        raise HTTPException(status_code=400, detail="Invalid dashboard scope")
+    try:
+        ref_date = datetime.strptime(as_of, "%Y-%m-%d").date() if as_of else date_type.today()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="as_of must be YYYY-MM-DD")
+
+    scope_ids = get_dashboard_scope_ids(viewer_id, normalized_scope, db)
+    overall_scope_ids = get_dashboard_scope_ids(viewer_id, "overall", db)
+    rows = {
+        territory: {
+            "territory": territory,
+            "state_code": TERRITORY_STATES[territory],
+            "regional_sales": 0.0,
+            "regional_target": 0.0,
+            "regional_achievement_pct": 0.0,
+            "doctor_sales": 0.0,
+            "investment": 0.0,
+            "recovery_expected": 0.0,
+            "recovery_sales": 0.0,
+            "recovery_pct": 0.0,
+            "recovery_at_risk": 0,
+            "recovery_breached": 0,
+            "active_doctors": 0,
+            "visited_30d": 0,
+            "visit_coverage_pct": 0.0,
+            "missing_updates": 0,
+            "missing_pdfs": 0,
+            "pdf_mismatches": 0,
+            "open_tasks": 0,
+            "overdue_tasks": 0,
+            "status": "No activity",
+            "status_level": "neutral",
+        }
+        for territory in REGIONAL_TERRITORIES
+    }
+    if not scope_ids:
+        return {"viewer_id": viewer_id, "scope": normalized_scope, "year": year, "month": month, "rows": []}
+
+    users = db.query(User).filter(User.id.in_(scope_ids), User.is_active == True).all()
+    territory_assignments = {}
+    for user_id, territory in db.query(
+        UserRegionalTerritory.user_id,
+        UserRegionalTerritory.territory,
+    ).filter(UserRegionalTerritory.user_id.in_(scope_ids)).all():
+        territory_assignments.setdefault(user_id, set()).add(territory)
+
+    doctors = db.query(Doctor).filter(
+        Doctor.manager_id.in_(scope_ids),
+        Doctor.is_active != False,
+    ).all()
+    doctor_map = {doctor.id: doctor for doctor in doctors}
+    doctor_territory = {
+        doctor.id: territory_for_city(doctor.city, doctor.manager_id)
+        for doctor in doctors
+    }
+    for doctor in doctors:
+        territory = doctor_territory.get(doctor.id)
+        if territory:
+            rows[territory]["active_doctors"] += 1
+
+    doctor_ids = list(doctor_map)
+    if doctor_ids:
+        for doctor_id, total in db.query(
+            SalesEntry.doctor_id,
+            func.sum(SalesEntry.value),
+        ).filter(
+            SalesEntry.doctor_id.in_(doctor_ids),
+            SalesEntry.year == year,
+            SalesEntry.month == month,
+        ).group_by(SalesEntry.doctor_id).all():
+            territory = doctor_territory.get(doctor_id)
+            if territory:
+                rows[territory]["doctor_sales"] += float(total or 0)
+
+        for doctor_id, total in db.query(
+            Investment.doctor_id,
+            func.sum(Investment.amount),
+        ).filter(Investment.doctor_id.in_(doctor_ids)).group_by(Investment.doctor_id).all():
+            territory = doctor_territory.get(doctor_id)
+            if territory:
+                rows[territory]["investment"] += float(total or 0)
+
+        visit_cutoff = datetime.combine(ref_date - timedelta(days=30), datetime.min.time())
+        visited_ids = {
+            doctor_id
+            for doctor_id, in db.query(VisitLog.doctor_id).filter(
+                VisitLog.doctor_id.in_(doctor_ids),
+                VisitLog.visit_time >= visit_cutoff,
+            ).distinct().all()
+        }
+        for doctor_id in visited_ids:
+            territory = doctor_territory.get(doctor_id)
+            if territory:
+                rows[territory]["visited_30d"] += 1
+
+        investments = db.query(Investment).filter(Investment.doctor_id.in_(doctor_ids)).all()
+        for investment in investments:
+            investment_date = _safe_date(investment.year, investment.month, investment.week)
+            if investment_date > ref_date:
+                continue
+            territory = doctor_territory.get(investment.doctor_id)
+            if not territory:
+                continue
+            doctor = doctor_map[investment.doctor_id]
+            amount = float(investment.amount or 0)
+            expected = float(investment.expected_sales or (amount * float(investment.expected_multiple or _expected_mult(doctor))))
+            deadline = _add_months(investment_date, 6)
+            captured = _sales_between_for_doctor(db, doctor.id, investment_date, min(ref_date, deadline))
+            recovery_status, _, _ = _commitment_status(captured, expected, investment_date, deadline, ref_date)
+            row = rows[territory]
+            row["recovery_expected"] += expected
+            row["recovery_sales"] += captured
+            if recovery_status == "At Risk":
+                row["recovery_at_risk"] += 1
+            elif recovery_status == "Breached":
+                row["recovery_breached"] += 1
+
+        tasks = db.query(DailyTask).filter(
+            DailyTask.doctor_id.in_(doctor_ids),
+            DailyTask.assigned_to_id.in_(scope_ids),
+            DailyTask.status != "completed",
+        ).all()
+        for task in tasks:
+            territory = doctor_territory.get(task.doctor_id)
+            if not territory:
+                continue
+            rows[territory]["open_tasks"] += 1
+            if task.task_date < ref_date.isoformat():
+                rows[territory]["overdue_tasks"] += 1
+
+    regional_entries = db.query(RegionalSalesEntry).filter(
+        RegionalSalesEntry.associate_id.in_(scope_ids),
+        RegionalSalesEntry.year == year,
+        RegionalSalesEntry.month == month,
+    ).all()
+    for entry in regional_entries:
+        territory = territory_for_city(entry.city, entry.associate_id)
+        if territory:
+            rows[territory]["regional_sales"] += float(entry.value or 0)
+
+    # Keep manager roll-up targets from being added again to reportee targets.
+    target_rows = db.query(RegionalProductTarget).filter(
+        RegionalProductTarget.owner_user_id.in_(scope_ids),
+        RegionalProductTarget.year == year,
+        RegionalProductTarget.month == month,
+    ).all()
+    for territory in REGIONAL_TERRITORIES:
+        territory_targets = [target for target in target_rows if territory_for_city(target.city, target.owner_user_id) == territory]
+        if normalized_scope == "mine" and len(overall_scope_ids) > 1:
+            territory_targets = []
+        elif normalized_scope == "overall" and any(target.owner_user_id == viewer_id for target in territory_targets):
+            territory_targets = [target for target in territory_targets if target.owner_user_id == viewer_id]
+        rows[territory]["regional_target"] = sum(float(target.target_value or 0) for target in territory_targets)
+
+    previous_year, previous_month, previous_week = _previous_regional_week(ref_date)
+    submitted = set()
+    previous_entries = db.query(RegionalSalesEntry).filter(
+        RegionalSalesEntry.associate_id.in_(scope_ids),
+        RegionalSalesEntry.year == previous_year,
+        RegionalSalesEntry.month == previous_month,
+        RegionalSalesEntry.week == previous_week,
+    ).all()
+    for entry in previous_entries:
+        territory = territory_for_city(entry.city, entry.associate_id)
+        if territory:
+            submitted.add((entry.associate_id, territory))
+
+    historical_regional_users = {entry.associate_id for entry in regional_entries + previous_entries}
+    for user in users:
+        if user.role in {"admin", "md"}:
+            continue
+        assigned = set(territory_assignments.get(user.id, set()))
+        inferred = infer_user_territory(user)
+        if inferred:
+            assigned.add(inferred)
+        if not assigned and user.id in historical_regional_users:
+            assigned.update(
+                territory_for_city(entry.city, user.id)
+                for entry in regional_entries + previous_entries
+                if entry.associate_id == user.id
+            )
+        for territory in assigned:
+            if territory and (user.id, territory) not in submitted:
+                rows[territory]["missing_updates"] += 1
+
+    pdf_rows = db.query(RegionalSalesWeekPDF).filter(
+        RegionalSalesWeekPDF.associate_id.in_(scope_ids),
+        RegionalSalesWeekPDF.year == previous_year,
+        RegionalSalesWeekPDF.month == previous_month,
+        RegionalSalesWeekPDF.week == previous_week,
+    ).all()
+    pdf_groups = {}
+    for pdf in pdf_rows:
+        territory = territory_for_city(pdf.city, pdf.associate_id)
+        if territory:
+            pdf_groups.setdefault((pdf.associate_id, territory), []).append(pdf)
+    for associate_id, territory in submitted:
+        group = pdf_groups.get((associate_id, territory), [])
+        if not group:
+            rows[territory]["missing_pdfs"] += 1
+        elif not any(pdf.matches for pdf in group):
+            rows[territory]["pdf_mismatches"] += 1
+
+    state_filter = _state_keys(state_code)
+    selected_city = (city or "").strip().lower()
+    selected_territories = set(REGIONAL_TERRITORIES)
+    if state_filter:
+        selected_territories = {
+            territory for territory in selected_territories
+            if "".join(TERRITORY_STATES[territory].upper().split()) in state_filter
+        }
+    if selected_city:
+        if selected_city == "coimbatore":
+            selected_territories &= {"Coimbatore 1", "Coimbatore 2"}
+        else:
+            selected = territory_for_city(city)
+            selected_territories &= ({selected} if selected else set())
+
+    if viewer.role not in {"admin", "md"}:
+        visible = set()
+        for user_id, assigned in territory_assignments.items():
+            if user_id in scope_ids:
+                visible.update(assigned)
+        for doctor_id, territory in doctor_territory.items():
+            if territory:
+                visible.add(territory)
+        for entry in regional_entries + previous_entries:
+            territory = territory_for_city(entry.city, entry.associate_id)
+            if territory:
+                visible.add(territory)
+        selected_territories &= visible
+
+    days_in_month = calendar.monthrange(year, month)[1]
+    if (year, month) < (ref_date.year, ref_date.month):
+        month_progress = 100.0
+    elif (year, month) > (ref_date.year, ref_date.month):
+        month_progress = 0.0
+    else:
+        month_progress = min(ref_date.day, days_in_month) / days_in_month * 100
+
+    output = []
+    for territory in REGIONAL_TERRITORIES:
+        if territory not in selected_territories:
+            continue
+        row = rows[territory]
+        row["regional_achievement_pct"] = round(
+            row["regional_sales"] / row["regional_target"] * 100, 1
+        ) if row["regional_target"] > 0 else 0.0
+        row["recovery_pct"] = round(
+            row["recovery_sales"] / row["recovery_expected"] * 100, 1
+        ) if row["recovery_expected"] > 0 else 0.0
+        row["visit_coverage_pct"] = round(
+            row["visited_30d"] / row["active_doctors"] * 100, 1
+        ) if row["active_doctors"] > 0 else 0.0
+
+        critical = row["pdf_mismatches"] + row["overdue_tasks"] + row["recovery_breached"]
+        below_pace = row["regional_target"] > 0 and row["regional_achievement_pct"] + 10 < month_progress
+        warning = (
+            row["missing_updates"] + row["missing_pdfs"] + row["recovery_at_risk"] > 0
+            or below_pace
+            or (row["active_doctors"] > 0 and row["visit_coverage_pct"] < 60)
+        )
+        has_activity = row["regional_sales"] > 0 or row["doctor_sales"] > 0 or row["investment"] > 0 or row["active_doctors"] > 0
+        if critical:
+            row["status"], row["status_level"] = "Needs action", "critical"
+        elif warning:
+            row["status"], row["status_level"] = "Watch", "warning"
+        elif has_activity:
+            row["status"], row["status_level"] = "On track", "good"
+
+        for key in (
+            "regional_sales", "regional_target", "doctor_sales", "investment",
+            "recovery_expected", "recovery_sales",
+        ):
+            row[key] = round(row[key], 2)
+        output.append(row)
+
+    return {
+        "viewer_id": viewer_id,
+        "scope": normalized_scope,
+        "year": year,
+        "month": month,
+        "as_of": ref_date.isoformat(),
+        "regional_week": {"year": previous_year, "month": previous_month, "week": previous_week},
+        "rows": output,
     }

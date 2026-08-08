@@ -129,6 +129,8 @@ export const tasksAPI = {
 export const dashboardAPI = {
   actionCenter: (viewerId, scope = 'overall', params = {}) =>
     client.get('/targets/action-center', { params: { viewer_id: viewerId, scope, ...params } }),
+  territoryPerformance: (viewerId, year, month, scope = 'overall', params = {}) =>
+    client.get('/targets/territory-performance', { params: { viewer_id: viewerId, year, month, scope, ...params } }),
 };
 
 // ── EXPORTS ───────────────────────────────────

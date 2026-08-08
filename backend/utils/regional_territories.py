@@ -24,6 +24,59 @@ TERRITORY_STATES = {
     "Cochin": "KERALA",
 }
 
+MADURAI_REGIONAL_AREAS = {
+    "madurai",
+    "trichy",
+    "tiruchirappalli",
+    "tirunelveli",
+    "thirunelveli",
+    "trivandrum",
+    "thiruvananthapuram",
+    "nagercoil",
+    "nagarkoil",
+    "tuticorin",
+    "thoothukudi",
+    "kulasekaram",
+    "kulasegaram",
+    "thanjavur",
+    "tanjavur",
+    "dindigul",
+    "thinducal",
+}
+
+COIMBATORE_REGIONAL_AREAS = {
+    "coimbatore",
+    "salem",
+    "erode",
+    "namakkal",
+    "namakal",
+    "dharmapuri",
+    "tharmapuri",
+    "tirupur",
+    "thirupur",
+}
+
+
+def territory_for_city(city: Optional[str], owner_id: Optional[int] = None) -> Optional[str]:
+    """Map a raw doctor city or saved regional city to an approved territory."""
+    value = " ".join((city or "").strip().lower().split())
+    if not value:
+        return None
+    exact = {territory.lower(): territory for territory in REGIONAL_TERRITORIES}
+    if value in exact:
+        return exact[value]
+    if value == "chennai":
+        return "Chennai"
+    if value in MADURAI_REGIONAL_AREAS:
+        return "Madurai"
+    if value in COIMBATORE_REGIONAL_AREAS:
+        return "Coimbatore 2" if int(owner_id or 0) == 9 else "Coimbatore 1"
+    if value == "hyderabad":
+        return "Hyderabad"
+    if value in {"cochin", "kochi"}:
+        return "Cochin"
+    return None
+
 
 def normalize_territories(territories) -> list[str]:
     requested = {str(value).strip() for value in (territories or []) if str(value).strip()}
@@ -44,18 +97,7 @@ def direct_territories(user_id: int, db: Session) -> list[str]:
 
 
 def infer_user_territory(user: User) -> Optional[str]:
-    city = " ".join((user.city or "").strip().lower().split())
-    if city == "chennai":
-        return "Chennai"
-    if city == "madurai":
-        return "Madurai"
-    if city == "coimbatore":
-        return "Coimbatore 2" if user.id == 9 else "Coimbatore 1"
-    if city == "hyderabad":
-        return "Hyderabad"
-    if city in {"cochin", "kochi"}:
-        return "Cochin"
-    return None
+    return territory_for_city(user.city, user.id)
 
 
 def visible_territories(user_id: int, db: Session) -> Optional[Set[str]]:

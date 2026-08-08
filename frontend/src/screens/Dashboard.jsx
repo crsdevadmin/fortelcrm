@@ -352,6 +352,124 @@ function ActionCentre({ items, loading, onOpen }) {
   );
 }
 
+function TerritoryPerformanceMatrix({ data, loading, month, year, onOpen, onSetTarget }) {
+  const rows = data?.rows || [];
+  const statusStyle = {
+    critical: { color: '#b91c1c', bg: '#fef2f2', border: '#fecaca' },
+    warning: { color: '#b45309', bg: '#fffbeb', border: '#fde68a' },
+    good: { color: '#047857', bg: '#ecfdf5', border: '#a7f3d0' },
+    neutral: { color: '#6b7280', bg: '#f8fafc', border: '#e2e8f0' },
+  };
+  const cellButton = { width: '100%', border: 'none', background: 'transparent', padding: 0, textAlign: 'left', cursor: 'pointer', color: 'inherit' };
+
+  return (
+    <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #e5e7eb', marginBottom: 20, overflow: 'hidden' }}>
+      <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, background: 'linear-gradient(135deg,#f8fafc 0%,#eff6ff 100%)', borderBottom: '1px solid #e2e8f0' }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 900, color: '#111827' }}>Territory Performance</div>
+          <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>{MONTH_NAMES[month]} {year} · regional and doctor sales remain separate · click a value to open details</div>
+        </div>
+        <div style={{ fontSize: 10, color: '#64748b', background: '#fff', border: '1px solid #dbeafe', borderRadius: 20, padding: '4px 9px', whiteSpace: 'nowrap' }}>
+          {loading ? 'Updating…' : `${rows.length} territor${rows.length === 1 ? 'y' : 'ies'}`}
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ padding: 30, textAlign: 'center', color: '#9ca3af', fontSize: 12 }}>Building territory view…</div>
+      ) : rows.length === 0 ? (
+        <div style={{ padding: 26, textAlign: 'center', color: '#64748b', fontSize: 12 }}>No territories are available for this selection.</div>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', minWidth: 1040, borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: '#f8fafc' }}>
+                {['Territory', 'Regional Sales', 'Doctor Sales', 'Investment Recovery', 'Doctor Coverage', 'Follow-up', 'Status'].map(label => (
+                  <th key={label} style={{ padding: '9px 12px', textAlign: 'left', fontSize: 9, letterSpacing: 0.5, textTransform: 'uppercase', color: '#64748b', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>{label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(row => {
+                const status = statusStyle[row.status_level] || statusStyle.neutral;
+                const regionalPct = Math.min(100, Number(row.regional_achievement_pct) || 0);
+                const issueCount = Number(row.missing_updates || 0) + Number(row.missing_pdfs || 0) + Number(row.pdf_mismatches || 0) + Number(row.overdue_tasks || 0);
+                return (
+                  <tr key={row.territory} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                    <td style={{ padding: '12px', minWidth: 130 }}>
+                      <div style={{ fontSize: 12, fontWeight: 900, color: '#0f172a' }}>{row.territory}</div>
+                      <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 2 }}>{toStateName(row.state_code)}</div>
+                    </td>
+                    <td style={{ padding: '10px 12px', minWidth: 170 }}>
+                      <button onClick={() => onOpen('/regional-sales')} style={cellButton} title="Open Regional Sales">
+                        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+                          <span style={{ fontSize: 13, fontWeight: 900, color: '#2563eb' }}>{fmtInr(row.regional_sales)}</span>
+                          <span style={{ fontSize: 9, color: row.regional_target > 0 ? '#64748b' : '#b45309' }}>
+                            {row.regional_target > 0 ? `${row.regional_achievement_pct}%` : 'Target not set'}
+                          </span>
+                        </div>
+                        <div style={{ height: 4, borderRadius: 3, background: '#dbeafe', marginTop: 5, overflow: 'hidden' }}>
+                          <div style={{ width: `${regionalPct}%`, height: '100%', background: row.regional_achievement_pct >= 100 ? '#10b981' : '#2563eb', borderRadius: 3 }} />
+                        </div>
+                        <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 4 }}>Target {fmtInr(row.regional_target)} ›</div>
+                      </button>
+                    </td>
+                    <td style={{ padding: '10px 12px', minWidth: 120 }}>
+                      <button onClick={() => onOpen('/investment-roi')} style={cellButton} title="Open doctor-wise sales">
+                        <div style={{ fontSize: 13, fontWeight: 900, color: '#0f6e56' }}>{fmtInr(row.doctor_sales)}</div>
+                        <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 4 }}>Doctor entries only ›</div>
+                      </button>
+                    </td>
+                    <td style={{ padding: '10px 12px', minWidth: 190 }}>
+                      <button onClick={() => onOpen('/investment-roi')} style={cellButton} title="Open investment recovery">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                          <span style={{ fontSize: 11, fontWeight: 800, color: '#c2410c' }}>{fmtInr(row.investment)} invested</span>
+                          <span style={{ fontSize: 10, fontWeight: 900, color: row.recovery_pct >= 100 ? '#047857' : '#c2410c' }}>{row.recovery_pct}%</span>
+                        </div>
+                        <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 4 }}>{fmtInr(row.recovery_sales)} of {fmtInr(row.recovery_expected)} recovered</div>
+                        {(row.recovery_at_risk > 0 || row.recovery_breached > 0) && (
+                          <div style={{ fontSize: 9, color: row.recovery_breached > 0 ? '#b91c1c' : '#b45309', fontWeight: 800, marginTop: 3 }}>
+                            {row.recovery_breached > 0 ? `${row.recovery_breached} breached` : ''}{row.recovery_breached > 0 && row.recovery_at_risk > 0 ? ' · ' : ''}{row.recovery_at_risk > 0 ? `${row.recovery_at_risk} at risk` : ''}
+                          </div>
+                        )}
+                      </button>
+                    </td>
+                    <td style={{ padding: '10px 12px', minWidth: 140 }}>
+                      <button onClick={() => onOpen('/visit-log')} style={cellButton} title="Open visit log">
+                        <div style={{ fontSize: 12, fontWeight: 900, color: row.visit_coverage_pct >= 60 ? '#047857' : '#b45309' }}>{row.visit_coverage_pct}% visited</div>
+                        <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 4 }}>{row.visited_30d} of {row.active_doctors} active doctors · 30 days ›</div>
+                      </button>
+                    </td>
+                    <td style={{ padding: '10px 12px', minWidth: 170 }}>
+                      <button onClick={() => onOpen(row.overdue_tasks > 0 ? '/tasks' : '/regional-sales')} style={cellButton}>
+                        {issueCount === 0 && row.open_tasks === 0 ? (
+                          <div style={{ fontSize: 10, color: '#047857', fontWeight: 800 }}>No pending follow-up</div>
+                        ) : (
+                          <>
+                            <div style={{ fontSize: 10, fontWeight: 800, color: issueCount > 0 ? '#b45309' : '#475569' }}>
+                              {row.missing_updates} updates · {row.missing_pdfs} PDFs
+                            </div>
+                            <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 4 }}>{row.pdf_mismatches} mismatches · {row.overdue_tasks} overdue tasks ›</div>
+                          </>
+                        )}
+                      </button>
+                    </td>
+                    <td style={{ padding: '10px 12px', minWidth: 110 }}>
+                      <span style={{ display: 'inline-block', fontSize: 9, fontWeight: 900, color: status.color, background: status.bg, border: `1px solid ${status.border}`, borderRadius: 20, padding: '4px 8px', whiteSpace: 'nowrap' }}>{row.status}</span>
+                      {row.regional_target <= 0 && onSetTarget && (
+                        <button onClick={onSetTarget} style={{ display: 'block', border: 'none', background: 'transparent', color: '#2563eb', fontSize: 9, fontWeight: 800, padding: '5px 0 0', cursor: 'pointer' }}>Set target ›</button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Breadcrumb({ crumbs, onGo }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 20, flexWrap: 'wrap' }}>
@@ -641,6 +759,8 @@ export default function Dashboard() {
   const [commitmentData, setCommitmentData] = useState(null);
   const [actionCentreData, setActionCentreData] = useState(null);
   const [actionCentreLoading, setActionCentreLoading] = useState(false);
+  const [territoryPerformance, setTerritoryPerformance] = useState(null);
+  const [territoryPerformanceLoading, setTerritoryPerformanceLoading] = useState(false);
   const [loading,     setLoading]     = useState(true);
   const [dashboardScope, setDashboardScope] = useState('overall');
 
@@ -768,6 +888,24 @@ export default function Dashboard() {
     });
     return () => { cancelled = true; };
   }, [me?.id, effectiveScope, selRegion, selCity]);
+
+  useEffect(() => {
+    if (!me?.id) return;
+    let cancelled = false;
+    setTerritoryPerformanceLoading(true);
+    dashboardAPI.territoryPerformance(me.id, year, month, effectiveScope, {
+      as_of: endDate,
+      ...(selRegion ? { state_code: selRegion } : {}),
+      ...(selCity ? { city: selCity } : {}),
+    }).then(response => {
+      if (!cancelled) setTerritoryPerformance(response.data || null);
+    }).catch(() => {
+      if (!cancelled) setTerritoryPerformance(null);
+    }).finally(() => {
+      if (!cancelled) setTerritoryPerformanceLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [me?.id, year, month, effectiveScope, endDate, selRegion, selCity]);
 
   useEffect(() => {
     if (!me?.id) return;
@@ -1206,6 +1344,15 @@ export default function Dashboard() {
               items={actionItems}
               loading={actionCentreLoading || targetLoading}
               onOpen={path => navigate(path)}
+            />
+
+            <TerritoryPerformanceMatrix
+              data={territoryPerformance}
+              loading={territoryPerformanceLoading}
+              month={month}
+              year={year}
+              onOpen={path => navigate(path)}
+              onSetTarget={me?.role === 'md' ? () => navigate('/target-setting') : null}
             />
 
             {/* Sales panel */}
