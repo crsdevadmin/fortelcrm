@@ -1,0 +1,10 @@
+[Unit]
+Description=Escalate pending weekly sales updates to managers
+
+[Timer]
+OnCalendar=Mon *-*-* 17:00:00 Asia/Kolkata
+Persistent=true
+Unit=fortel-weekly-sms@manager.service
+
+[Install]
+WantedBy=timers.target

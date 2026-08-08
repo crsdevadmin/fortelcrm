@@ -22,11 +22,17 @@ class Settings(BaseSettings):
     AWS_S3_BUCKET: str = "fortel-crm-uploads"
     AWS_REGION: str = "ap-south-1"
 
-    # SMS reminders via AWS SNS. Keep disabled/dry-run until AWS SNS SMS is approved.
+    # SMS reminders via AWS SNS and India DLT.
     SMS_ENABLED: bool = False
     SMS_DRY_RUN: bool = True
-    SMS_SENDER_ID: str = "FORTELCRM"
+    SMS_REQUIRE_PRODUCTION: bool = True
+    SMS_SENDER_ID: str = "FLSPT"
     SMS_DEFAULT_COUNTRY_CODE: str = "+91"
+    SMS_ENTITY_ID: str = "1701176977020630486"
+    SMS_REP_TEMPLATE_ID: str = "1777178581840353012"
+    SMS_MANAGER_TEMPLATE_ID: str = "1777178581848855949"
+    SMS_REP_DEADLINE: str = "Monday 5 PM"
+    SMS_MANAGER_DEADLINE: str = "Tuesday 10 AM"
 
     FRONTEND_URL: str = "http://localhost:3000"
 

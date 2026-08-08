@@ -470,3 +470,31 @@ class WeeklyManagementReport(Base):
             name="uq_weekly_management_report_viewer_scope_period",
         ),
     )
+
+
+# AUTOMATED SMS DELIVERY LOG
+
+class SmsNotificationLog(Base):
+    __tablename__ = "sms_notification_logs"
+
+    id                    = Column(Integer, primary_key=True, index=True)
+    idempotency_key       = Column(String(180), nullable=False, unique=True, index=True)
+    notification_type     = Column(String(40), nullable=False, index=True)
+    recipient_user_id     = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    related_user_id       = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    year                  = Column(Integer, nullable=False)
+    month                 = Column(Integer, nullable=False)
+    week                  = Column(Integer, nullable=False)
+    phone                 = Column(String(20), nullable=True)
+    template_id           = Column(String(60), nullable=False)
+    message               = Column(Text, nullable=False)
+    status                = Column(String(30), nullable=False, index=True)
+    provider_message_id   = Column(String(200), nullable=True)
+    error                 = Column(Text, nullable=True)
+    attempt_count         = Column(Integer, nullable=False, default=0)
+    last_attempt_at       = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at            = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at            = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    recipient = relationship("User", foreign_keys=[recipient_user_id])
+    related_user = relationship("User", foreign_keys=[related_user_id])

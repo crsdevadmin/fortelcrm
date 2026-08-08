@@ -1,0 +1,11 @@
+[Unit]
+Description=Fortel CRM weekly SMS reminder (%i)
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+User=fortel
+Group=fortel
+WorkingDirectory=/opt/fortel-crm
+EnvironmentFile=/opt/fortel-crm/.env
+ExecStart=/opt/fortel-crm/venv/bin/python -m backend.send_sms_reminders --stage %i
