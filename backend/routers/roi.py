@@ -1,5 +1,5 @@
 # backend/routers/roi.py
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from typing import Optional
@@ -8,6 +8,7 @@ from datetime import date as date_type, datetime
 import calendar
 
 from ..database import get_db
+from ..auth.auth import decode_token
 from ..models.models import DailyTask, Doctor, SalesEntry, Investment, ROIGrade, Product, User, VisitLog
 from ..utils.regional_territories import territory_for_city
 from ..utils.hierarchy import get_subtree_ids
@@ -221,15 +222,28 @@ def get_doctor_roi_full(
     doctor_id: int,
     year: int,
     month: int,
-    viewer_id: int,
+    viewer_id: Optional[int] = None,
+    authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db),
 ):
-    viewer = db.query(User).filter(User.id == viewer_id, User.is_active == True).first()
+    resolved_viewer_id = viewer_id
+    if authorization:
+        scheme, _, token = authorization.partition(" ")
+        if scheme.lower() != "bearer" or not token:
+            raise HTTPException(status_code=401, detail="Invalid authorization header")
+        token_viewer_id = int(decode_token(token).get("sub", 0))
+        if viewer_id is not None and viewer_id != token_viewer_id:
+            raise HTTPException(status_code=403, detail="Viewer does not match the signed-in account")
+        resolved_viewer_id = token_viewer_id
+    if resolved_viewer_id is None:
+        raise HTTPException(status_code=401, detail="Sign in again to open Doctor 360")
+
+    viewer = db.query(User).filter(User.id == resolved_viewer_id, User.is_active == True).first()
     if not viewer:
         raise HTTPException(status_code=404, detail="Viewer not found")
     doctor = apply_viewer_scope(
         db.query(Doctor).filter(Doctor.id == doctor_id, Doctor.is_active != False),
-        viewer_id,
+        resolved_viewer_id,
         db,
         year,
         month,
