@@ -6,6 +6,7 @@ from typing import Optional
 from pydantic import BaseModel
 
 from ..database import get_db
+from ..auth.auth import get_current_user, require_roles
 from ..models.models import Doctor, RepDoctorMapping, User
 from ..utils.hierarchy import get_subtree_ids
 
@@ -111,6 +112,7 @@ def list_doctors(
     customer_type: Optional[str] = None,
     search: Optional[str] = None,
     include_inactive: bool = False,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     q = db.query(Doctor)
@@ -118,8 +120,10 @@ def list_doctors(
         q = q.filter(Doctor.is_active != False)  # treat NULL as active
 
     # Role-scoped: filter to viewer's subtree of managers
-    if viewer_id and not manager_id:
-        subtree = get_subtree_ids(viewer_id, db)
+    subtree = get_subtree_ids(current_user.id, db)
+    if manager_id and subtree is not None and manager_id not in subtree:
+        raise HTTPException(status_code=403, detail="Manager is outside your reporting hierarchy")
+    if not manager_id:
         if subtree is not None:           # None = admin/md, sees all
             mapped_doctors = db.query(RepDoctorMapping.doctor_id).filter(
                 RepDoctorMapping.associate_id.in_(subtree),
@@ -168,7 +172,7 @@ def get_cities(state_code: Optional[str] = None, manager_id: Optional[int] = Non
 
 
 # ── Create ────────────────────────────────────
-@router.post("/create")
+@router.post("/create", dependencies=[Depends(require_roles("admin", "md", "director", "senior_manager", "manager", "custom"))])
 def create_doctor(payload: DoctorPayload, db: Session = Depends(get_db)):
     doctor = Doctor(**{k: v for k, v in payload.dict().items() if k != 'manager_id'})
     doctor.manager_id = payload.manager_id
@@ -179,7 +183,7 @@ def create_doctor(payload: DoctorPayload, db: Session = Depends(get_db)):
 
 
 # ── Update ────────────────────────────────────
-@router.patch("/{doctor_id}")
+@router.patch("/{doctor_id}", dependencies=[Depends(require_roles("admin", "md", "director", "senior_manager", "manager", "custom"))])
 def update_doctor(doctor_id: int, payload: DoctorPayload, db: Session = Depends(get_db)):
     doctor = db.query(Doctor).filter(Doctor.id == doctor_id).first()
     if not doctor:
@@ -191,7 +195,7 @@ def update_doctor(doctor_id: int, payload: DoctorPayload, db: Session = Depends(
 
 
 # ── Toggle Active / Inactive ──────────────────
-@router.patch("/{doctor_id}/toggle-status")
+@router.patch("/{doctor_id}/toggle-status", dependencies=[Depends(require_roles("admin", "md", "director", "senior_manager", "manager", "custom"))])
 def toggle_status(doctor_id: int, db: Session = Depends(get_db)):
     doctor = db.query(Doctor).filter(Doctor.id == doctor_id).first()
     if not doctor:
@@ -203,7 +207,7 @@ def toggle_status(doctor_id: int, db: Session = Depends(get_db)):
 
 
 # ── Hard Delete ───────────────────────────────
-@router.delete("/{doctor_id}")
+@router.delete("/{doctor_id}", dependencies=[Depends(require_roles("admin", "md"))])
 def delete_doctor(doctor_id: int, db: Session = Depends(get_db)):
     doctor = db.query(Doctor).filter(Doctor.id == doctor_id).first()
     if not doctor:
@@ -215,7 +219,7 @@ def delete_doctor(doctor_id: int, db: Session = Depends(get_db)):
 
 
 # ── Assign Doctor → Manager + Rep ────────────
-@router.post("/assign")
+@router.post("/assign", dependencies=[Depends(require_roles("admin", "md", "director", "senior_manager", "manager", "custom"))])
 def assign_doctor(payload: AssignDoctorRequest, db: Session = Depends(get_db)):
     doctor = db.query(Doctor).filter(Doctor.id == payload.doctor_id).first()
     if not doctor:
@@ -244,7 +248,7 @@ def assign_doctor(payload: AssignDoctorRequest, db: Session = Depends(get_db)):
 
 
 # ── Remove Rep from Doctor ────────────────────
-@router.delete("/{doctor_id}/remove-rep/{rep_id}")
+@router.delete("/{doctor_id}/remove-rep/{rep_id}", dependencies=[Depends(require_roles("admin", "md", "director", "senior_manager", "manager", "custom"))])
 def remove_rep(doctor_id: int, rep_id: int, db: Session = Depends(get_db)):
     mapping = db.query(RepDoctorMapping).filter(
         RepDoctorMapping.doctor_id == doctor_id,

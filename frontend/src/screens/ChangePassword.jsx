@@ -13,7 +13,7 @@ export default function ChangePassword() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    if (newPwd.length < 6) { setError('Password must be at least 6 characters.'); return; }
+    if (newPwd.length < 12) { setError('Password must be at least 12 characters.'); return; }
     if (newPwd !== confirm) { setError('Passwords do not match.'); return; }
     setLoading(true);
     try {
@@ -42,7 +42,7 @@ export default function ChangePassword() {
             <label>New Password</label>
             <input
               type="password"
-              placeholder="Minimum 6 characters"
+              placeholder="Minimum 12 characters"
               value={newPwd}
               onChange={e => setNewPwd(e.target.value)}
               required autoFocus

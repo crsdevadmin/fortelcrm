@@ -22,6 +22,8 @@ ssh -i "$KEY_FILE" "$EC2_HOST" "
   pip install --upgrade pip
   pip install -r $APP_DIR/backend/requirements.txt
   pip install openpyxl gunicorn
+  cd $APP_DIR
+  python -m backend.scripts.security_migration
 "
 
 echo "=== Restarting service ==="

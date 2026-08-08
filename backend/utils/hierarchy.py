@@ -31,6 +31,8 @@ def get_subtree_ids(viewer_id: int, db: Session) -> Optional[Set[int]]:
     queue = [viewer_id]
     while queue:
         current = queue.pop(0)
+        if current in visible:
+            continue
         visible.add(current)
         queue.extend(children_map.get(current, []))
 

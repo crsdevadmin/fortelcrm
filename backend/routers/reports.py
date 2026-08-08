@@ -24,6 +24,7 @@ from ..models.models import (
 )
 from ..utils.hierarchy import get_dashboard_scope_ids
 from ..utils.regional_territories import REGIONAL_TERRITORIES, TERRITORY_STATES, territory_for_city
+from ..services.report_scoring import score_people
 from .dashboard import _regional_mtd_entries, _regional_week_value, get_rep_scorecard
 from .roi import get_commitment_recovery
 
@@ -67,93 +68,103 @@ def _fmt_money(value) -> str:
     return f"Rs.{amount:,.0f}"
 
 
-def _score_people(base_rows, recovery_rows):
-    recovery_by_owner = {}
-    allowed_ids = {int(row["user_id"]) for row in base_rows}
-    for recovery in recovery_rows:
-        owner_id = int(recovery.get("manager_id") or 0)
-        if owner_id not in allowed_ids:
+def _pct_change(current, previous):
+    current_value = float(current or 0)
+    previous_value = float(previous or 0)
+    if previous_value == 0:
+        return None
+    return round((current_value - previous_value) / abs(previous_value) * 100, 1)
+
+
+def _attach_snapshot_comparisons(payload, viewer_id: int, scope: str, db: Session):
+    records = db.query(WeeklyManagementReport).filter(
+        WeeklyManagementReport.viewer_id == viewer_id,
+        WeeklyManagementReport.scope == scope,
+    ).order_by(
+        WeeklyManagementReport.year.desc(),
+        WeeklyManagementReport.month.desc(),
+        WeeklyManagementReport.week.desc(),
+        WeeklyManagementReport.version.desc(),
+    ).limit(64).all()
+    current_period = (int(payload["year"]), int(payload["month"]), int(payload["week"]))
+    prior_payloads = []
+    seen_periods = set()
+    for record in records:
+        record_period = (record.year, record.month, record.week)
+        if record_period >= current_period or record_period in seen_periods:
             continue
-        bucket = recovery_by_owner.setdefault(owner_id, {"expected": 0.0, "sales": 0.0, "at_risk": 0, "breached": 0})
-        bucket["expected"] += float(recovery.get("expected_sales") or 0)
-        bucket["sales"] += float(recovery.get("sales_captured") or 0)
-        if recovery.get("worst_status") == "At Risk":
-            bucket["at_risk"] += 1
-        elif recovery.get("worst_status") == "Breached":
-            bucket["breached"] += 1
+        seen_periods.add(record_period)
+        try:
+            prior_payloads.append(json.loads(record.payload_json))
+        except (TypeError, ValueError):
+            continue
 
-    def cap100(value):
-        return max(0.0, min(100.0, float(value or 0)))
+    summary = payload["summary"]
+    metrics = (
+        "regional_week", "doctor_week", "investment_week", "visits_week",
+        "regional_sales_per_day", "doctor_sales_per_day",
+    )
+    previous = prior_payloads[0] if prior_payloads else None
+    previous_summary = previous.get("summary", {}) if previous else {}
+    current_days = max(int(summary.get("covered_days") or 1), 1)
+    previous_days = max(int(previous_summary.get("covered_days") or 7), 1) if previous else None
+    trends = {}
+    for metric in metrics:
+        current_value = float(summary.get(metric) or 0)
+        prior_value = float(previous_summary.get(metric) or 0) if previous else None
+        trailing = [current_value] + [float(item.get("summary", {}).get(metric) or 0) for item in prior_payloads[:3]]
+        comparison_basis = "total"
+        change_current = current_value
+        change_previous = prior_value
+        if (
+            prior_value is not None
+            and current_days != previous_days
+            and metric in {"regional_week", "doctor_week", "investment_week", "visits_week"}
+        ):
+            comparison_basis = "per_day"
+            change_current = current_value / current_days
+            change_previous = prior_value / previous_days
+        trends[metric] = {
+            "current": round(current_value, 2),
+            "previous": round(prior_value, 2) if prior_value is not None else None,
+            "change_pct": _pct_change(change_current, change_previous) if prior_value is not None else None,
+            "comparison_basis": comparison_basis,
+            "four_week_average": round(sum(trailing) / len(trailing), 2),
+        }
+    total_business = float(summary.get("regional_week") or 0) + float(summary.get("doctor_week") or 0)
+    prior_totals = [
+        float(item.get("summary", {}).get("regional_week") or 0)
+        + float(item.get("summary", {}).get("doctor_week") or 0)
+        for item in prior_payloads[:11]
+    ]
+    summary["trends"] = trends
+    summary["best_week_last_12"] = bool(prior_totals) and not payload.get("is_partial") and total_business >= max(prior_totals)
+    payload["comparison"] = {
+        "available": previous is not None,
+        "previous_period": ({
+            "year": previous.get("year"),
+            "month": previous.get("month"),
+            "week": previous.get("week"),
+        } if previous else None),
+        "basis": "stored_snapshot",
+    }
 
-    output = []
-    for row in base_rows:
-        doctor_pct = (
-            float(row["doctor_sales"] or 0) / max(float(row["doctor_target"] or 0), 1) * 100
-            if row["doctor_target_available"] else 50.0 if row["doctor_count"] else 100.0
-        )
-        regional_pct = (
-            float(row["regional_sales"] or 0) / max(float(row["regional_target"] or 0), 1) * 100
-            if row["regional_target_available"] else 50.0
-        ) if row["regional_required"] else 100.0
-        recovery = recovery_by_owner.get(int(row["user_id"]), {"expected": 0.0, "sales": 0.0, "at_risk": 0, "breached": 0})
-        recovery_pct = recovery["sales"] / recovery["expected"] * 100 if recovery["expected"] else 100.0
-        expected = int(row["weekly_expected"] or 0)
-        weekly_score = (
-            int(row["weekly_submitted"] or 0) / expected * 60
-            + int(row["weekly_pdf_uploaded"] or 0) / expected * 20
-            + int(row["weekly_pdf_matched"] or 0) / expected * 20
-        ) if expected else 100.0
-        task_score = (
-            int(row["task_completed"] or 0) / int(row["task_total"] or 1) * 100
-            if int(row["task_total"] or 0) else 100.0
-        )
-        score = round(
-            cap100(doctor_pct) * .25 + cap100(regional_pct) * .20 + cap100(recovery_pct) * .20
-            + cap100(row["visit_coverage_pct"]) * .15 + cap100(weekly_score) * .10 + cap100(task_score) * .10
-        )
-        reasons = []
-        if row["doctor_count"] and not row["doctor_target_available"]:
-            reasons.append("Doctor target not set")
-        elif row["doctor_target_available"] and doctor_pct < 80:
-            reasons.append("Doctor sales below target")
-        if row["regional_required"] and not row["regional_target_available"]:
-            reasons.append("Regional target not set")
-        elif row["regional_required"] and regional_pct < 80:
-            reasons.append("Regional sales below target")
-        if recovery["breached"]:
-            reasons.append(f"{recovery['breached']} recovery breached")
-        elif recovery["at_risk"]:
-            reasons.append(f"{recovery['at_risk']} recovery at risk")
-        if row["doctor_count"] and float(row["visit_coverage_pct"] or 0) < 60:
-            reasons.append("Low visit coverage")
-        if expected > int(row["weekly_submitted"] or 0):
-            reasons.append("Weekly update missing")
-        if int(row["weekly_submitted"] or 0) > int(row["weekly_pdf_uploaded"] or 0):
-            reasons.append("Weekly PDF missing")
-        if int(row["weekly_pdf_uploaded"] or 0) > int(row["weekly_pdf_matched"] or 0):
-            reasons.append("PDF mismatch")
-        if int(row["overdue_tasks"] or 0):
-            reasons.append(f"{row['overdue_tasks']} overdue tasks")
-        pending = int(row["pending_investments"] or 0) + int(row["pending_sales"] or 0)
-        if pending:
-            reasons.append(f"{pending} pending approvals")
-        critical = recovery["breached"] or int(row["overdue_tasks"] or 0) or score < 50
-        output.append({
-            **row,
-            "score": score,
-            "status": "red" if critical else "amber" if score < 75 or reasons else "green",
-            "doctor_sales_pct": round(doctor_pct, 1),
-            "regional_sales_pct": round(regional_pct, 1),
-            "recovery_expected": round(recovery["expected"], 2),
-            "recovery_sales": round(recovery["sales"], 2),
-            "recovery_pct": round(recovery_pct, 1),
-            "recovery_at_risk": recovery["at_risk"],
-            "recovery_breached": recovery["breached"],
-            "weekly_score": round(cap100(weekly_score)),
-            "task_score": round(cap100(task_score)),
-            "reasons": reasons,
+    previous_people = {int(item["user_id"]): item for item in (previous.get("people", []) if previous else [])}
+    movers = []
+    newly_red = []
+    for person in payload.get("people", []):
+        prior = previous_people.get(int(person["user_id"]))
+        if not prior or person.get("score") is None or prior.get("score") is None:
+            continue
+        delta = int(person["score"]) - int(prior["score"])
+        movers.append({
+            "user_id": person["user_id"], "name": person["name"],
+            "score": person["score"], "previous_score": prior["score"], "change": delta,
         })
-    return sorted(output, key=lambda row: (-row["score"], row["name"]))
+        if person.get("status") == "red" and prior.get("status") != "red":
+            newly_red.append({"user_id": person["user_id"], "name": person["name"], "previous_status": prior.get("status")})
+    payload["movers"] = sorted(movers, key=lambda item: abs(item["change"]), reverse=True)[:5]
+    payload["newly_red"] = newly_red
 
 
 def build_weekly_payload(viewer_id: int, year: int, month: int, week: int, scope: str, db: Session):
@@ -172,8 +183,13 @@ def build_weekly_payload(viewer_id: int, year: int, month: int, week: int, scope
         as_of=report_end.isoformat(), submission_year=year,
         submission_month=month, submission_week=week, db=db,
     )
-    recovery = get_commitment_recovery(viewer_id=viewer_id, as_of=report_end.isoformat(), db=db)
-    people = _score_people(scorecard.get("rows", []), recovery.get("doctor_summary", []))
+    recovery = get_commitment_recovery(
+        viewer_id=viewer_id,
+        as_of=report_end.isoformat(),
+        current_user=viewer,
+        db=db,
+    )
+    people = score_people(scorecard.get("rows", []), recovery.get("doctor_summary", []))
 
     doctors = db.query(Doctor).filter(Doctor.manager_id.in_(scope_ids), Doctor.is_active != False).all() if scope_ids else []
     doctor_map = {doctor.id: doctor for doctor in doctors}
@@ -201,18 +217,18 @@ def build_weekly_payload(viewer_id: int, year: int, month: int, week: int, scope
         SalesEntry.doctor_id.in_(doctor_ids),
         SalesEntry.year == year,
         SalesEntry.month == month,
-        or_(
-            (SalesEntry.sale_date >= start.isoformat()) & (SalesEntry.sale_date <= report_end.isoformat()),
-            (SalesEntry.sale_date.is_(None)) & (SalesEntry.week >= start.day) & (SalesEntry.week <= report_end.day),
-        ),
+        SalesEntry.sale_date.isnot(None),
+        SalesEntry.sale_date >= start.isoformat(),
+        SalesEntry.sale_date <= report_end.isoformat(),
     ) if doctor_ids else None
     week_sales = sales_q.all() if sales_q is not None else []
     mtd_sales = db.query(SalesEntry).filter(
         SalesEntry.doctor_id.in_(doctor_ids),
         SalesEntry.year == year,
         SalesEntry.month == month,
-        or_(SalesEntry.sale_date <= report_end.isoformat(), (SalesEntry.sale_date.is_(None)) & (SalesEntry.week <= report_end.day)),
+        or_(SalesEntry.sale_date <= report_end.isoformat(), SalesEntry.sale_date.is_(None)),
     ).all() if doctor_ids else []
+    legacy_monthly_sales = [sale for sale in mtd_sales if not sale.sale_date]
     for sale in week_sales:
         doctor = doctor_map.get(sale.doctor_id)
         territory = territory_for_city(doctor.city, doctor.manager_id) if doctor else None
@@ -269,6 +285,7 @@ def build_weekly_payload(viewer_id: int, year: int, month: int, week: int, scope
         if any(float(row[key] or 0) > 0 for key in ("regional_week", "regional_mtd", "doctor_week", "doctor_mtd", "investment_week", "visits_week", "active_doctors")) or viewer.role in {"admin", "md"}:
             for key in ("regional_week", "regional_mtd", "doctor_week", "doctor_mtd", "investment_week"):
                 row[key] = round(float(row[key]), 2)
+            row["roi_week"] = round(row["doctor_week"] / row["investment_week"], 2) if row["investment_week"] else None
             territory_rows.append(row)
 
     task_rows = db.query(DailyTask).filter(
@@ -293,18 +310,47 @@ def build_weekly_payload(viewer_id: int, year: int, month: int, week: int, scope
 
     actions = []
     for person in people:
-        for reason in person["reasons"]:
-            actions.append({"person": person["name"], "reason": reason, "status": person["status"]})
+        for detail in person.get("reason_details", []):
+            actions.append({
+                "person": person["name"],
+                "user_id": person["user_id"],
+                "reason": detail["reason"],
+                "metric": detail["metric"],
+                "gap_value": detail["gap_value"],
+                "gap_unit": detail.get("gap_unit"),
+                "current_value": detail.get("current_value"),
+                "target_value": detail.get("target_value"),
+                "status": person["status"],
+            })
+    action_status_priority = {"red": 0, "amber": 1, "green": 2, "unassigned": 3}
+    actions.sort(key=lambda item: (
+        0 if item.get("gap_unit") == "currency" else 1,
+        -float(item["gap_value"] or 0),
+        action_status_priority.get(item["status"], 9),
+        item["person"],
+    ))
     status_counts = {
         "green": sum(1 for person in people if person["status"] == "green"),
         "amber": sum(1 for person in people if person["status"] == "amber"),
         "red": sum(1 for person in people if person["status"] == "red"),
+        "unassigned": sum(1 for person in people if person["status"] == "unassigned"),
     }
+    target_value = sum(
+        (float(person.get("doctor_target") or 0) if person.get("doctor_target_available") else 0)
+        + (float(person.get("regional_target") or 0) if person.get("regional_target_available") else 0)
+        for person in people
+    )
+    target_sales = sum(
+        (float(person.get("doctor_sales") or 0) if person.get("doctor_target_available") else 0)
+        + (float(person.get("regional_sales") or 0) if person.get("regional_target_available") else 0)
+        for person in people
+    )
     summary = {
         "regional_week": round(sum(row["regional_week"] for row in territory_rows), 2),
         "regional_mtd": round(sum(row["regional_mtd"] for row in territory_rows), 2),
         "doctor_week": round(sum(float(sale.value or 0) for sale in week_sales), 2),
         "doctor_mtd": round(sum(float(sale.value or 0) for sale in mtd_sales), 2),
+        "legacy_monthly_unallocated": round(sum(float(sale.value or 0) for sale in legacy_monthly_sales), 2),
         "investment_week": round(sum(float(inv.amount or 0) for inv in week_investments), 2),
         "visits_week": len(visits),
         "tasks_completed": completed_tasks,
@@ -312,8 +358,20 @@ def build_weekly_payload(viewer_id: int, year: int, month: int, week: int, scope
         "overdue_tasks": overdue_tasks,
         "people": len(people),
         "actions": len(actions),
+        "value_at_risk": round(sum(
+            float(action["gap_value"] or 0)
+            for action in actions if action.get("gap_unit") == "currency"
+        ), 2),
+        "target_value": round(target_value, 2),
+        "sales_against_target": round(target_sales, 2),
+        "target_attainment_pct": round(target_sales / target_value * 100, 1) if target_value else None,
         "status_counts": status_counts,
     }
+    covered_days = max((report_end - start).days + 1, 1)
+    summary["covered_days"] = covered_days
+    summary["regional_sales_per_day"] = round(summary["regional_week"] / covered_days, 2)
+    summary["doctor_sales_per_day"] = round(summary["doctor_week"] / covered_days, 2)
+    summary["roi_week"] = round(summary["doctor_week"] / summary["investment_week"], 2) if summary["investment_week"] else None
     return {
         "title": "Weekly Management Report",
         "viewer": {"id": viewer.id, "name": viewer.name, "role": viewer.display_role},
@@ -323,7 +381,16 @@ def build_weekly_payload(viewer_id: int, year: int, month: int, week: int, scope
         "week": week,
         "week_start": start.isoformat(),
         "week_end": report_end.isoformat(),
+        "period_end": end.isoformat(),
+        "covers_through": report_end.isoformat(),
+        "is_partial": report_end < end,
+        "data_warnings": ([{
+            "code": "legacy_monthly_unallocated",
+            "message": "Legacy doctor sales without a sale date are included in MTD only and cannot be allocated to a week.",
+            "value": summary["legacy_monthly_unallocated"],
+        }] if legacy_monthly_sales else []),
         "generated_at": datetime.utcnow().isoformat(),
+        "report_schema_version": 2,
         "summary": summary,
         "territories": territory_rows,
         "people": people,
@@ -343,31 +410,32 @@ def save_weekly_report(viewer_id: int, year: int, month: int, week: int, scope: 
         WeeklyManagementReport.year == year,
         WeeklyManagementReport.month == month,
         WeeklyManagementReport.week == week,
-    ).first()
-    if record and not refresh:
-        payload = json.loads(record.payload_json)
-    else:
+    ).order_by(WeeklyManagementReport.version.desc(), WeeklyManagementReport.id.desc()).first()
+    payload = json.loads(record.payload_json) if record and not refresh else None
+    if payload and payload.get("is_partial"):
+        _, true_period_end = _week_dates(year, month, week)
+        expected_cover = min(true_period_end, date_type.today()).isoformat()
+        if (payload.get("covers_through") or payload.get("week_end") or "") < expected_cover:
+            refresh = True
+    if payload is None or refresh:
         payload = build_weekly_payload(viewer_id, year, month, week, normalized_scope, db)
-        if record:
-            record.payload_json = json.dumps(payload)
-            record.week_start = payload["week_start"]
-            record.week_end = payload["week_end"]
-            record.updated_at = datetime.utcnow()
-        else:
-            record = WeeklyManagementReport(
-                viewer_id=viewer_id,
-                scope=normalized_scope,
-                year=year,
-                month=month,
-                week=week,
-                week_start=payload["week_start"],
-                week_end=payload["week_end"],
-                payload_json=json.dumps(payload),
-            )
-            db.add(record)
+        _attach_snapshot_comparisons(payload, viewer_id, normalized_scope, db)
+        next_version = int(record.version or 1) + 1 if record else 1
+        record = WeeklyManagementReport(
+            viewer_id=viewer_id,
+            scope=normalized_scope,
+            year=year,
+            month=month,
+            week=week,
+            version=next_version,
+            week_start=payload["week_start"],
+            week_end=payload["week_end"],
+            payload_json=json.dumps(payload),
+        )
+        db.add(record)
         db.commit()
         db.refresh(record)
-    return {"report_id": record.id, "saved_at": record.updated_at.isoformat(), **payload}
+    return {"report_id": record.id, "version": record.version, "saved_at": record.updated_at.isoformat(), **payload}
 
 
 @router.get("/weekly")
@@ -404,21 +472,30 @@ def get_weekly_report_history(
         WeeklyManagementReport.year.desc(),
         WeeklyManagementReport.month.desc(),
         WeeklyManagementReport.week.desc(),
-    ).limit(min(max(limit, 1), 100)).all()
+        WeeklyManagementReport.version.desc(),
+    ).limit(min(max(limit * 4, 4), 400)).all()
     output = []
+    seen_periods = set()
     for record in records:
+        period = (record.year, record.month, record.week)
+        if period in seen_periods:
+            continue
+        seen_periods.add(period)
         payload = json.loads(record.payload_json)
         output.append({
             "report_id": record.id,
             "year": record.year,
             "month": record.month,
             "week": record.week,
+            "version": record.version,
             "scope": record.scope,
             "week_start": record.week_start,
             "week_end": record.week_end,
             "saved_at": record.updated_at.isoformat(),
             "summary": payload.get("summary", {}),
         })
+        if len(output) >= min(max(limit, 1), 100):
+            break
     return output
 
 
@@ -439,6 +516,7 @@ def build_report_pdf(payload: dict) -> io.BytesIO:
     styles.add(ParagraphStyle(name="Section", parent=styles["Heading2"], textColor=colors.HexColor("#0F5132"), fontSize=13, leading=16, spaceBefore=8, spaceAfter=7))
     styles.add(ParagraphStyle(name="Small", parent=styles["BodyText"], fontSize=8, leading=10))
     styles.add(ParagraphStyle(name="SmallRight", parent=styles["BodyText"], fontSize=8, leading=10, alignment=TA_RIGHT))
+    styles.add(ParagraphStyle(name="Warning", parent=styles["BodyText"], fontSize=9, leading=12, textColor=colors.HexColor("#92400E"), backColor=colors.HexColor("#FFFBEB"), borderColor=colors.HexColor("#FDE68A"), borderWidth=.5, borderPadding=6))
     page_size = landscape(A4)
 
     def footer(canvas, doc):
@@ -461,6 +539,11 @@ def build_report_pdf(payload: dict) -> io.BytesIO:
         ),
         Spacer(1, 8),
     ]
+    if payload.get("is_partial"):
+        story.extend([
+            Paragraph(f"PARTIAL REPORT - covers through {payload.get('covers_through')}; full period ends {payload.get('period_end')}", styles["Warning"]),
+            Spacer(1, 6),
+        ])
     summary = payload["summary"]
     summary_data = [
         ["Regional Sales - Week", "Regional Sales - MTD", "Doctor Sales - Week", "Doctor Sales - MTD"],
@@ -481,15 +564,40 @@ def build_report_pdf(payload: dict) -> io.BytesIO:
         ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
     ]))
     story.extend([summary_table, Spacer(1, 10), Paragraph("Territory Performance", styles["Section"])])
+    trend_rows = [["Metric", "Current", "Previous", "Change", "4-week average"]]
+    trend_labels = {"regional_week": "Regional sales", "doctor_week": "Doctor sales", "investment_week": "Investment", "visits_week": "Visits"}
+    for metric, label in trend_labels.items():
+        trend = summary.get("trends", {}).get(metric, {})
+        if not trend:
+            continue
+        money_metric = metric != "visits_week"
+        trend_rows.append([
+            label,
+            _fmt_money(trend.get("current")) if money_metric else str(round(float(trend.get("current") or 0))),
+            "N/A" if trend.get("previous") is None else _fmt_money(trend.get("previous")) if money_metric else str(round(float(trend.get("previous") or 0))),
+            "N/A" if trend.get("change_pct") is None else f"{trend['change_pct']:+.1f}%",
+            _fmt_money(trend.get("four_week_average")) if money_metric else str(round(float(trend.get("four_week_average") or 0), 1)),
+        ])
+    if len(trend_rows) > 1:
+        trend_table = Table(trend_rows, repeatRows=1, colWidths=[52 * mm, 42 * mm, 42 * mm, 35 * mm, 45 * mm])
+        trend_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1F2937")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("GRID", (0, 0), (-1, -1), .35, colors.HexColor("#D1D5DB")),
+            ("ALIGN", (1, 1), (-1, -1), "RIGHT"),
+        ]))
+        story[-2:-2] = [Paragraph("Week-over-Week Comparison", styles["Section"]), trend_table, Spacer(1, 10)]
 
-    territory_data = [["Territory", "Regional Week", "Regional MTD", "Doctor Week", "Doctor MTD", "Investment", "Visits", "Doctors"]]
+    territory_data = [["Territory", "Regional Week", "Regional MTD", "Doctor Week", "Doctor MTD", "Investment", "ROI", "Visits", "Doctors"]]
     for row in payload.get("territories", []):
         territory_data.append([
             row["territory"], _fmt_money(row["regional_week"]), _fmt_money(row["regional_mtd"]),
-            _fmt_money(row["doctor_week"]), _fmt_money(row["doctor_mtd"]), _fmt_money(row["investment_week"]),
+            _fmt_money(row["doctor_week"]), _fmt_money(row["doctor_mtd"]), _fmt_money(row["investment_week"]), "N/A" if row.get("roi_week") is None else f"{row['roi_week']}x",
             row["visits_week"], row["active_doctors"],
         ])
-    territory_table = Table(territory_data, repeatRows=1, colWidths=[38 * mm, 31 * mm, 31 * mm, 31 * mm, 31 * mm, 30 * mm, 20 * mm, 20 * mm])
+    territory_table = Table(territory_data, repeatRows=1, colWidths=[34 * mm, 28 * mm, 28 * mm, 28 * mm, 28 * mm, 27 * mm, 18 * mm, 18 * mm, 18 * mm])
     territory_table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F5132")),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -506,10 +614,10 @@ def build_report_pdf(payload: dict) -> io.BytesIO:
     people_data = [["Rank", "Person", "Score", "Status", "Doctor Sales", "Regional Sales", "Recovery", "Visits", "Weekly", "Tasks"]]
     for index, person in enumerate(payload.get("people", []), 1):
         people_data.append([
-            index, Paragraph(person["name"], styles["Small"]), person["score"], person["status"].upper(),
-            f"{person['doctor_sales_pct']}%", "N/A" if not person["regional_required"] else f"{person['regional_sales_pct']}%",
-            "N/A" if not person["recovery_expected"] else f"{person['recovery_pct']}%", f"{person['visit_coverage_pct']}%",
-            f"{person['weekly_score']}%", f"{person['task_score']}%",
+            "-" if person.get("score") is None else index, Paragraph(person["name"], styles["Small"]), "N/A" if person.get("score") is None else person["score"], person["status"].upper(),
+            "N/A" if person.get("doctor_sales_pct") is None else f"{person['doctor_sales_pct']}%", "N/A" if person.get("regional_sales_pct") is None else f"{person['regional_sales_pct']}%",
+            "N/A" if person.get("recovery_pct") is None else f"{person['recovery_pct']}%", "N/A" if person.get("visit_coverage_pct") is None else f"{person['visit_coverage_pct']}%",
+            "N/A" if person.get("weekly_score") is None else f"{person['weekly_score']}%", "N/A" if person.get("task_score") is None else f"{person['task_score']}%",
         ])
     people_table = Table(people_data, repeatRows=1, colWidths=[12 * mm, 47 * mm, 17 * mm, 30 * mm, 28 * mm, 28 * mm, 24 * mm, 22 * mm, 22 * mm, 22 * mm])
     people_table.setStyle(TableStyle([
@@ -525,10 +633,13 @@ def build_report_pdf(payload: dict) -> io.BytesIO:
     ]))
     story.extend([people_table, PageBreak(), Paragraph("Management Actions", styles["Section"])])
     if payload.get("actions"):
-        action_data = [["Priority", "Person", "Required Action"]]
+        action_data = [["Priority", "Person", "Required Action", "Gap"]]
         for action in payload["actions"]:
-            action_data.append([action["status"].upper(), Paragraph(action["person"], styles["Small"]), Paragraph(action["reason"], styles["Small"])])
-        action_table = Table(action_data, repeatRows=1, colWidths=[30 * mm, 65 * mm, 165 * mm])
+            gap = "-"
+            if action.get("gap_value"):
+                gap = _fmt_money(action["gap_value"]) if action.get("gap_unit") == "currency" else f"{action['gap_value']:g} item(s)"
+            action_data.append([action["status"].upper(), Paragraph(action["person"], styles["Small"]), Paragraph(action["reason"], styles["Small"]), gap])
+        action_table = Table(action_data, repeatRows=1, colWidths=[28 * mm, 55 * mm, 145 * mm, 35 * mm])
         action_table.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#7F1D1D")),
             ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),

@@ -5,12 +5,15 @@ from sqlalchemy import func, or_
 from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime, date as date_type, timedelta
+import calendar
 import re
 
 from ..database import get_db
+from ..auth.auth import get_current_user, require_roles
 from ..models.models import SalesEntry, RegionalSalesEntry, RegionalSalesWeekPDF, Doctor, Product
 from ..utils.hierarchy import get_dashboard_scope_ids, get_subtree_ids
 from ..utils.regional_territories import TERRITORY_STATES, visible_territories
+from ..services.pdf_totals import validate_labeled_total
 
 router = APIRouter(prefix="/sales", tags=["Sales"])
 
@@ -301,6 +304,7 @@ def _regional_pdf_query(
 
 
 def _regional_pdf_metadata(record: RegionalSalesWeekPDF):
+    validation_status = getattr(record, "validation_status", None) or "unverified"
     return {
         "id": record.id,
         "associate_id": record.associate_id,
@@ -313,7 +317,9 @@ def _regional_pdf_metadata(record: RegionalSalesWeekPDF):
         "entered_total": round(float(record.entered_total or 0), 2),
         "pdf_total": round(float(record.pdf_total), 2) if record.pdf_total is not None else None,
         "difference": round(float(record.difference), 2) if record.difference is not None else None,
-        "matches": bool(record.matches),
+        "matches": validation_status == "matched",
+        "validation_status": validation_status,
+        "total_label": getattr(record, "total_label", None),
         "uploaded_at": record.uploaded_at.isoformat() if record.uploaded_at else None,
     }
 
@@ -327,8 +333,12 @@ async def upload_regional_week_pdf(
     month: int = Form(...),
     week: int = Form(...),
     file: UploadFile = File(...),
+    current_user = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    visible_ids = get_subtree_ids(current_user.id, db)
+    if visible_ids is not None and associate_id not in visible_ids:
+        raise HTTPException(status_code=403, detail="User is outside your reporting hierarchy")
     state_code = state_code.strip()
     city = city.strip()
     if not state_code or not city:
@@ -362,19 +372,7 @@ async def upload_regional_week_pdf(
     except Exception:
         text = raw.decode("latin-1", errors="ignore")
 
-    amounts = []
-    for token in re.findall(r"(?:Rs\.?|INR|₹)?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)", text, flags=re.IGNORECASE):
-        try:
-            value = float(token.replace(",", ""))
-            if value > 0:
-                amounts.append(value)
-        except ValueError:
-            pass
-    unique_amounts = sorted(set(round(value, 2) for value in amounts), reverse=True)
-    closest = min(unique_amounts, key=lambda value: abs(value - entered_total)) if unique_amounts else None
-    difference = round((closest or 0) - entered_total, 2) if closest is not None else None
-    tolerance = max(1.0, round(entered_total * 0.001, 2))
-    matches = closest is not None and abs(difference) <= tolerance
+    validation = validate_labeled_total(text, entered_total)
 
     record = RegionalSalesWeekPDF(
         associate_id=associate_id,
@@ -387,9 +385,11 @@ async def upload_regional_week_pdf(
         content_type="application/pdf",
         file_data=raw,
         entered_total=entered_total,
-        pdf_total=closest,
-        difference=difference,
-        matches=matches,
+        pdf_total=validation.get("total"),
+        difference=validation.get("difference"),
+        matches=validation["matches"],
+        validation_status=validation["status"],
+        total_label=validation.get("label"),
         uploaded_at=datetime.utcnow(),
     )
     db.add(record)
@@ -397,7 +397,7 @@ async def upload_regional_week_pdf(
     db.refresh(record)
 
     result = _regional_pdf_metadata(record)
-    result["message"] = "Matched" if matches else "PDF total does not match cumulative regional sales" if closest is not None else "PDF saved, but no total could be extracted"
+    result["message"] = "Matched" if validation["status"] == "matched" else "PDF total does not match cumulative regional sales" if validation["status"] == "mismatch" else validation.get("reason", "PDF saved but could not be verified")
     return result
 
 
@@ -497,7 +497,9 @@ def get_sales_by_product(year: int, month: int,
                           end_date:   Optional[str] = None,
                           viewer_id: Optional[int] = None,
                           owner_scope: str = "overall",
+                          current_user = Depends(get_current_user),
                           db: Session = Depends(get_db)):
+    viewer_id = current_user.id
     q = db.query(
         SalesEntry.product_id,
         func.sum(SalesEntry.value).label("total_value"),
@@ -538,8 +540,10 @@ def get_doctors_by_product(
     end_date:   Optional[str] = None,
     viewer_id: Optional[int] = None,
     owner_scope: str = "overall",
+    current_user = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    viewer_id = current_user.id
     """Doctors who purchased a given product, sorted by value desc."""
     q = db.query(
         SalesEntry.doctor_id,
@@ -637,24 +641,40 @@ async def validate_week_pdf(
     month: int = Form(...),
     week: int = Form(...),
     file: UploadFile = File(...),
+    current_user = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
     Validate a weekly store/manufacturing PDF against entered sales.
-    The PDF parser extracts numeric values and compares the closest amount to the app total.
+    The PDF parser accepts only an explicitly labelled invoice total and never uses
+    the CRM value to choose which number from the document should be compared.
     """
     start_day, end_day = _week_bounds(week)
-    visible_ids = get_subtree_ids(associate_id, db)
+    end_day = min(end_day, calendar.monthrange(year, month)[1])
+    week_start = date_type(year, month, start_day).isoformat()
+    week_end = date_type(year, month, end_day).isoformat()
+    visible_ids = get_subtree_ids(current_user.id, db)
+    if visible_ids is not None and associate_id not in visible_ids:
+        raise HTTPException(status_code=403, detail="User is outside your reporting hierarchy")
 
     q = db.query(func.sum(SalesEntry.value)).filter(
         SalesEntry.year == year,
         SalesEntry.month == month,
-        SalesEntry.week >= start_day,
-        SalesEntry.week <= end_day,
+        SalesEntry.sale_date.isnot(None),
+        SalesEntry.sale_date >= week_start,
+        SalesEntry.sale_date <= week_end,
     )
     if visible_ids is not None:
         q = q.filter(SalesEntry.associate_id.in_(visible_ids))
     entered_total = float(q.scalar() or 0)
+    legacy_q = db.query(func.sum(SalesEntry.value)).filter(
+        SalesEntry.year == year,
+        SalesEntry.month == month,
+        SalesEntry.sale_date.is_(None),
+    )
+    if visible_ids is not None:
+        legacy_q = legacy_q.filter(SalesEntry.associate_id.in_(visible_ids))
+    legacy_unallocated_total = float(legacy_q.scalar() or 0)
 
     raw = await file.read()
     text = ""
@@ -666,22 +686,7 @@ async def validate_week_pdf(
     except Exception:
         text = raw.decode("latin-1", errors="ignore")
 
-    amounts = []
-    for token in re.findall(r"(?:Rs\.?|INR|₹)?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)", text, flags=re.IGNORECASE):
-        try:
-            value = float(token.replace(",", ""))
-            if value > 0:
-                amounts.append(value)
-        except ValueError:
-            pass
-
-    unique_amounts = sorted(set(round(v, 2) for v in amounts), reverse=True)
-    closest = None
-    if unique_amounts:
-        closest = min(unique_amounts, key=lambda v: abs(v - entered_total))
-
-    difference = round((closest or 0) - entered_total, 2) if closest is not None else None
-    tolerance = max(1.0, round(entered_total * 0.001, 2))
+    validation = validate_labeled_total(text, entered_total)
 
     return {
         "filename": file.filename,
@@ -689,13 +694,15 @@ async def validate_week_pdf(
         "month": month,
         "week": week,
         "entered_total": round(entered_total, 2),
-        "pdf_total": closest,
-        "difference": difference,
-        "matches": closest is not None and abs(difference) <= tolerance,
-        "candidate_totals": unique_amounts[:10],
-        "message": "Matched" if closest is not None and abs(difference) <= tolerance
-                   else "PDF total does not match entered sales" if closest is not None
-                   else "Could not extract totals from PDF",
+        "legacy_unallocated_total": round(legacy_unallocated_total, 2),
+        "pdf_total": validation.get("total"),
+        "difference": validation.get("difference"),
+        "matches": validation["matches"],
+        "validation_status": validation["status"],
+        "total_label": validation.get("label"),
+        "message": "Matched" if validation["status"] == "matched"
+                   else "PDF total does not match entered sales" if validation["status"] == "mismatch"
+                   else validation.get("reason", "Could not verify the PDF total"),
     }
 
 
@@ -754,17 +761,12 @@ def get_weekly_reminder_status(user_id: int, today: Optional[str] = None, db: Se
     if visible_ids is None:
         visible_ids = {user_id}
 
-    date_conditions = [
-        (SalesEntry.year == d.year) & (SalesEntry.month == d.month) & (SalesEntry.week == d.day)
-        for d in dates
-    ]
-
     q = db.query(
         func.count(SalesEntry.id).label("entries"),
         func.sum(SalesEntry.value).label("value"),
     ).filter(
         SalesEntry.associate_id.in_(visible_ids),
-        or_(SalesEntry.sale_date.in_(date_keys), *date_conditions),
+        SalesEntry.sale_date.in_(date_keys),
     ).first()
 
     entries = int(q.entries or 0)
@@ -779,7 +781,7 @@ def get_weekly_reminder_status(user_id: int, today: Optional[str] = None, db: Se
     }
 
 
-@router.post("/{entry_id}/approve")
+@router.post("/{entry_id}/approve", dependencies=[Depends(require_roles("admin", "md", "director", "senior_manager", "manager", "custom"))])
 def approve_entry(entry_id: int, approver_id: int, db: Session = Depends(get_db)):
     entry = db.query(SalesEntry).filter(SalesEntry.id == entry_id).first()
     if not entry:

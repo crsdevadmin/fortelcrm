@@ -46,9 +46,15 @@ export default function RepActivity() {
 
   const WEEKS = ['Week 1', 'Week 2', 'Week 3', 'Week 4'];
 
-  const downloadUrl = exportsAPI.repActivityUrl(year, month, { viewer_id: me?.id });
-  const doctorMasterUrl = exportsAPI.doctorMasterUrl({ viewer_id: me?.id });
-  const salesUrl = exportsAPI.salesUrl(year, month, { viewer_id: me?.id });
+  const downloadFile = async (request, filename) => {
+    const response = await request;
+    const url = URL.createObjectURL(response.data);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div style={{ minHeight: '100vh', background: 'linear-gradient(160deg,#0B1E10 0%,#1A3A1A 60%,#2D5A27 100%)', fontFamily: "'Inter','Segoe UI',sans-serif", paddingBottom: 40 }}>
@@ -73,18 +79,18 @@ export default function RepActivity() {
           </div>
 
           {/* Download buttons */}
-          <a href={downloadUrl} download
+          <button onClick={() => downloadFile(exportsAPI.repActivity(year, month, { viewer_id: me?.id }), `Fortel_RepActivity_${MN[month]}${year}.xlsx`)}
             style={{ background: '#3D8C40', color: '#fff', textDecoration: 'none', border: 'none', borderRadius: 9, padding: '8px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
             ⬇ Rep Activity Excel
-          </a>
-          <a href={salesUrl} download
+          </button>
+          <button onClick={() => downloadFile(exportsAPI.sales(year, month, { viewer_id: me?.id }), `Fortel_Sales_${MN[month]}${year}.xlsx`)}
             style={{ background: 'rgba(255,255,255,0.12)', color: '#fff', textDecoration: 'none', border: '1px solid rgba(255,255,255,0.25)', borderRadius: 9, padding: '8px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
             ⬇ Sales Excel
-          </a>
-          <a href={doctorMasterUrl} download
+          </button>
+          <button onClick={() => downloadFile(exportsAPI.doctorMaster({ viewer_id: me?.id }), 'Fortel_DoctorMaster.xlsx')}
             style={{ background: 'rgba(255,255,255,0.12)', color: '#fff', textDecoration: 'none', border: '1px solid rgba(255,255,255,0.25)', borderRadius: 9, padding: '8px 16px', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
             ⬇ Doctor Master
-          </a>
+          </button>
         </div>
       </div>
 

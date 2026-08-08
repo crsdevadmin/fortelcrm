@@ -71,7 +71,6 @@ class User(Base):
     personal_email   = Column(String(200), nullable=True)
     city             = Column(String(100), nullable=True)
     state            = Column(String(200), nullable=True)
-    plain_password   = Column(String(200), nullable=True)
     must_reset_password = Column(Boolean, default=False)
     profile_picture  = Column(String(500), nullable=True)
     is_active        = Column(Boolean,     default=True)
@@ -297,6 +296,8 @@ class RegionalSalesWeekPDF(Base):
     pdf_total      = Column(Float, nullable=True)
     difference     = Column(Float, nullable=True)
     matches        = Column(Boolean, nullable=False, default=False)
+    validation_status = Column(String(20), nullable=False, default="unverified")
+    total_label    = Column(String(50), nullable=True)
     uploaded_at    = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     associate = relationship("User", foreign_keys=[associate_id])
@@ -456,6 +457,7 @@ class WeeklyManagementReport(Base):
     year            = Column(Integer, nullable=False)
     month           = Column(Integer, nullable=False)
     week            = Column(Integer, nullable=False)
+    version         = Column(Integer, nullable=False, default=1)
     week_start      = Column(String(10), nullable=False)
     week_end        = Column(String(10), nullable=False)
     payload_json    = Column(Text, nullable=False)
@@ -466,8 +468,8 @@ class WeeklyManagementReport(Base):
 
     __table_args__ = (
         UniqueConstraint(
-            "viewer_id", "scope", "year", "month", "week",
-            name="uq_weekly_management_report_viewer_scope_period",
+            "viewer_id", "scope", "year", "month", "week", "version",
+            name="uq_weekly_management_report_viewer_scope_period_version",
         ),
     )
 

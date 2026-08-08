@@ -2,7 +2,7 @@ import client from './client';
 
 // ── AUTH ──────────────────────────────────────
 export const authAPI = {
-  me: (token) => client.get(`/auth/me?token=${token}`),
+  me: () => client.get('/auth/me'),
   googleLogin: () => { window.location.href = `${process.env.REACT_APP_API_URL || ''}/auth/google/login`; },
 };
 
@@ -49,10 +49,9 @@ export const salesAPI = {
     headers: { 'Content-Type': 'multipart/form-data' },
   }),
   regionalWeekPdfs: (params) => client.get('/sales/regional/week-pdf/status', { params }),
-  regionalWeekPdfDownloadUrl: (viewerId, pdfId) => {
-    const qs = new URLSearchParams({ viewer_id: viewerId, pdf_id: pdfId }).toString();
-    return `${process.env.REACT_APP_API_URL || ''}/sales/regional/week-pdf/download?${qs}`;
-  },
+  downloadRegionalWeekPdf: (viewerId, pdfId) => client.get('/sales/regional/week-pdf/download', {
+    params: { viewer_id: viewerId, pdf_id: pdfId }, responseType: 'blob',
+  }),
 };
 
 // ── INVESTMENTS ───────────────────────────────
@@ -142,22 +141,10 @@ export const reportsAPI = {
 };
 
 // ── EXPORTS ───────────────────────────────────
-const API_BASE = process.env.REACT_APP_API_URL || '';
-
 export const exportsAPI = {
-  // These return file downloads — use window.open or anchor href
-  salesUrl: (year, month, params = {}) => {
-    const qs = new URLSearchParams({ year, month, ...params }).toString();
-    return `${API_BASE}/exports/sales?${qs}`;
-  },
-  repActivityUrl: (year, month, params = {}) => {
-    const qs = new URLSearchParams({ year, month, ...params }).toString();
-    return `${API_BASE}/exports/rep-activity?${qs}`;
-  },
-  doctorMasterUrl: (params = {}) => {
-    const qs = new URLSearchParams(params).toString();
-    return `${API_BASE}/exports/doctor-master${qs ? '?' + qs : ''}`;
-  },
+  sales: (year, month, params = {}) => client.get('/exports/sales', { params: { year, month, ...params }, responseType: 'blob' }),
+  repActivity: (year, month, params = {}) => client.get('/exports/rep-activity', { params: { year, month, ...params }, responseType: 'blob' }),
+  doctorMaster: (params = {}) => client.get('/exports/doctor-master', { params, responseType: 'blob' }),
   // JSON version for dashboard screen
   repActivityData: (year, month, params = {}) =>
     client.get('/exports/rep-activity-data', { params: { year, month, ...params } }),

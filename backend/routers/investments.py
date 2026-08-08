@@ -6,6 +6,7 @@ from typing import Optional, List
 from datetime import datetime
 
 from ..database import get_db
+from ..auth.auth import get_current_user, require_roles
 from ..models.models import Investment, InvestmentCategory, InvestmentSubCategory, Doctor, User, SalesEntry
 from ..utils.hierarchy import get_subtree_ids
 from pydantic import BaseModel
@@ -139,7 +140,7 @@ class InvestmentPayload(BaseModel):
 
 
 @router.post("/")
-def create_investment(payload: InvestmentPayload, db: Session = Depends(get_db)):
+def create_investment(payload: InvestmentPayload, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     try:
         # Auto-derive category from commercial_model_type if not provided
         category = payload.category or COMMERCIAL_MODEL_TO_CATEGORY.get(
@@ -147,7 +148,7 @@ def create_investment(payload: InvestmentPayload, db: Session = Depends(get_db))
         )
         inv = Investment(
             doctor_id=payload.doctor_id,
-            associate_id=payload.associate_id or 1,
+            associate_id=payload.associate_id or current_user.id,
             commercial_model_type=payload.commercial_model_type,
             expected_multiple=payload.expected_multiple or 5.0,
             year=payload.year,
@@ -228,9 +229,13 @@ def list_investments(
     year: Optional[int] = None,
     month: Optional[int] = None,
     is_approved: Optional[bool] = None,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     q = db.query(Investment)
+    visible_ids = get_subtree_ids(current_user.id, db)
+    if visible_ids is not None:
+        q = q.filter(Investment.associate_id.in_(visible_ids))
     if doctor_id:    q = q.filter(Investment.doctor_id    == doctor_id)
     if associate_id: q = q.filter(Investment.associate_id == associate_id)
     if year:         q = q.filter(Investment.year         == year)
@@ -268,7 +273,7 @@ def list_investments(
     return result
 
 
-@router.patch("/{investment_id}/approve")
+@router.patch("/{investment_id}/approve", dependencies=[Depends(require_roles("admin", "md", "director", "senior_manager", "manager", "custom"))])
 def approve_investment(investment_id: int, approved_by_id: int, db: Session = Depends(get_db)):
     inv = db.query(Investment).filter(Investment.id == investment_id).first()
     if not inv:
@@ -280,23 +285,15 @@ def approve_investment(investment_id: int, approved_by_id: int, db: Session = De
     return {"status": "approved"}
 
 
-@router.delete("/{investment_id}")
-def delete_investment(investment_id: int, db: Session = Depends(get_db)):
-    inv = db.query(Investment).filter(Investment.id == investment_id).first()
-    if not inv:
-        raise HTTPException(status_code=404, detail="Investment not found")
-    db.delete(inv)
-    db.commit()
-    return {"status": "deleted"}
-
-
 @router.get("/spend-analysis")
 def spend_analysis(
     year: Optional[int] = None,
     month: Optional[int] = None,
     viewer_id: Optional[int] = None,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    viewer_id = current_user.id
     q = db.query(Investment)
     if year:  q = q.filter(Investment.year  == year)
     if month: q = q.filter(Investment.month == month)
@@ -422,6 +419,7 @@ def spend_analysis(
 def concentration_risk(
     year: Optional[int] = None,
     month: Optional[int] = None,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     q = db.query(
@@ -430,6 +428,9 @@ def concentration_risk(
     )
     if year:  q = q.filter(Investment.year  == year)
     if month: q = q.filter(Investment.month == month)
+    visible_ids = get_subtree_ids(current_user.id, db)
+    if visible_ids is not None:
+        q = q.filter(Investment.associate_id.in_(visible_ids))
     rows = q.group_by(Investment.doctor_id).all()
     if not rows:
         return {"risk": "low", "top_doctor_pct": 0, "top3_pct": 0, "doctors": []}

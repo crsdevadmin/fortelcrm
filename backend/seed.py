@@ -3,7 +3,7 @@
 
 from .database import SessionLocal, engine, Base
 from .models.models import User, UserRole, Product, Doctor, CommercialModel, Region
-from .auth.auth import hash_password
+from .auth.auth import generate_password, hash_password
 
 Base.metadata.create_all(bind=engine)
 db = SessionLocal()
@@ -14,15 +14,16 @@ def seed():
 
     # ── Admin user ── (fixed credentials, never shown to field users)
     if not db.query(User).filter(User.email == "admin@fortel.in").first():
+        admin_password = generate_password(16)
         db.add(User(
             name="System Admin",
             email="admin@fortel.in",
-            password_hash=hash_password("admin2026"),
+            password_hash=hash_password(admin_password),
             role=UserRole.admin,
-            must_reset_password=False,
+            must_reset_password=True,
             is_active=True,
         ))
-        print("  ✓ Admin user created: admin@fortel.in / admin2026")
+        print(f"  ✓ Admin user created: admin@fortel.in / {admin_password}")
 
     db.commit()
 
@@ -73,7 +74,7 @@ def seed():
     print("\n─── Admin Login ───────────────────────────")
     print("   URL      : http://localhost:3000")
     print("   Email    : admin@fortel.in")
-    print("   Password : admin2026")
+    print("   Password : shown once when the admin account is created")
     print("──────────────────────────────────────────\n")
     db.close()
 

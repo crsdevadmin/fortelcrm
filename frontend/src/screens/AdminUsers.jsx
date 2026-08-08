@@ -108,7 +108,6 @@ export default function AdminUsers() {
   const [error, setError]               = useState('');
   const [savedRow, setSavedRow]         = useState(null);
   const [savedTerritoryRow, setSavedTerritoryRow] = useState(null);
-  const [revealedPwd, setRevealedPwd]   = useState(new Set());
   const [viewUser, setViewUser]         = useState(null);
   const [searchQ, setSearchQ]           = useState('');
   const [roleFilter, setRoleFilter]     = useState('');
@@ -172,12 +171,6 @@ export default function AdminUsers() {
       setError(err.response?.data?.detail || 'Failed to update regional territories');
     }
   };
-
-  const togglePwd = id => setRevealedPwd(prev => {
-    const next = new Set(prev);
-    next.has(id) ? next.delete(id) : next.add(id);
-    return next;
-  });
 
   const filtered = users.filter(u => {
     const q = searchQ.toLowerCase();
@@ -369,7 +362,6 @@ export default function AdminUsers() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 12 }}>
               {filtered.map(u => {
                 const rc = roleColor(u.role);
-                const pwdVisible = revealedPwd.has(u.id);
                 return (
                   <div key={u.id}
                     style={{ background: '#fff', borderRadius: 14, border: `1.5px solid ${u.is_active ? '#e5e7eb' : '#fecaca'}`,
@@ -404,25 +396,6 @@ export default function AdminUsers() {
                       {u.phone && <span style={{ fontSize: 10, background: '#f3f4f6', borderRadius: 20, padding: '2px 8px', color: '#6b7280' }}>📱 {u.phone}</span>}
                       {u.must_reset_password && <span style={{ fontSize: 10, background: '#fffbeb', borderRadius: 20, padding: '2px 8px', color: '#d97706', fontWeight: 700 }}>⚠ Must reset pwd</span>}
                       {!u.is_active && <span style={{ fontSize: 10, background: '#FEE2E2', borderRadius: 20, padding: '2px 8px', color: '#DC2626', fontWeight: 700 }}>INACTIVE</span>}
-                    </div>
-
-                    {/* Password row */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, padding: '8px 10px', background: '#f9fafb', borderRadius: 8, border: '1px solid #f3f4f6' }}>
-                      <span style={{ fontSize: 10, color: '#9ca3af', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>Password</span>
-                      <span style={{ fontFamily: 'monospace', fontSize: 13, flex: 1, letterSpacing: pwdVisible || !u.plain_password ? 0 : 2, color: u.plain_password ? '#111827' : '#9ca3af' }}>
-                        {u.plain_password ? (pwdVisible ? u.plain_password : '********') : 'Not stored - reset to generate'}
-                      </span>
-                      {u.plain_password ? (
-                        <button onClick={() => togglePwd(u.id)}
-                          style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 6, cursor: 'pointer', fontSize: 11, color: '#374151', padding: '3px 8px', fontWeight: 700 }}>
-                          {pwdVisible ? 'Hide' : 'View'}
-                        </button>
-                      ) : (
-                        <button onClick={() => handleResetPassword(u.id)}
-                          style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 6, cursor: 'pointer', fontSize: 11, color: '#1d4ed8', padding: '3px 8px', fontWeight: 700 }}>
-                          Reset
-                        </button>
-                      )}
                     </div>
 
                     {/* Reports-to */}
@@ -549,26 +522,6 @@ export default function AdminUsers() {
                 <div style={{ fontWeight: 600, color: '#1a1a1a' }}>{value}</div>
               </div>
             ))}
-
-            <div style={{ marginTop: 14, padding: 12, borderRadius: 12, border: '1px solid #e5e7eb', background: '#f9fafb' }}>
-              <div style={{ fontSize: 10, fontWeight: 800, color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Login Password</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ flex: 1, fontFamily: 'monospace', fontSize: 14, fontWeight: 800, color: viewUser.plain_password ? '#111827' : '#9ca3af' }}>
-                  {viewUser.plain_password ? (revealedPwd.has(viewUser.id) ? viewUser.plain_password : '********') : 'Not stored - reset to generate'}
-                </div>
-                {viewUser.plain_password ? (
-                  <button onClick={() => togglePwd(viewUser.id)}
-                    style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #d1d5db', background: '#fff', color: '#374151', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
-                    {revealedPwd.has(viewUser.id) ? 'Hide' : 'View'}
-                  </button>
-                ) : (
-                  <button onClick={() => handleResetPassword(viewUser.id)}
-                    style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', fontSize: 12, fontWeight: 800, cursor: 'pointer' }}>
-                    Reset
-                  </button>
-                )}
-              </div>
-            </div>
 
             <div style={{ display: 'flex', gap: 8, marginTop: 18 }}>
               <button onClick={() => handleResetPassword(viewUser.id)}

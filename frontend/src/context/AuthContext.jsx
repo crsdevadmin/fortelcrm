@@ -12,7 +12,11 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const t = localStorage.getItem('fortel_token');
     const u = localStorage.getItem('fortel_user');
-    if (t && u) { setToken(t); setUser(JSON.parse(u)); }
+    if (t && u) {
+      axios.defaults.headers.common.Authorization = `Bearer ${t}`;
+      setToken(t);
+      setUser(JSON.parse(u));
+    }
     setLoading(false);
   }, []);
 
@@ -22,14 +26,13 @@ export function AuthProvider({ children }) {
     localStorage.setItem('fortel_token', access_token);
     localStorage.setItem('fortel_user', JSON.stringify(userData));
     setToken(access_token);
+    axios.defaults.headers.common.Authorization = `Bearer ${access_token}`;
     setUser(userData);
     return { must_reset_password };
   };
 
   const changePassword = async (newPassword) => {
-    await axios.post(`${API}/auth/change-password`, {
-      token, new_password: newPassword
-    });
+    await axios.post(`${API}/auth/change-password`, { new_password: newPassword });
     const updated = { ...user };
     localStorage.setItem('fortel_user', JSON.stringify(updated));
     setUser(updated);
@@ -39,6 +42,7 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('fortel_token');
     localStorage.removeItem('fortel_user');
     setToken(null);
+    delete axios.defaults.headers.common.Authorization;
     setUser(null);
   };
 

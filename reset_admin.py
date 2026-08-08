@@ -13,7 +13,10 @@ else:
 import psycopg2
 from passlib.context import CryptContext
 ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
-new_hash = ctx.hash("admin2026")
+new_password = os.environ.get("FORTEL_ADMIN_RESET_PASSWORD")
+if not new_password or len(new_password) < 12:
+    raise SystemExit("Set FORTEL_ADMIN_RESET_PASSWORD to a new password of at least 12 characters")
+new_hash = ctx.hash(new_password)
 
 conn = psycopg2.connect(host=host, port=int(port), database=db, user=user, password=pwd)
 conn.autocommit = True
@@ -33,4 +36,4 @@ else:
     print("Created admin user.")
 
 conn.close()
-print("Done. Login: admin@fortel.in / admin2026")
+print("Done. Admin password updated from FORTEL_ADMIN_RESET_PASSWORD.")

@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from backend.database import SessionLocal
 from backend.models.models import User, UserRole
-from backend.auth.auth import hash_password
+from backend.auth.auth import generate_password, hash_password
 
 db = SessionLocal()
 
@@ -20,7 +20,7 @@ NEW_USERS = [
         "custom_role_name": "Key Accounts Manager",
         "city": "Coimbatore",
         "state": "Tamil Nadu",
-        "password": "Fortel@2025",
+        "password": generate_password(16),
     },
     {
         "name": "Mahesh C",
@@ -31,7 +31,7 @@ NEW_USERS = [
         "custom_role_name": "Key Accounts Manager",
         "city": "Madurai",
         "state": "Tamil Nadu",
-        "password": "Fortel@2025",
+        "password": generate_password(16),
     },
     {
         "name": "Manikanda Prabhu M",
@@ -42,7 +42,7 @@ NEW_USERS = [
         "custom_role_name": "Regional Manager",
         "city": "Madurai",
         "state": "Tamil Nadu",
-        "password": "Fortel@2025",
+        "password": generate_password(16),
     },
     {
         "name": "Hanni Wilfred",
@@ -53,7 +53,7 @@ NEW_USERS = [
         "custom_role_name": None,
         "city": "Chennai",
         "state": "Tamil Nadu",
-        "password": "Fortel@2025",
+        "password": generate_password(16),
     },
     {
         "name": "Sivasakthi S",
@@ -64,7 +64,7 @@ NEW_USERS = [
         "custom_role_name": "Area Business Executive",
         "city": "Chennai",
         "state": "Tamil Nadu",
-        "password": "Fortel@2025",
+        "password": generate_password(16),
     },
     {
         "name": "Suresh Kamalraj K",
@@ -75,7 +75,7 @@ NEW_USERS = [
         "custom_role_name": "Key Accounts Manager",
         "city": "Coimbatore",
         "state": "Tamil Nadu",
-        "password": "Fortel@2025",
+        "password": generate_password(16),
     },
     {
         "name": "Siva Kumar D",
@@ -86,7 +86,7 @@ NEW_USERS = [
         "custom_role_name": "Zonal Manager",
         "city": "Chennai",
         "state": "Tamil Nadu",
-        "password": "Fortel@2025",
+        "password": generate_password(16),
     },
     {
         "name": "Vigneswar M",
@@ -97,7 +97,7 @@ NEW_USERS = [
         "custom_role_name": "Key Accounts Manager",
         "city": "Cochin",
         "state": "Kerala",
-        "password": "Fortel@2025",
+        "password": generate_password(16),
     },
 ]
 
@@ -121,7 +121,6 @@ for u in NEW_USERS:
         city=u["city"],
         state=u["state"],
         password_hash=hash_password(u["password"]),
-        plain_password=u["password"],
         must_reset_password=True,
         is_active=True,
     )
@@ -133,12 +132,3 @@ for u in NEW_USERS:
 
 db.close()
 print(f"\nDone. Created: {created}  Skipped: {skipped}")
-print("\nAll users — login email / password:")
-print("  sathish.k@fortel.in        / Fortel@2025")
-print("  mahesh.c@fortel.in         / Fortel@2025")
-print("  manikanda.prabhu@fortel.in / Fortel@2025")
-print("  hanni.wilfred@fortel.in    / Fortel@2025")
-print("  sivasakthi@fortel.in       / Fortel@2025")
-print("  suresh.k@fortel.in         / Fortel@2025")
-print("  siva.kumar@fortel.in       / Fortel@2025")
-print("  vigneswar.m@fortel.in      / Fortel@2025")

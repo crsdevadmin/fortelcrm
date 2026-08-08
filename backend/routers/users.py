@@ -9,7 +9,7 @@ from datetime import datetime
 
 from ..database import get_db
 from ..models.models import User, UserRole, UserRegionalTerritory
-from ..auth.auth import hash_password, generate_password
+from ..auth.auth import generate_password, get_current_user, hash_password, require_roles
 from ..utils.hierarchy import get_subtree_ids
 from ..utils.regional_territories import (
     REGIONAL_TERRITORIES,
@@ -69,7 +69,11 @@ def _replace_user_territories(user_id: int, territories, db: Session):
 # ── Create user (Admin only) ──────────────────
 
 @router.post("/create")
-def create_user(payload: CreateUserRequest, db: Session = Depends(get_db)):
+def create_user(
+    payload: CreateUserRequest,
+    current_user: User = Depends(require_roles("admin", "md")),
+    db: Session = Depends(get_db),
+):
     """
     Admin creates a user.
     - Email is the username
@@ -80,13 +84,14 @@ def create_user(payload: CreateUserRequest, db: Session = Depends(get_db)):
     if existing:
         raise HTTPException(status_code=400, detail="Email already exists")
 
-    auto_pwd = payload.password or generate_password()
+    if payload.password is not None and len(payload.password) < 12:
+        raise HTTPException(status_code=400, detail="Temporary password must be at least 12 characters")
+    auto_pwd = payload.password or generate_password(16)
     user = User(
         name=payload.name,
         email=payload.email.lower().strip(),
         personal_email=payload.personal_email,
         password_hash=hash_password(auto_pwd),
-        plain_password=auto_pwd,
         role=payload.role,
         custom_role_name=payload.custom_role_name,
         reports_to_id=payload.reports_to_id,
@@ -117,14 +122,21 @@ def create_user(payload: CreateUserRequest, db: Session = Depends(get_db)):
 # ── List all users ────────────────────────────
 
 @router.get("/")
-def list_users(role: Optional[str] = None, viewer_id: Optional[int] = None, db: Session = Depends(get_db)):
+def list_users(
+    role: Optional[str] = None,
+    viewer_id: Optional[int] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     q = db.query(User)
     if role:
         q = q.filter(User.role == role)
 
     # Role-scoped: only show users in the viewer's subtree
-    if viewer_id:
-        subtree = get_subtree_ids(viewer_id, db)
+    if viewer_id is not None and viewer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Viewer does not match the logged-in user")
+    if current_user.role not in {"admin", "md"}:
+        subtree = get_subtree_ids(current_user.id, db)
         if subtree is not None:           # None = admin/md, sees all
             q = q.filter(User.id.in_(subtree))
 
@@ -136,7 +148,6 @@ def list_users(role: Optional[str] = None, viewer_id: Optional[int] = None, db: 
             "phone": u.phone,
             "city": getattr(u, 'city', None),
             "state": getattr(u, 'state', None),
-            "plain_password": getattr(u, 'plain_password', None),
             "role": u.role, "display_role": u.display_role,
             "custom_role_name": u.custom_role_name,
             "is_active": u.is_active,
@@ -153,10 +164,21 @@ def list_users(role: Optional[str] = None, viewer_id: Optional[int] = None, db: 
 # ── Full hierarchy tree  (must be BEFORE /{user_id}) ─────────
 
 @router.get("/hierarchy/tree")
-def get_hierarchy_tree(db: Session = Depends(get_db)):
-    all_users = db.query(User).filter(User.is_active == True).all()
+def get_hierarchy_tree(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    visible_ids = get_subtree_ids(current_user.id, db)
+    q = db.query(User).filter(User.is_active == True)
+    if visible_ids is not None:
+        q = q.filter(User.id.in_(visible_ids))
+    all_users = q.all()
+    visited = set()
 
     def build_node(user):
+        if user.id in visited:
+            return None
+        visited.add(user.id)
         children = [u for u in all_users if u.reports_to_id == user.id]
         return {
             "id": user.id,
@@ -171,10 +193,11 @@ def get_hierarchy_tree(db: Session = Depends(get_db)):
             "custom_role_name": user.custom_role_name,
             "regional_territories": direct_territories(user.id, db),
             "is_active": user.is_active,
-            "reports": [build_node(c) for c in children],
+            "reports": [node for c in children if (node := build_node(c)) is not None],
         }
 
-    roots = [u for u in all_users if u.reports_to_id is None and u.role != "admin"]
+    visible_user_ids = {u.id for u in all_users}
+    roots = [u for u in all_users if (u.reports_to_id is None or u.reports_to_id not in visible_user_ids) and u.role != "admin"]
     return [build_node(r) for r in roots]
 
 
@@ -186,7 +209,10 @@ def get_regional_territory_options():
 # ── Get single user ───────────────────────────
 
 @router.get("/{user_id}")
-def get_user(user_id: int, db: Session = Depends(get_db)):
+def get_user(user_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    visible_ids = get_subtree_ids(current_user.id, db)
+    if visible_ids is not None and user_id not in visible_ids:
+        raise HTTPException(status_code=403, detail="User is outside your reporting hierarchy")
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -204,7 +230,10 @@ def get_user(user_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{user_id}/regional-territories/access")
-def get_user_regional_territory_access(user_id: int, db: Session = Depends(get_db)):
+def get_user_regional_territory_access(user_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    visible_ids = get_subtree_ids(current_user.id, db)
+    if visible_ids is not None and user_id not in visible_ids:
+        raise HTTPException(status_code=403, detail="User is outside your reporting hierarchy")
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -223,6 +252,7 @@ def get_user_regional_territory_access(user_id: int, db: Session = Depends(get_d
 def update_user_regional_territories(
     user_id: int,
     payload: UserTerritoriesRequest,
+    current_user: User = Depends(require_roles("admin", "md")),
     db: Session = Depends(get_db),
 ):
     user = db.query(User).filter(User.id == user_id).first()
@@ -236,7 +266,7 @@ def update_user_regional_territories(
 # ── Update user ───────────────────────────────
 
 @router.patch("/{user_id}")
-def update_user(user_id: int, payload: UpdateUserRequest, db: Session = Depends(get_db)):
+def update_user(user_id: int, payload: UpdateUserRequest, current_user: User = Depends(require_roles("admin", "md")), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -258,7 +288,7 @@ def update_user(user_id: int, payload: UpdateUserRequest, db: Session = Depends(
 # ── Change reporting line ─────────────────────
 
 @router.patch("/{user_id}/reports-to")
-def change_reporting(user_id: int, reports_to_id: Optional[int] = None, db: Session = Depends(get_db)):
+def change_reporting(user_id: int, reports_to_id: Optional[int] = None, current_user: User = Depends(require_roles("admin", "md")), db: Session = Depends(get_db)):
     """
     Admin can reassign who any user reports to at any time.
     Existing data (sales, investments) is never deleted.
@@ -266,6 +296,15 @@ def change_reporting(user_id: int, reports_to_id: Optional[int] = None, db: Sess
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    if reports_to_id == user_id:
+        raise HTTPException(status_code=400, detail="A user cannot report to themselves")
+    if reports_to_id is not None:
+        manager = db.query(User).filter(User.id == reports_to_id, User.is_active == True).first()
+        if not manager:
+            raise HTTPException(status_code=404, detail="Reporting manager not found")
+        descendants = get_subtree_ids(user_id, db)
+        if descendants is None or reports_to_id in descendants:
+            raise HTTPException(status_code=400, detail="Reporting change would create a hierarchy cycle")
     user.reports_to_id = reports_to_id
     db.commit()
     return {"status": "reporting updated", "user_id": user_id, "reports_to_id": reports_to_id}
@@ -274,12 +313,14 @@ def change_reporting(user_id: int, reports_to_id: Optional[int] = None, db: Sess
 # ── Deactivate user ───────────────────────────
 
 @router.delete("/{user_id}")
-def deactivate_user(user_id: int, db: Session = Depends(get_db)):
+def deactivate_user(user_id: int, current_user: User = Depends(require_roles("admin", "md")), db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     if user.role == "admin":
         raise HTTPException(status_code=400, detail="Cannot deactivate admin")
+    if user.id == current_user.id:
+        raise HTTPException(status_code=400, detail="You cannot deactivate your own account")
     user.is_active = False
     db.commit()
     return {"status": "deactivated"}

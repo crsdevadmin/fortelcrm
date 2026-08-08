@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { roiAPI, investmentsAPI, salesAPI } from '../api';
 
@@ -1699,13 +1699,21 @@ function RegionalSalesPanel({ year, month }) {
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 11, fontWeight: 900, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pdf.filename}</div>
                     <div style={{ fontSize: 10, color: pdf.matches ? '#047857' : '#c2410c', marginTop: 2 }}>
-                      {pdf.matches ? 'Matched' : 'Needs review'} · PDF {pdf.pdf_total == null ? 'total not found' : fmtInr(pdf.pdf_total)} · Entered {fmtInr(pdf.entered_total)}
+                      {pdf.matches ? 'Matched' : pdf.validation_status === 'unverified' ? 'Unverified — labelled total not found' : 'Mismatch'} · PDF {pdf.pdf_total == null ? 'total not found' : fmtInr(pdf.pdf_total)} · Entered {fmtInr(pdf.entered_total)}
                     </div>
                   </div>
-                  <a href={salesAPI.regionalWeekPdfDownloadUrl(me.id, pdf.id)} target="_blank" rel="noreferrer"
+                  <button onClick={async () => {
+                    const response = await salesAPI.downloadRegionalWeekPdf(me.id, pdf.id);
+                    const url = URL.createObjectURL(response.data);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = pdf.filename || `regional-sales-week-${week}.pdf`;
+                    link.click();
+                    URL.revokeObjectURL(url);
+                  }}
                     style={{ padding: '6px 10px', borderRadius: 7, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', textDecoration: 'none', fontSize: 10, fontWeight: 900 }}>
                     Download PDF
-                  </a>
+                  </button>
                 </div>
               ))}
             </div>

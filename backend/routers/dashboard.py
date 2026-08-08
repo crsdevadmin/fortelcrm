@@ -27,6 +27,7 @@ from ..utils.regional_territories import (
     infer_user_territory,
     territory_for_city,
 )
+from ..services.report_scoring import SCORING_WEIGHTS
 from .roi import _add_months, _commitment_status, _expected_mult, _safe_date, _sales_between_for_doctor
 
 
@@ -214,7 +215,7 @@ def get_action_center(
         label = f"{user_map.get(group.associate_id).name if user_map.get(group.associate_id) else 'User'} · {group.city}"
         if not group_pdfs:
             missing_pdf_groups.append(label)
-        elif not any(pdf.matches for pdf in group_pdfs):
+        elif not any(getattr(pdf, "validation_status", None) == "matched" for pdf in group_pdfs):
             mismatch_groups.append(label)
     if missing_pdf_groups:
         items.append({
@@ -592,7 +593,7 @@ def get_territory_performance(
         group = pdf_groups.get((associate_id, territory), [])
         if not group:
             rows[territory]["missing_pdfs"] += 1
-        elif not any(pdf.matches for pdf in group):
+        elif not any(getattr(pdf, "validation_status", None) == "matched" for pdf in group):
             rows[territory]["pdf_mismatches"] += 1
 
     state_filter = _state_keys(state_code)
@@ -741,6 +742,7 @@ def get_rep_scorecard(
             "weekly_submitted": 0,
             "weekly_pdf_uploaded": 0,
             "weekly_pdf_matched": 0,
+            "weekly_pdf_unverified": 0,
             "task_total": 0,
             "task_completed": 0,
             "overdue_tasks": 0,
@@ -787,7 +789,7 @@ def get_rep_scorecard(
         if (year, month) == (ref_date.year, ref_date.month):
             doctor_sales_q = doctor_sales_q.filter(or_(
                 SalesEntry.sale_date <= ref_date.isoformat(),
-                (SalesEntry.sale_date.is_(None)) & (SalesEntry.week <= ref_date.day),
+                SalesEntry.sale_date.is_(None),
             ))
         for owner_id, total in doctor_sales_q.group_by(Doctor.manager_id).all():
             rows[owner_id]["doctor_sales"] = float(total or 0)
@@ -834,7 +836,7 @@ def get_rep_scorecard(
     ).group_by(ProductTarget.owner_user_id).all()
     for owner_id, target in doctor_targets:
         rows[owner_id]["doctor_target"] = float(target or 0)
-        rows[owner_id]["doctor_target_available"] = float(target or 0) > 0 and owner_id not in manager_ids
+        rows[owner_id]["doctor_target_available"] = float(target or 0) > 0
 
     selected_territory = territory_for_city(city) if city else None
     regional_entries = db.query(RegionalSalesEntry).filter(
@@ -865,7 +867,7 @@ def get_rep_scorecard(
             continue
         rows[target.owner_user_id]["regional_target"] += float(target.target_value or 0)
     for user_id, row in rows.items():
-        row["regional_target_available"] = row["regional_target"] > 0 and user_id not in manager_ids
+        row["regional_target_available"] = row["regional_target"] > 0
 
     assignments = {}
     for user_id, territory in db.query(
@@ -937,8 +939,10 @@ def get_rep_scorecard(
             pdf_groups.setdefault(key, []).append(pdf)
     for (user_id, _), group in pdf_groups.items():
         rows[user_id]["weekly_pdf_uploaded"] += 1
-        if any(pdf.matches for pdf in group):
+        if any(getattr(pdf, "validation_status", None) == "matched" for pdf in group):
             rows[user_id]["weekly_pdf_matched"] += 1
+        elif any(getattr(pdf, "validation_status", None) == "unverified" or pdf.pdf_total is None for pdf in group):
+            rows[user_id]["weekly_pdf_unverified"] += 1
 
     month_start = date_type(year, month, 1)
     month_end = date_type(year, month, calendar.monthrange(year, month)[1])
@@ -977,13 +981,6 @@ def get_rep_scorecard(
         "month": month,
         "as_of": ref_date.isoformat(),
         "regional_week": {"year": week_year, "month": week_month, "week": week_number},
-        "weights": {
-            "doctor_sales": 25,
-            "regional_sales": 20,
-            "investment_recovery": 20,
-            "visit_coverage": 15,
-            "weekly_compliance": 10,
-            "task_completion": 10,
-        },
+        "weights": dict(SCORING_WEIGHTS),
         "rows": output,
     }

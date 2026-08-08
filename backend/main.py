@@ -1,11 +1,11 @@
 # backend/main.py
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import engine, Base
 from .core.config import settings
 
-from .auth.auth import router as auth_router
+from .auth.auth import enforce_request_identity, router as auth_router
 from .routers.users import router as users_router
 from .routers.sales import router as sales_router
 from .routers.investments import router as investments_router
@@ -32,26 +32,27 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[settings.FRONTEND_URL],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 app.include_router(auth_router)
-app.include_router(users_router)
-app.include_router(sales_router)
-app.include_router(investments_router)
-app.include_router(roi_router)
-app.include_router(regions_router)
-app.include_router(doctors_router)
-app.include_router(products_router)
-app.include_router(visits_router)
-app.include_router(targets_router)
-app.include_router(notifications_router)
-app.include_router(tasks_router)
-app.include_router(dashboard_router)
-app.include_router(reports_router)
+private = [Depends(enforce_request_identity)]
+app.include_router(users_router, dependencies=private)
+app.include_router(sales_router, dependencies=private)
+app.include_router(investments_router, dependencies=private)
+app.include_router(roi_router, dependencies=private)
+app.include_router(regions_router, dependencies=private)
+app.include_router(doctors_router, dependencies=private)
+app.include_router(products_router, dependencies=private)
+app.include_router(visits_router, dependencies=private)
+app.include_router(targets_router, dependencies=private)
+app.include_router(notifications_router, dependencies=private)
+app.include_router(tasks_router, dependencies=private)
+app.include_router(dashboard_router, dependencies=private)
+app.include_router(reports_router, dependencies=private)
 
 
 @app.get("/")

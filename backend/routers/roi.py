@@ -8,7 +8,7 @@ from datetime import date as date_type, datetime
 import calendar
 
 from ..database import get_db
-from ..auth.auth import decode_token
+from ..auth.auth import decode_token, get_current_user, require_roles
 from ..models.models import DailyTask, Doctor, SalesEntry, Investment, ROIGrade, Product, User, VisitLog
 from ..utils.regional_territories import territory_for_city
 from ..utils.hierarchy import get_subtree_ids
@@ -173,7 +173,10 @@ def _commitment_status(
 
 
 @router.get("/doctor/{doctor_id}")
-def get_doctor_roi(doctor_id: int, year: int, month: int, db: Session = Depends(get_db)):
+def get_doctor_roi(doctor_id: int, year: int, month: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    visible = apply_viewer_scope(db.query(Doctor), current_user.id, db).filter(Doctor.id == doctor_id).first()
+    if not visible:
+        raise HTTPException(status_code=403, detail="Doctor is outside your reporting scope")
     doctor = db.query(Doctor).filter(Doctor.id == doctor_id).first()
     if not doctor:
         raise HTTPException(status_code=404, detail="Doctor not found")
@@ -531,7 +534,7 @@ def get_doctor_roi_full(
     }
 
 
-@router.patch("/doctor/{doctor_id}/commercial")
+@router.patch("/doctor/{doctor_id}/commercial", dependencies=[Depends(require_roles("admin", "md", "director", "senior_manager", "manager", "custom"))])
 def update_commercial_model(
     doctor_id: int,
     payload: CommercialUpdateRequest,
@@ -564,8 +567,10 @@ def get_commitment_recovery(
     commercial_model: Optional[str] = None,
     status: Optional[str] = None,
     search: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    viewer_id = current_user.id
     try:
         ref_date = datetime.strptime(as_of, "%Y-%m-%d").date() if as_of else date_type.today()
     except ValueError:
@@ -730,8 +735,10 @@ def get_all_doctors_roi(
     commercial_model: Optional[str] = None,
     grade: Optional[str] = None,
     search: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    viewer_id = current_user.id
     q = db.query(Doctor).filter(Doctor.is_active != False)
 
     # Derive year/month: if caller sent year=0, extract from start_date
@@ -914,7 +921,8 @@ def get_all_doctors_roi(
 
 
 @router.get("/grade-summary")
-def get_grade_summary(year: int, month: int, viewer_id: Optional[int] = None, db: Session = Depends(get_db)):
+def get_grade_summary(year: int, month: int, viewer_id: Optional[int] = None, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    viewer_id = current_user.id
     q = db.query(Doctor).filter(Doctor.is_active != False)
     if viewer_id:
         q = apply_viewer_scope(q, viewer_id, db, year, month)
@@ -951,7 +959,8 @@ def get_grade_summary(year: int, month: int, viewer_id: Optional[int] = None, db
 
 
 @router.get("/client-stats")
-def get_client_stats(year: int, month: int, viewer_id: Optional[int] = None, db: Session = Depends(get_db)):
+def get_client_stats(year: int, month: int, viewer_id: Optional[int] = None, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    viewer_id = current_user.id
     """Returns total clients, prescribed (had sales this month), not prescribed."""
     q = db.query(Doctor).filter(Doctor.is_active != False)
     if viewer_id:
@@ -976,7 +985,8 @@ def get_client_stats(year: int, month: int, viewer_id: Optional[int] = None, db:
 
 
 @router.get("/at-risk")
-def get_at_risk(year: int, month: int, viewer_id: Optional[int] = None, db: Session = Depends(get_db)):
+def get_at_risk(year: int, month: int, viewer_id: Optional[int] = None, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    viewer_id = current_user.id
     q = db.query(Doctor).filter(Doctor.is_active != False)
     if viewer_id:
         q = apply_viewer_scope(q, viewer_id, db, year, month)

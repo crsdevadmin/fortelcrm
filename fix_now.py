@@ -83,7 +83,6 @@ fixes = [
     # users
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS must_reset_password BOOLEAN DEFAULT FALSE",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS display_role        VARCHAR(100)",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS plain_password      VARCHAR(100)",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at          TIMESTAMP DEFAULT NOW()",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS username            VARCHAR(50)",
     "ALTER TABLE users ADD COLUMN IF NOT EXISTS custom_role_name    VARCHAR(100)",

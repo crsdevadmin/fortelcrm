@@ -61,14 +61,15 @@ print("\nStep 2: Creating users...")
 
 thiru = db.query(User).filter(User.email == "thirumurugan@fortel.in").first()
 if not thiru:
+    thiru_pwd = generate_password(16)
     thiru = User(
         name="Thirumurugan D", email="thirumurugan@fortel.in",
         phone="9677150981", role=UserRole.md,
-        password_hash=hash_password("Fortel@2025"),
-        must_reset_password=False, is_active=True,
+        password_hash=hash_password(thiru_pwd),
+        must_reset_password=True, is_active=True,
     )
     db.add(thiru); db.flush()
-    print(f"  created Thirumurugan D  ->  thirumurugan@fortel.in / Fortel@2025")
+    print(f"  created Thirumurugan D  ->  thirumurugan@fortel.in / {thiru_pwd}")
 else:
     print(f"  Thirumurugan D exists (id={thiru.id})")
 db.flush()
@@ -76,7 +77,7 @@ db.flush()
 vani = db.query(User).filter(User.email == "bvani@fortel.in").first()
 vani_pwd = None
 if not vani:
-    vani_pwd = "Fortel@2025"
+    vani_pwd = generate_password(16)
     vani = User(
         name="B.Vani", email="bvani@fortel.in",
         phone="9652129858", role=UserRole.custom,

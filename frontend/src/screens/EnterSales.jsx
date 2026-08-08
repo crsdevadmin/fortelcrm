@@ -461,8 +461,8 @@ export default function SalesScreen() {
           </div>
 
           {pdfCheck && (
-            <div style={{ marginTop: 10, borderRadius: 10, padding: '10px 12px', background: pdfCheck.matches ? '#ECFDF5' : '#FEF2F2', border: `1px solid ${pdfCheck.matches ? '#A7F3D0' : '#FECACA'}`, color: pdfCheck.matches ? '#065F46' : '#991B1B', fontSize: 12 }}>
-              <b>{pdfCheck.matches ? 'Matched' : 'Mismatch'}:</b> {pdfCheck.message}
+            <div style={{ marginTop: 10, borderRadius: 10, padding: '10px 12px', background: pdfCheck.matches ? '#ECFDF5' : pdfCheck.validation_status === 'unverified' ? '#FFF7ED' : '#FEF2F2', border: `1px solid ${pdfCheck.matches ? '#A7F3D0' : pdfCheck.validation_status === 'unverified' ? '#FED7AA' : '#FECACA'}`, color: pdfCheck.matches ? '#065F46' : pdfCheck.validation_status === 'unverified' ? '#9A3412' : '#991B1B', fontSize: 12 }}>
+              <b>{pdfCheck.matches ? 'Matched' : pdfCheck.validation_status === 'unverified' ? 'Unverified' : 'Mismatch'}:</b> {pdfCheck.message}
               {pdfCheck.pdf_total !== undefined && pdfCheck.pdf_total !== null && (
                 <span> · PDF {fmtV(pdfCheck.pdf_total)} · Entered {fmtV(pdfCheck.entered_total)} · Difference {fmtV(Math.abs(pdfCheck.difference || 0))}</span>
               )}

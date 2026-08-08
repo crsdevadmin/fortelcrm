@@ -5,6 +5,7 @@ from typing import List
 from pydantic import BaseModel
 
 from ..database import get_db
+from ..auth.auth import require_roles
 from ..models.models import Region, User
 
 router = APIRouter(prefix="/regions", tags=["Regions"])
@@ -47,7 +48,7 @@ def list_regions(db: Session = Depends(get_db)):
     } for r in regions]
 
 
-@router.post("/assign")
+@router.post("/assign", dependencies=[Depends(require_roles("admin", "md"))])
 def assign_manager_to_regions(payload: RegionAssignRequest, db: Session = Depends(get_db)):
     manager = db.query(User).filter(User.id == payload.manager_id).first()
     if not manager:
@@ -69,7 +70,7 @@ def assign_manager_to_regions(payload: RegionAssignRequest, db: Session = Depend
     return {"status": "assigned", "states": updated, "manager_id": payload.manager_id}
 
 
-@router.delete("/{state_code}/remove-manager")
+@router.delete("/{state_code}/remove-manager", dependencies=[Depends(require_roles("admin", "md"))])
 def remove_manager_from_region(state_code: str, db: Session = Depends(get_db)):
     region = db.query(Region).filter(Region.state_code == state_code).first()
     if not region:

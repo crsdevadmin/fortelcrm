@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from ..database import get_db
+from ..auth.auth import require_roles
 from ..models.models import Product
 
 router = APIRouter(prefix="/products", tags=["Products"])
@@ -61,7 +62,7 @@ def list_all_products(db: Session = Depends(get_db)):
     return [_to_dict(p) for p in products]
 
 
-@router.post("/")
+@router.post("/", dependencies=[Depends(require_roles("admin", "md"))])
 def create_product(payload: ProductCreate, db: Session = Depends(get_db)):
     existing = db.query(Product).filter(Product.name == payload.name).first()
     if existing:
@@ -93,7 +94,7 @@ def create_product(payload: ProductCreate, db: Session = Depends(get_db)):
     return _to_dict(p)
 
 
-@router.patch("/{product_id}")
+@router.patch("/{product_id}", dependencies=[Depends(require_roles("admin", "md"))])
 def update_product(product_id: int, payload: ProductUpdate, db: Session = Depends(get_db)):
     p = db.query(Product).filter(Product.id == product_id).first()
     if not p:
@@ -112,7 +113,7 @@ def update_product(product_id: int, payload: ProductUpdate, db: Session = Depend
     return _to_dict(p)
 
 
-@router.delete("/{product_id}")
+@router.delete("/{product_id}", dependencies=[Depends(require_roles("admin", "md"))])
 def delete_product(product_id: int, db: Session = Depends(get_db)):
     p = db.query(Product).filter(Product.id == product_id).first()
     if not p:

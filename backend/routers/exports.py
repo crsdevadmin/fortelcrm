@@ -8,7 +8,7 @@ Excel export endpoints.
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from typing import Optional
 from datetime import datetime, timedelta
 import io
@@ -22,7 +22,9 @@ except ImportError:
     HAS_OPENPYXL = False
 
 from ..database import get_db
-from ..models.models import SalesEntry, Doctor, Product, User, VisitLog
+from ..auth.auth import get_current_user
+from ..models.models import SalesEntry, Doctor, Product, RepDoctorMapping, User, VisitLog
+from ..utils.hierarchy import get_subtree_ids
 
 router = APIRouter(prefix="/exports", tags=["Exports"])
 
@@ -78,6 +80,7 @@ def export_monthly_sales(
     month:        int            = Query(...),
     associate_id: Optional[int]  = Query(None),
     viewer_id:    Optional[int]  = Query(None),
+    current_user: User           = Depends(get_current_user),
     db:           Session        = Depends(get_db),
 ):
     """Download monthly sales entries as Excel."""
@@ -90,9 +93,10 @@ def export_monthly_sales(
     )
     if associate_id:
         q = q.filter(SalesEntry.associate_id == associate_id)
-    elif viewer_id:
-        visible = _subordinate_ids(db, viewer_id)
-        q = q.filter(SalesEntry.associate_id.in_(visible))
+    else:
+        visible = get_subtree_ids(current_user.id, db)
+        if visible is not None:
+            q = q.filter(SalesEntry.associate_id.in_(visible))
 
     rows = q.order_by(SalesEntry.sale_date, SalesEntry.doctor_id).all()
 
@@ -144,13 +148,14 @@ def export_rep_activity(
     year:      int           = Query(...),
     month:     int           = Query(...),
     viewer_id: Optional[int] = Query(None),
+    current_user: User       = Depends(get_current_user),
     db:        Session       = Depends(get_db),
 ):
     """Per-rep weekly activity: visits, hospitals, doctors, sales."""
     if not HAS_OPENPYXL:
         return {"error": "openpyxl not installed"}
 
-    visible_ids = _subordinate_ids(db, viewer_id) if viewer_id else None
+    visible_ids = get_subtree_ids(current_user.id, db)
 
     # Get all reps in scope
     q = db.query(User).filter(User.role.in_(["rep", "custom", "associate"]))
@@ -204,8 +209,8 @@ def export_rep_activity(
                 SalesEntry.associate_id == rep.id,
                 SalesEntry.year  == year,
                 SalesEntry.month == month,
-                SalesEntry.week  >= wk_start,
-                SalesEntry.week  <= wk_end,
+                SalesEntry.sale_date >= date_from,
+                SalesEntry.sale_date <= date_to,
             ).all()
 
             sales_entries = len(sales_rows)
@@ -237,6 +242,7 @@ def export_rep_activity(
 @router.get("/doctor-master")
 def export_doctor_master(
     viewer_id: Optional[int] = Query(None),
+    current_user: User       = Depends(get_current_user),
     db:        Session       = Depends(get_db),
 ):
     """Full doctor list with ROI data."""
@@ -244,6 +250,13 @@ def export_doctor_master(
         return {"error": "openpyxl not installed"}
 
     q = db.query(Doctor).filter(Doctor.is_active != False)
+    visible_ids = get_subtree_ids(current_user.id, db)
+    if visible_ids is not None:
+        mapped = db.query(RepDoctorMapping.doctor_id).filter(
+            RepDoctorMapping.associate_id.in_(visible_ids),
+            RepDoctorMapping.is_active == True,
+        )
+        q = q.filter(or_(Doctor.manager_id.in_(visible_ids), Doctor.id.in_(mapped)))
     doctors = q.order_by(Doctor.name).all()
 
     wb = openpyxl.Workbook()
@@ -288,11 +301,12 @@ def get_rep_activity_data(
     year:      int           = Query(...),
     month:     int           = Query(...),
     viewer_id: Optional[int] = Query(None),
+    current_user: User       = Depends(get_current_user),
     db:        Session       = Depends(get_db),
 ):
     """JSON version of rep activity — used by the RepActivity dashboard screen."""
     from calendar import monthrange
-    visible_ids = _subordinate_ids(db, viewer_id) if viewer_id else None
+    visible_ids = get_subtree_ids(current_user.id, db)
 
     q = db.query(User).filter(User.role.in_(["rep", "custom", "associate"]))
     if visible_ids:
@@ -334,8 +348,8 @@ def get_rep_activity_data(
                 SalesEntry.associate_id == rep.id,
                 SalesEntry.year  == year,
                 SalesEntry.month == month,
-                SalesEntry.week  >= wk_start,
-                SalesEntry.week  <= wk_end,
+                SalesEntry.sale_date >= date_from,
+                SalesEntry.sale_date <= date_to,
             ).all()
 
             sales_entries = len(sales_rows)

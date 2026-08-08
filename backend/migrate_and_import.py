@@ -103,7 +103,7 @@ try:
     # Thirumurugan D — MD
     thiru = db.query(User).filter(User.email == "thirumurugan@fortel.in").first()
     if not thiru:
-        pwd = "Fortel@2025"
+        pwd = generate_password(16)
         thiru = User(
             name="Thirumurugan D",
             email="thirumurugan@fortel.in",
@@ -111,7 +111,7 @@ try:
             phone="9677150981",
             role=UserRole.md,
             password_hash=hash_password(pwd),
-            must_reset_password=False,
+            must_reset_password=True,
             is_active=True,
         )
         db.add(thiru)
