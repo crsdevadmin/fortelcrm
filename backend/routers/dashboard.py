@@ -22,7 +22,7 @@ from ..utils.hierarchy import get_dashboard_scope_ids
 from ..utils.regional_territories import TERRITORY_STATES, infer_user_territory
 
 
-router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+router = APIRouter(prefix="/targets", tags=["Dashboard"])
 
 
 def _previous_regional_week(ref_date: date_type):
