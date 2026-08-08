@@ -382,9 +382,6 @@ def get_territory_performance(
     state_code: Optional[str] = None,
     city: Optional[str] = None,
     as_of: Optional[str] = None,
-    submission_year: Optional[int] = None,
-    submission_month: Optional[int] = None,
-    submission_week: Optional[int] = None,
     db: Session = Depends(get_db),
 ):
     """Return one operational and commercial scorecard row per approved territory."""
@@ -692,6 +689,9 @@ def get_rep_scorecard(
     state_code: Optional[str] = None,
     city: Optional[str] = None,
     as_of: Optional[str] = None,
+    submission_year: Optional[int] = None,
+    submission_month: Optional[int] = None,
+    submission_week: Optional[int] = None,
     db: Session = Depends(get_db),
 ):
     """Return direct-person performance inputs; the dashboard adds its loaded recovery data."""
