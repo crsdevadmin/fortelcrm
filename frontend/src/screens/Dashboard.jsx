@@ -470,6 +470,119 @@ function TerritoryPerformanceMatrix({ data, loading, month, year, onOpen, onSetT
   );
 }
 
+function RepPerformanceScorecard({ rows, loading, month, year, week, onOpenPerson }) {
+  const [showAll, setShowAll] = useState(false);
+  const statusStyle = {
+    green: { label: 'On track', color: '#047857', bg: '#ecfdf5', border: '#a7f3d0' },
+    amber: { label: 'Needs attention', color: '#b45309', bg: '#fffbeb', border: '#fde68a' },
+    red: { label: 'Immediate follow-up', color: '#b91c1c', bg: '#fef2f2', border: '#fecaca' },
+  };
+  const visible = showAll ? rows : rows.slice(0, 10);
+  const metric = (label, value, color) => (
+    <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 1, minWidth: 62 }}>
+      <span style={{ fontSize: 8, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 0.3 }}>{label}</span>
+      <span style={{ fontSize: 10, fontWeight: 900, color: color || '#334155' }}>{value}</span>
+    </span>
+  );
+
+  return (
+    <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #e5e7eb', marginBottom: 20, overflow: 'hidden' }}>
+      <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, background: 'linear-gradient(135deg,#f8fafc 0%,#f5f3ff 100%)', borderBottom: '1px solid #e2e8f0' }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 900, color: '#111827' }}>Rep Performance Scorecard</div>
+          <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>{MONTH_NAMES[month]} {year} · business, recovery and execution · regional and doctor sales scored separately</div>
+        </div>
+        <div style={{ display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {['green', 'amber', 'red'].map(level => {
+            const style = statusStyle[level];
+            const count = rows.filter(row => row.status === level).length;
+            return <span key={level} style={{ fontSize: 8, fontWeight: 900, color: style.color, background: style.bg, border: `1px solid ${style.border}`, borderRadius: 20, padding: '3px 7px' }}>{count} {style.label}</span>;
+          })}
+        </div>
+      </div>
+
+      {loading ? (
+        <div style={{ padding: 30, textAlign: 'center', color: '#9ca3af', fontSize: 12 }}>Calculating performance…</div>
+      ) : rows.length === 0 ? (
+        <div style={{ padding: 26, textAlign: 'center', color: '#64748b', fontSize: 12 }}>No team members are available for this selection.</div>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', minWidth: 1050, borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: '#f8fafc' }}>
+                {['Rank', 'Person', 'Score', 'Business Achievement', 'Investment Recovery', 'Execution', 'Why it needs attention'].map(label => (
+                  <th key={label} style={{ padding: '9px 11px', textAlign: 'left', fontSize: 8, letterSpacing: 0.45, textTransform: 'uppercase', color: '#64748b', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>{label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((row, index) => {
+                const style = statusStyle[row.status] || statusStyle.amber;
+                return (
+                  <tr key={row.user_id} onClick={() => row.doctor_count > 0 && onOpenPerson(row)}
+                    style={{ borderBottom: '1px solid #f1f5f9', cursor: row.doctor_count > 0 ? 'pointer' : 'default' }}>
+                    <td style={{ padding: '11px', color: '#94a3b8', fontSize: 11, fontWeight: 800 }}>{index + 1}</td>
+                    <td style={{ padding: '11px', minWidth: 170 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <Avatar name={row.name} color={style.color} size={30} />
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 11, fontWeight: 900, color: '#111827', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{row.name}</div>
+                          <div style={{ fontSize: 8, color: '#94a3b8', marginTop: 2 }}>{row.display_role} · {row.doctor_count} doctors{row.has_reportees ? ' · manager' : ''}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td style={{ padding: '11px', minWidth: 115 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ width: 39, height: 39, borderRadius: '50%', background: style.bg, border: `3px solid ${style.border}`, color: style.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900 }}>{row.score}</span>
+                        <span style={{ fontSize: 8, fontWeight: 900, color: style.color, maxWidth: 55 }}>{style.label}</span>
+                      </div>
+                    </td>
+                    <td style={{ padding: '11px', minWidth: 230 }}>
+                      <div style={{ display: 'flex', gap: 15 }}>
+                        {metric('Doctor sales', row.doctor_count > 0 ? `${row.doctor_sales_pct}%` : 'N/A', '#047857')}
+                        {metric('Regional sales', row.regional_required ? `${row.regional_sales_pct}%` : 'N/A', '#2563eb')}
+                      </div>
+                      <div style={{ fontSize: 8, color: '#94a3b8', marginTop: 5 }}>
+                        {fmtInr(row.doctor_sales)} doctor · {fmtInr(row.regional_sales)} regional
+                      </div>
+                    </td>
+                    <td style={{ padding: '11px', minWidth: 155 }}>
+                      <div style={{ fontSize: 11, fontWeight: 900, color: row.recovery_expected > 0 && row.recovery_pct < 80 ? '#c2410c' : '#047857' }}>{row.recovery_expected > 0 ? `${row.recovery_pct}%` : 'No commitments'}</div>
+                      <div style={{ fontSize: 8, color: '#94a3b8', marginTop: 4 }}>{row.recovery_expected > 0 ? `${fmtInr(row.recovery_sales)} of ${fmtInr(row.recovery_expected)}` : 'No recovery due'}</div>
+                      {(row.recovery_at_risk > 0 || row.recovery_breached > 0) && <div style={{ fontSize: 8, color: row.recovery_breached > 0 ? '#b91c1c' : '#b45309', fontWeight: 800, marginTop: 3 }}>{row.recovery_breached} breached · {row.recovery_at_risk} at risk</div>}
+                    </td>
+                    <td style={{ padding: '11px', minWidth: 250 }}>
+                      <div style={{ display: 'flex', gap: 13 }}>
+                        {metric('Visits', `${row.visit_coverage_pct}%`, row.visit_coverage_pct >= 60 ? '#047857' : '#b45309')}
+                        {metric(`Week ${week?.week || ''}`, `${row.weekly_score}%`, row.weekly_score >= 80 ? '#047857' : '#b45309')}
+                        {metric('Tasks', `${row.task_score}%`, row.overdue_tasks > 0 ? '#b91c1c' : '#7c3aed')}
+                      </div>
+                    </td>
+                    <td style={{ padding: '11px', minWidth: 210 }}>
+                      {row.reasons.length > 0 ? (
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                          {row.reasons.slice(0, 3).map(reason => <span key={reason} style={{ fontSize: 8, color: style.color, background: style.bg, border: `1px solid ${style.border}`, borderRadius: 10, padding: '2px 6px' }}>{reason}</span>)}
+                          {row.reasons.length > 3 && <span style={{ fontSize: 8, color: '#64748b' }}>+{row.reasons.length - 3}</span>}
+                        </div>
+                      ) : <span style={{ fontSize: 9, color: '#047857', fontWeight: 800 }}>No immediate concerns</span>}
+                      {row.doctor_count > 0 && <div style={{ fontSize: 8, color: '#94a3b8', marginTop: 5 }}>Click to open doctors ›</div>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {!loading && rows.length > 10 && (
+        <button onClick={() => setShowAll(value => !value)} style={{ width: '100%', padding: 8, border: 'none', borderTop: '1px solid #f1f5f9', background: '#fff', color: '#4b5563', fontSize: 10, fontWeight: 800, cursor: 'pointer' }}>
+          {showAll ? 'Show top 10' : `Show ${rows.length - 10} more people`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function Breadcrumb({ crumbs, onGo }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 20, flexWrap: 'wrap' }}>
@@ -890,6 +1003,8 @@ export default function Dashboard() {
   const [actionCentreLoading, setActionCentreLoading] = useState(false);
   const [territoryPerformance, setTerritoryPerformance] = useState(null);
   const [territoryPerformanceLoading, setTerritoryPerformanceLoading] = useState(false);
+  const [repScorecard, setRepScorecard] = useState(null);
+  const [repScorecardLoading, setRepScorecardLoading] = useState(false);
   const [loading,     setLoading]     = useState(true);
   const [dashboardScope, setDashboardScope] = useState('overall');
 
@@ -1039,6 +1154,24 @@ export default function Dashboard() {
   useEffect(() => {
     if (!me?.id) return;
     let cancelled = false;
+    setRepScorecardLoading(true);
+    dashboardAPI.repScorecard(me.id, year, month, effectiveScope, {
+      as_of: endDate,
+      ...(selRegion ? { state_code: selRegion } : {}),
+      ...(selCity ? { city: selCity } : {}),
+    }).then(response => {
+      if (!cancelled) setRepScorecard(response.data || null);
+    }).catch(() => {
+      if (!cancelled) setRepScorecard(null);
+    }).finally(() => {
+      if (!cancelled) setRepScorecardLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [me?.id, year, month, effectiveScope, endDate, selRegion, selCity]);
+
+  useEffect(() => {
+    if (!me?.id) return;
+    let cancelled = false;
     roiAPI.commitmentRecovery({ viewer_id: me.id, as_of: endDate })
       .then(response => { if (!cancelled) setCommitmentData(response.data || null); })
       .catch(() => { if (!cancelled) setCommitmentData(null); });
@@ -1106,6 +1239,88 @@ export default function Dashboard() {
       achievementPct: expected > 0 ? Math.round((sales / expected) * 1000) / 10 : 0,
     };
   }, [commitmentData, scopeUserIds, selRegion, selCity]);
+
+  const repScorecardRows = useMemo(() => {
+    const recoveryByOwner = {};
+    (commitmentData?.doctor_summary || [])
+      .filter(row => scopeUserIds.has(Number(row.manager_id)))
+      .filter(row => !selRegion || toStateName(row.state_code) === selRegion)
+      .filter(row => !selCity || normCity(row.city) === selCity)
+      .forEach(row => {
+        const ownerId = Number(row.manager_id);
+        if (!recoveryByOwner[ownerId]) recoveryByOwner[ownerId] = { expected: 0, sales: 0, atRisk: 0, breached: 0 };
+        const bucket = recoveryByOwner[ownerId];
+        bucket.expected += Number(row.expected_sales) || 0;
+        bucket.sales += Number(row.sales_captured) || 0;
+        if (row.worst_status === 'At Risk') bucket.atRisk += 1;
+        if (row.worst_status === 'Breached') bucket.breached += 1;
+      });
+
+    const cap100 = value => Math.max(0, Math.min(100, Number(value) || 0));
+    return (repScorecard?.rows || []).map(row => {
+      const doctorSalesPct = row.doctor_target_available
+        ? (Number(row.doctor_sales) / Math.max(Number(row.doctor_target), 1)) * 100
+        : row.doctor_count > 0 ? 50 : 100;
+      const regionalSalesPct = row.regional_required
+        ? row.regional_target_available
+          ? (Number(row.regional_sales) / Math.max(Number(row.regional_target), 1)) * 100
+          : 50
+        : 100;
+      const recovery = recoveryByOwner[Number(row.user_id)] || { expected: 0, sales: 0, atRisk: 0, breached: 0 };
+      const recoveryPct = recovery.expected > 0 ? (recovery.sales / recovery.expected) * 100 : 100;
+      const weeklyExpected = Number(row.weekly_expected) || 0;
+      const weeklyScore = weeklyExpected > 0
+        ? ((Number(row.weekly_submitted) || 0) / weeklyExpected) * 60
+          + ((Number(row.weekly_pdf_uploaded) || 0) / weeklyExpected) * 20
+          + ((Number(row.weekly_pdf_matched) || 0) / weeklyExpected) * 20
+        : 100;
+      const taskScore = Number(row.task_total) > 0
+        ? (Number(row.task_completed) / Number(row.task_total)) * 100
+        : 100;
+      const score = Math.round(
+        cap100(doctorSalesPct) * 0.25
+        + cap100(regionalSalesPct) * 0.20
+        + cap100(recoveryPct) * 0.20
+        + cap100(row.visit_coverage_pct) * 0.15
+        + cap100(weeklyScore) * 0.10
+        + cap100(taskScore) * 0.10
+      );
+      const reasons = [];
+      if (row.doctor_count > 0 && !row.doctor_target_available) reasons.push('Doctor target not set');
+      else if (row.doctor_target_available && doctorSalesPct < 80) reasons.push('Doctor sales below target');
+      if (row.regional_required && !row.regional_target_available) reasons.push('Regional target not set');
+      else if (row.regional_required && regionalSalesPct < 80) reasons.push('Regional sales below target');
+      if (recovery.breached > 0) reasons.push(`${recovery.breached} recovery breached`);
+      else if (recovery.atRisk > 0) reasons.push(`${recovery.atRisk} recovery at risk`);
+      if (row.doctor_count > 0 && Number(row.visit_coverage_pct) < 60) reasons.push('Low visit coverage');
+      if (weeklyExpected > Number(row.weekly_submitted || 0)) reasons.push('Weekly update missing');
+      if (Number(row.weekly_submitted || 0) > Number(row.weekly_pdf_uploaded || 0)) reasons.push('Weekly PDF missing');
+      if (Number(row.weekly_pdf_uploaded || 0) > Number(row.weekly_pdf_matched || 0)) reasons.push('PDF mismatch');
+      if (Number(row.overdue_tasks) > 0) reasons.push(`${row.overdue_tasks} overdue task${Number(row.overdue_tasks) === 1 ? '' : 's'}`);
+      const pending = Number(row.pending_investments || 0) + Number(row.pending_sales || 0);
+      if (pending > 0) reasons.push(`${pending} pending approval${pending === 1 ? '' : 's'}`);
+
+      const critical = recovery.breached > 0
+        || Number(row.overdue_tasks) > 0
+        || Number(row.weekly_pdf_uploaded || 0) > Number(row.weekly_pdf_matched || 0)
+        || score < 50;
+      return {
+        ...row,
+        score,
+        status: critical ? 'red' : score < 75 || reasons.length > 0 ? 'amber' : 'green',
+        doctor_sales_pct: Math.round(doctorSalesPct * 10) / 10,
+        regional_sales_pct: Math.round(regionalSalesPct * 10) / 10,
+        recovery_expected: recovery.expected,
+        recovery_sales: recovery.sales,
+        recovery_pct: Math.round(recoveryPct * 10) / 10,
+        recovery_at_risk: recovery.atRisk,
+        recovery_breached: recovery.breached,
+        weekly_score: Math.round(cap100(weeklyScore)),
+        task_score: Math.round(cap100(taskScore)),
+        reasons,
+      };
+    }).sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
+  }, [repScorecard, commitmentData, scopeUserIds, selRegion, selCity]);
 
   const actionItems = useMemo(() => {
     const items = [...(actionCentreData?.items || [])];
@@ -1482,6 +1697,22 @@ export default function Dashboard() {
               year={year}
               onOpen={path => navigate(path)}
               onSetTarget={me?.role === 'md' ? () => navigate('/target-setting') : null}
+            />
+
+            <RepPerformanceScorecard
+              rows={repScorecardRows}
+              loading={repScorecardLoading}
+              month={month}
+              year={year}
+              week={repScorecard?.regional_week}
+              onOpenPerson={row => {
+                const selected = allUsers.find(user => Number(user.id) === Number(row.user_id));
+                if (!selected) return;
+                setSelUser(selected);
+                setSelDoctor(null);
+                setSelProduct(null);
+                setView('team');
+              }}
             />
 
             {/* Sales panel */}

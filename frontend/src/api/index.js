@@ -131,6 +131,8 @@ export const dashboardAPI = {
     client.get('/targets/action-center', { params: { viewer_id: viewerId, scope, ...params } }),
   territoryPerformance: (viewerId, year, month, scope = 'overall', params = {}) =>
     client.get('/targets/territory-performance', { params: { viewer_id: viewerId, year, month, scope, ...params } }),
+  repScorecard: (viewerId, year, month, scope = 'overall', params = {}) =>
+    client.get('/targets/rep-scorecard', { params: { viewer_id: viewerId, year, month, scope, ...params } }),
 };
 
 // ── EXPORTS ───────────────────────────────────

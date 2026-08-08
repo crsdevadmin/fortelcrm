@@ -11,6 +11,7 @@ from ..models.models import (
     DailyTask,
     Doctor,
     Investment,
+    ProductTarget,
     RegionalProductTarget,
     RegionalSalesEntry,
     RegionalSalesWeekPDF,
@@ -639,5 +640,298 @@ def get_territory_performance(
         "month": month,
         "as_of": ref_date.isoformat(),
         "regional_week": {"year": previous_year, "month": previous_month, "week": previous_week},
+        "rows": output,
+    }
+
+
+@router.get("/rep-scorecard")
+def get_rep_scorecard(
+    viewer_id: int,
+    year: int,
+    month: int,
+    scope: str = "overall",
+    state_code: Optional[str] = None,
+    city: Optional[str] = None,
+    as_of: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """Return direct-person performance inputs; the dashboard adds its loaded recovery data."""
+    viewer = db.query(User).filter(User.id == viewer_id, User.is_active == True).first()
+    if not viewer:
+        raise HTTPException(status_code=404, detail="User not found")
+    if month < 1 or month > 12:
+        raise HTTPException(status_code=400, detail="Invalid month")
+    normalized_scope = (scope or "overall").strip().lower()
+    if normalized_scope not in {"overall", "mine", "team"}:
+        raise HTTPException(status_code=400, detail="Invalid dashboard scope")
+    try:
+        ref_date = datetime.strptime(as_of, "%Y-%m-%d").date() if as_of else date_type.today()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="as_of must be YYYY-MM-DD")
+
+    scope_ids = get_dashboard_scope_ids(viewer_id, normalized_scope, db)
+    users = db.query(User).filter(
+        User.id.in_(scope_ids),
+        User.is_active == True,
+        User.role.notin_(["admin", "md"]),
+    ).order_by(User.name).all() if scope_ids else []
+    if not users:
+        return {"viewer_id": viewer_id, "scope": normalized_scope, "year": year, "month": month, "rows": []}
+
+    user_ids = {user.id for user in users}
+    rows = {
+        user.id: {
+            "user_id": user.id,
+            "name": user.name,
+            "role": user.role,
+            "display_role": user.display_role,
+            "city": user.city,
+            "reports_to_id": user.reports_to_id,
+            "has_reportees": False,
+            "doctor_count": 0,
+            "doctor_sales": 0.0,
+            "doctor_target": 0.0,
+            "doctor_target_available": False,
+            "regional_sales": 0.0,
+            "regional_target": 0.0,
+            "regional_target_available": False,
+            "regional_required": False,
+            "visited_30d": 0,
+            "visit_coverage_pct": 0.0,
+            "weekly_expected": 0,
+            "weekly_submitted": 0,
+            "weekly_pdf_uploaded": 0,
+            "weekly_pdf_matched": 0,
+            "task_total": 0,
+            "task_completed": 0,
+            "overdue_tasks": 0,
+            "pending_investments": 0,
+            "pending_sales": 0,
+        }
+        for user in users
+    }
+    manager_ids = {
+        reports_to_id
+        for reports_to_id, in db.query(User.reports_to_id).filter(
+            User.reports_to_id.in_(user_ids),
+            User.is_active == True,
+        ).distinct().all()
+        if reports_to_id
+    }
+    for manager_id in manager_ids:
+        rows[manager_id]["has_reportees"] = True
+
+    state_keys = _state_keys(state_code)
+    doctor_q = db.query(Doctor).filter(
+        Doctor.manager_id.in_(user_ids),
+        Doctor.is_active != False,
+    )
+    if state_keys:
+        doctor_q = doctor_q.filter(func.upper(func.replace(Doctor.state_code, " ", "")).in_(state_keys))
+    if city:
+        doctor_q = doctor_q.filter(Doctor.city.ilike(city.strip()))
+    doctors = doctor_q.all()
+    doctor_map = {doctor.id: doctor for doctor in doctors}
+    doctor_ids = list(doctor_map)
+    for doctor in doctors:
+        rows[doctor.manager_id]["doctor_count"] += 1
+
+    if doctor_ids:
+        for owner_id, total in db.query(
+            Doctor.manager_id,
+            func.sum(SalesEntry.value),
+        ).join(SalesEntry, SalesEntry.doctor_id == Doctor.id).filter(
+            Doctor.id.in_(doctor_ids),
+            SalesEntry.year == year,
+            SalesEntry.month == month,
+        ).group_by(Doctor.manager_id).all():
+            rows[owner_id]["doctor_sales"] = float(total or 0)
+
+        visit_cutoff = datetime.combine(ref_date - timedelta(days=30), datetime.min.time())
+        for owner_id, count in db.query(
+            Doctor.manager_id,
+            func.count(func.distinct(VisitLog.doctor_id)),
+        ).join(VisitLog, VisitLog.doctor_id == Doctor.id).filter(
+            Doctor.id.in_(doctor_ids),
+            VisitLog.visit_time >= visit_cutoff,
+        ).group_by(Doctor.manager_id).all():
+            rows[owner_id]["visited_30d"] = int(count or 0)
+
+        pending_investments = db.query(
+            Doctor.manager_id,
+            func.count(Investment.id),
+        ).join(Investment, Investment.doctor_id == Doctor.id).filter(
+            Doctor.id.in_(doctor_ids),
+            Investment.is_approved == False,
+        ).group_by(Doctor.manager_id).all()
+        for owner_id, count in pending_investments:
+            rows[owner_id]["pending_investments"] = int(count or 0)
+
+        pending_sales = db.query(
+            Doctor.manager_id,
+            func.count(SalesEntry.id),
+        ).join(SalesEntry, SalesEntry.doctor_id == Doctor.id).filter(
+            Doctor.id.in_(doctor_ids),
+            SalesEntry.year == year,
+            SalesEntry.month == month,
+            SalesEntry.approved_by_id.is_(None),
+        ).group_by(Doctor.manager_id).all()
+        for owner_id, count in pending_sales:
+            rows[owner_id]["pending_sales"] = int(count or 0)
+
+    doctor_targets = db.query(
+        ProductTarget.owner_user_id,
+        func.sum(ProductTarget.target_value),
+    ).filter(
+        ProductTarget.owner_user_id.in_(user_ids),
+        ProductTarget.year == year,
+        ProductTarget.month == month,
+    ).group_by(ProductTarget.owner_user_id).all()
+    for owner_id, target in doctor_targets:
+        rows[owner_id]["doctor_target"] = float(target or 0)
+        rows[owner_id]["doctor_target_available"] = float(target or 0) > 0 and owner_id not in manager_ids
+
+    selected_territory = territory_for_city(city) if city else None
+    regional_entries = db.query(RegionalSalesEntry).filter(
+        RegionalSalesEntry.associate_id.in_(user_ids),
+        RegionalSalesEntry.year == year,
+        RegionalSalesEntry.month == month,
+    ).all()
+    for entry in regional_entries:
+        territory = territory_for_city(entry.city, entry.associate_id)
+        if state_keys and "".join((entry.state_code or "").upper().split()) not in state_keys:
+            continue
+        if selected_territory and territory != selected_territory:
+            continue
+        rows[entry.associate_id]["regional_sales"] += float(entry.value or 0)
+
+    regional_targets = db.query(RegionalProductTarget).filter(
+        RegionalProductTarget.owner_user_id.in_(user_ids),
+        RegionalProductTarget.year == year,
+        RegionalProductTarget.month == month,
+    ).all()
+    for target in regional_targets:
+        territory = territory_for_city(target.city, target.owner_user_id)
+        if state_keys and "".join((target.state_code or "").upper().split()) not in state_keys:
+            continue
+        if selected_territory and territory != selected_territory:
+            continue
+        rows[target.owner_user_id]["regional_target"] += float(target.target_value or 0)
+    for user_id, row in rows.items():
+        row["regional_target_available"] = row["regional_target"] > 0 and user_id not in manager_ids
+
+    assignments = {}
+    for user_id, territory in db.query(
+        UserRegionalTerritory.user_id,
+        UserRegionalTerritory.territory,
+    ).filter(UserRegionalTerritory.user_id.in_(user_ids)).all():
+        assignments.setdefault(user_id, set()).add(territory)
+    historical_users = {
+        associate_id
+        for associate_id, in db.query(RegionalSalesEntry.associate_id).filter(
+            RegionalSalesEntry.associate_id.in_(user_ids)
+        ).distinct().all()
+    }
+    user_map = {user.id: user for user in users}
+    expected_groups = set()
+    for user_id in user_ids:
+        territories = set(assignments.get(user_id, set()))
+        inferred = infer_user_territory(user_map[user_id])
+        if inferred:
+            territories.add(inferred)
+        if not territories and user_id in historical_users:
+            territories.update(
+                territory_for_city(entry.city, user_id)
+                for entry in regional_entries
+                if entry.associate_id == user_id
+            )
+        territories.discard(None)
+        if state_keys:
+            territories = {
+                territory for territory in territories
+                if "".join(TERRITORY_STATES.get(territory, "").upper().split()) in state_keys
+            }
+        if selected_territory:
+            territories &= {selected_territory}
+        for territory in territories:
+            expected_groups.add((user_id, territory))
+        rows[user_id]["regional_required"] = bool(territories)
+        rows[user_id]["weekly_expected"] = len(territories)
+
+    week_year, week_month, week_number = _previous_regional_week(ref_date)
+    week_entries = db.query(RegionalSalesEntry).filter(
+        RegionalSalesEntry.associate_id.in_(user_ids),
+        RegionalSalesEntry.year == week_year,
+        RegionalSalesEntry.month == week_month,
+        RegionalSalesEntry.week == week_number,
+    ).all()
+    submitted_groups = {
+        (entry.associate_id, territory_for_city(entry.city, entry.associate_id))
+        for entry in week_entries
+    } & expected_groups
+    for user_id, _ in submitted_groups:
+        rows[user_id]["weekly_submitted"] += 1
+
+    pdf_rows = db.query(RegionalSalesWeekPDF).filter(
+        RegionalSalesWeekPDF.associate_id.in_(user_ids),
+        RegionalSalesWeekPDF.year == week_year,
+        RegionalSalesWeekPDF.month == week_month,
+        RegionalSalesWeekPDF.week == week_number,
+    ).all()
+    pdf_groups = {}
+    for pdf in pdf_rows:
+        key = (pdf.associate_id, territory_for_city(pdf.city, pdf.associate_id))
+        if key in expected_groups:
+            pdf_groups.setdefault(key, []).append(pdf)
+    for (user_id, _), group in pdf_groups.items():
+        rows[user_id]["weekly_pdf_uploaded"] += 1
+        if any(pdf.matches for pdf in group):
+            rows[user_id]["weekly_pdf_matched"] += 1
+
+    month_start = date_type(year, month, 1)
+    month_end = date_type(year, month, calendar.monthrange(year, month)[1])
+    score_end = min(ref_date, month_end) if (year, month) <= (ref_date.year, ref_date.month) else month_end
+    tasks = db.query(DailyTask).filter(
+        DailyTask.assigned_to_id.in_(user_ids),
+        DailyTask.task_date >= month_start.isoformat(),
+        DailyTask.task_date <= score_end.isoformat(),
+    ).all()
+    for task in tasks:
+        if task.doctor_id in doctor_map or not (state_code or city):
+            row = rows[task.assigned_to_id]
+            row["task_total"] += 1
+            if task.status == "completed":
+                row["task_completed"] += 1
+            elif task.task_date < ref_date.isoformat():
+                row["overdue_tasks"] += 1
+
+    output = []
+    for row in rows.values():
+        if state_code or city:
+            relevant = row["doctor_count"] > 0 or row["regional_required"] or row["regional_sales"] > 0
+            if not relevant:
+                continue
+        row["visit_coverage_pct"] = round(
+            row["visited_30d"] / row["doctor_count"] * 100, 1
+        ) if row["doctor_count"] else 100.0
+        for key in ("doctor_sales", "doctor_target", "regional_sales", "regional_target"):
+            row[key] = round(row[key], 2)
+        output.append(row)
+
+    return {
+        "viewer_id": viewer_id,
+        "scope": normalized_scope,
+        "year": year,
+        "month": month,
+        "as_of": ref_date.isoformat(),
+        "regional_week": {"year": week_year, "month": week_month, "week": week_number},
+        "weights": {
+            "doctor_sales": 25,
+            "regional_sales": 20,
+            "investment_recovery": 20,
+            "visit_coverage": 15,
+            "weekly_compliance": 10,
+            "task_completion": 10,
+        },
         "rows": output,
     }
