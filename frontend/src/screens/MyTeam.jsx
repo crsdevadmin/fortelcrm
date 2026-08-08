@@ -243,16 +243,16 @@ function ClientList({ user: repUser, doctors, onDoctorClick }) {
 // ══════════════════════════════════════════════════
 // PRODUCT VIEW (Level 3)
 // ══════════════════════════════════════════════════
-function ProductView({ doctor, repUser }) {
+function ProductView({ doctor, repUser, viewerId }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setData(null); setLoading(true);
-    roiAPI.doctorFull(doctor.id, YEAR, MONTH)
+    roiAPI.doctorFull(doctor.id, YEAR, MONTH, viewerId)
       .then(r => { setData(r.data); setLoading(false); })
       .catch(() => setLoading(false));
-  }, [doctor.id]);
+  }, [doctor.id, viewerId]);
 
   if (loading) return <div style={{ padding: 60, textAlign: 'center', color: '#aaa' }}>Loading...</div>;
 
@@ -523,7 +523,7 @@ export default function MyTeam() {
           </div>
 
         ) : view === 'products' && selDoctor ? (
-          <ProductView doctor={selDoctor} repUser={selUser} />
+          <ProductView doctor={selDoctor} repUser={selUser} viewerId={me.id} />
         ) : null}
 
       </div>

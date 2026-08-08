@@ -369,17 +369,17 @@ function DoctorCard({ d, onClick, selected }) {
   );
 }
 
-function DrillPanel({ doctorId, year, month, onClose, onAddInvestment, onAddBusiness }) {
+function DrillPanel({ doctorId, year, month, viewerId, onClose, onAddInvestment, onAddBusiness }) {
   const [data, setData] = useState(null);
   const [tab, setTab] = useState('overview');
 
   useEffect(() => {
     if (!doctorId) return;
     setData(null);
-    roiAPI.doctorFull(doctorId, year, month)
+    roiAPI.doctorFull(doctorId, year, month, viewerId)
       .then(r => setData(r.data))
       .catch(() => {});
-  }, [doctorId, year, month]);
+  }, [doctorId, year, month, viewerId]);
 
   if (!data) return (
     <div style={{ padding: 32, textAlign: 'center', color: '#888' }}>Loading...</div>
@@ -3073,6 +3073,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
             <DrillPanel
               doctorId={selectedDoctor.doctor_id}
               year={year} month={month}
+              viewerId={me.id}
               onClose={() => setSelectedDoctor(null)}
               onAddInvestment={doc => setAddInvDoctor(doc)}
               onAddBusiness={doc => setAddBizDoctor(doc)}

@@ -490,16 +490,16 @@ function Breadcrumb({ crumbs, onGo }) {
   );
 }
 
-function ProductView({ doctor, repUser, year, month }) {
+function Doctor360View({ doctor, repUser, year, month, viewer }) {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   useEffect(() => {
     setData(null);
     setError('');
-    roiAPI.doctorFull(doctor.doctor_id || doctor.id, year, month)
+    roiAPI.doctorFull(doctor.doctor_id || doctor.id, year, month, viewer.id)
       .then(r => setData(r.data))
-      .catch(() => setError('Unable to load doctor product details.'));
-  }, [doctor, year, month]);
+      .catch(err => setError(err.response?.data?.detail || 'Unable to load Doctor 360 details.'));
+  }, [doctor, year, month, viewer.id]);
 
   if (error) return <div style={{ padding: 32, textAlign: 'center', color: '#dc2626' }}>{error}</div>;
   if (!data) return <div style={{ padding: 60, textAlign: 'center', color: '#aaa' }}>Loading...</div>;
@@ -509,42 +509,113 @@ function ProductView({ doctor, repUser, year, month }) {
   const investmentCategories = Object.entries(data.investment_by_category || {})
     .filter(([, categoryData]) => Number(categoryData?.total) > 0)
     .sort((a, b) => Number(b[1].total) - Number(a[1].total));
+  const fmtDate = value => {
+    if (!value) return 'Never';
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  };
+  const alertStyle = {
+    critical: { color: '#b91c1c', bg: '#fef2f2', border: '#fecaca', icon: '!' },
+    warning: { color: '#b45309', bg: '#fffbeb', border: '#fde68a', icon: '⚠' },
+    info: { color: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe', icon: 'i' },
+  };
+  const activityStyle = {
+    visit: { icon: '⌖', color: '#047857', bg: '#ecfdf5' },
+    task: { icon: '✓', color: '#7c3aed', bg: '#f5f3ff' },
+    investment: { icon: '₹', color: '#c2410c', bg: '#fff7ed' },
+    sale: { icon: '▦', color: '#2563eb', bg: '#eff6ff' },
+  };
 
   return (
     <div>
       <div style={{ display: 'flex', gap: 14, alignItems: 'center', padding: '16px 20px',
-        background: '#f9fafb', borderRadius: 12, marginBottom: 20, border: '0.5px solid #e5e7eb' }}>
+        background: 'linear-gradient(135deg,#f8fafc,#ecfdf5)', borderRadius: 12, marginBottom: 20, border: '1px solid #bbf7d0', flexWrap: 'wrap' }}>
         <Avatar name={doctor.doctor_name || doctor.name || '?'} color="#3D8C40" size={48} />
         <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 9, fontWeight: 900, letterSpacing: 1.2, textTransform: 'uppercase', color: '#047857', marginBottom: 3 }}>Doctor 360</div>
           <div style={{ fontSize: 16, fontWeight: 700 }}>{doctor.doctor_name || doctor.name}</div>
           <div style={{ fontSize: 12, color: '#888' }}>
             {doctor.specialty}{doctor.hospital ? ` · ${doctor.hospital}` : ''}
           </div>
           <div style={{ fontSize: 11, color: '#aaa', marginTop: 2 }}>
-            {doctor.city}{doctor.client_code ? ` · ${doctor.client_code}` : ''}
+            {doctor.city}{data.territory ? ` · ${data.territory} Territory` : ''}{doctor.client_code ? ` · ${doctor.client_code}` : ''}
           </div>
         </div>
-        {repUser && (
+        {(data.owner || repUser) && (
           <div style={{ textAlign: 'right', fontSize: 12 }}>
-            <div style={{ color: '#aaa' }}>Sales Rep</div>
-            <div style={{ fontWeight: 700 }}>{repUser.name}</div>
+            <div style={{ color: '#94a3b8' }}>Assigned owner</div>
+            <div style={{ fontWeight: 800 }}>{data.owner?.name || repUser?.name}</div>
+            <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>{data.owner?.display_role || repUser?.custom_role_name || repUser?.role}</div>
           </div>
         )}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 20 }}>
         {[
           { label: 'Total Invested', val: fmtInr(data.total_invested) },
           { label: `Sales · ${MONTH_NAMES[month]}`, val: fmtInr(data.actual_sales), color: '#3D8C40' },
           { label: 'ROI Multiple', val: fmtROIValue(data.actual_sales, data.total_invested, data.roi_multiple) },
           { label: 'Achievement', val: `${data.ca_percent}%`, color: caColor },
+          { label: 'Last Visit', val: fmtDate(data.summary?.last_visit), compact: true },
+          { label: 'Open Tasks', val: data.summary?.open_tasks || 0, color: data.summary?.overdue_tasks > 0 ? '#b91c1c' : '#7c3aed' },
         ].map((s, i) => (
           <div key={i} style={{ background: '#fff', border: '0.5px solid #e5e7eb', borderRadius: 10, padding: '12px 16px' }}>
             <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>{s.label}</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: s.color || '#111' }}>{s.val}</div>
+            <div style={{ fontSize: s.compact ? 13 : 20, fontWeight: 700, color: s.color || '#111' }}>{s.val}</div>
           </div>
         ))}
       </div>
+
+      {(data.alerts || []).length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 900, color: '#111827', marginBottom: 9 }}>Manager Alerts</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 8 }}>
+            {data.alerts.map((alert, index) => {
+              const style = alertStyle[alert.severity] || alertStyle.info;
+              return (
+                <div key={`${alert.title}-${index}`} style={{ display: 'flex', gap: 9, padding: '10px 11px', borderRadius: 10, background: style.bg, border: `1px solid ${style.border}` }}>
+                  <span style={{ width: 24, height: 24, borderRadius: 7, background: '#fff', color: style.color, border: `1px solid ${style.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 900, flexShrink: 0 }}>{style.icon}</span>
+                  <span>
+                    <span style={{ display: 'block', fontSize: 11, fontWeight: 900, color: style.color }}>{alert.title}</span>
+                    <span style={{ display: 'block', fontSize: 9, color: '#64748b', marginTop: 2 }}>{alert.detail}</span>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {data.recovery?.commitments?.length > 0 && (
+        <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 12, padding: '14px 16px', marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 14, marginBottom: 11, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 900, color: '#9a3412' }}>Six-month Investment Recovery</div>
+              <div style={{ fontSize: 10, color: '#c2410c', marginTop: 2 }}>{data.recovery.commitments.length} commitment{data.recovery.commitments.length === 1 ? '' : 's'} · {data.recovery.at_risk} at risk · {data.recovery.breached} breached</div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 18, fontWeight: 900, color: data.recovery.achievement_pct >= 100 ? '#047857' : '#c2410c' }}>{data.recovery.achievement_pct}%</div>
+              <div style={{ fontSize: 9, color: '#9a3412' }}>{fmtInr(data.recovery.sales_captured)} of {fmtInr(data.recovery.expected_sales)}</div>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 8 }}>
+            {data.recovery.commitments.slice(0, 6).map(item => {
+              const critical = item.status === 'Breached';
+              const warning = item.status === 'At Risk';
+              const color = critical ? '#b91c1c' : warning ? '#b45309' : item.status === 'Achieved' ? '#047857' : '#2563eb';
+              return (
+                <div key={item.investment_id} style={{ background: '#fff', border: '1px solid #fed7aa', borderRadius: 9, padding: '9px 10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                    <span style={{ fontSize: 10, fontWeight: 800, color: '#7c2d12' }}>{fmtDate(item.investment_date)}</span>
+                    <span style={{ fontSize: 9, fontWeight: 900, color }}>{item.status}</span>
+                  </div>
+                  <div style={{ fontSize: 10, color: '#64748b', marginTop: 4 }}>{fmtInr(item.sales_captured)} / {fmtInr(item.expected_sales)} · deadline {fmtDate(item.deadline)}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {investmentCategories.length > 0 && (
         <div style={{ background: '#fff', border: '1px solid #BBF7D0', borderRadius: 12, padding: '14px 16px', marginBottom: 20 }}>
@@ -570,6 +641,40 @@ function ProductView({ doctor, repUser, year, month }) {
           </div>
         </div>
       )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16, marginBottom: 20 }}>
+        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: '14px 16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 900 }}>Recent Visits</div>
+            <div style={{ fontSize: 10, color: '#64748b' }}>{data.summary?.visit_count || 0} total</div>
+          </div>
+          {(data.visits || []).length > 0 ? data.visits.slice(0, 5).map(visit => (
+            <div key={visit.id} style={{ padding: '8px 0', borderTop: '1px solid #f1f5f9' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: '#047857' }}>{visit.purpose || 'Doctor visit'}</span>
+                <span style={{ fontSize: 9, color: '#94a3b8', whiteSpace: 'nowrap' }}>{fmtDate(visit.visit_time)}</span>
+              </div>
+              <div style={{ fontSize: 9, color: '#64748b', marginTop: 3 }}>{visit.associate_name}{visit.notes ? ` · ${visit.notes}` : ''}</div>
+            </div>
+          )) : <div style={{ padding: '20px 0', textAlign: 'center', color: '#b45309', fontSize: 11 }}>No visits recorded</div>}
+        </div>
+
+        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: '14px 16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 900 }}>Tasks</div>
+            <div style={{ fontSize: 10, color: data.summary?.overdue_tasks > 0 ? '#b91c1c' : '#64748b' }}>{data.summary?.overdue_tasks || 0} overdue</div>
+          </div>
+          {(data.tasks || []).length > 0 ? data.tasks.slice(0, 5).map(task => (
+            <div key={task.id} style={{ padding: '8px 0', borderTop: '1px solid #f1f5f9' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10 }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: '#111827' }}>{task.details}</span>
+                <span style={{ fontSize: 9, fontWeight: 900, color: task.status === 'completed' ? '#047857' : task.task_date < new Date().toISOString().slice(0, 10) ? '#b91c1c' : '#7c3aed', whiteSpace: 'nowrap' }}>{task.status}</span>
+              </div>
+              <div style={{ fontSize: 9, color: '#64748b', marginTop: 3 }}>{task.assigned_to_name} · due {fmtDate(task.task_date)}{task.completion_comments ? ` · ${task.completion_comments}` : ''}</div>
+            </div>
+          )) : <div style={{ padding: '20px 0', textAlign: 'center', color: '#64748b', fontSize: 11 }}>No tasks assigned</div>}
+        </div>
+      </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         <div style={{ background: '#fff', border: '0.5px solid #e5e7eb', borderRadius: 12, padding: '16px 18px' }}>
@@ -605,6 +710,30 @@ function ProductView({ doctor, repUser, year, month }) {
           </div>
         )}
       </div>
+
+      {(data.activity || []).length > 0 && (
+        <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, padding: '16px 18px', marginTop: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 900, marginBottom: 12 }}>Recent Activity Timeline</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(270px, 1fr))', gap: 8 }}>
+            {data.activity.slice(0, 12).map((event, index) => {
+              const style = activityStyle[event.type] || activityStyle.task;
+              return (
+                <div key={`${event.type}-${event.date}-${index}`} style={{ display: 'flex', gap: 9, padding: '9px 10px', border: '1px solid #f1f5f9', borderRadius: 10, minWidth: 0 }}>
+                  <span style={{ width: 27, height: 27, borderRadius: 8, background: style.bg, color: style.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 900, flexShrink: 0 }}>{style.icon}</span>
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                      <span style={{ fontSize: 10, fontWeight: 900, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{event.title}</span>
+                      {event.amount != null && <span style={{ fontSize: 10, fontWeight: 900, color: style.color, whiteSpace: 'nowrap' }}>{fmtInr(event.amount)}</span>}
+                    </span>
+                    <span style={{ display: 'block', fontSize: 9, color: '#64748b', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{event.detail}</span>
+                    <span style={{ display: 'block', fontSize: 8, color: '#94a3b8', marginTop: 3 }}>{fmtDate(event.date)}{event.person ? ` · ${event.person}` : ''} · {event.status}</span>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2078,7 +2207,7 @@ export default function Dashboard() {
 
         {/* CLIENT / PRODUCT VIEW */}
         {(view === 'client' || view === 'product') && selDoctor && (
-          <ProductView doctor={selDoctor} repUser={selUser} year={year} month={month} />
+          <Doctor360View doctor={selDoctor} repUser={selUser} year={year} month={month} viewer={me} />
         )}
 
       </div>

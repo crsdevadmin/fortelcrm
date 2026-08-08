@@ -8,7 +8,8 @@ from datetime import date as date_type, datetime
 import calendar
 
 from ..database import get_db
-from ..models.models import Doctor, SalesEntry, Investment, ROIGrade, Product
+from ..models.models import DailyTask, Doctor, SalesEntry, Investment, ROIGrade, Product, User, VisitLog
+from ..utils.regional_territories import territory_for_city
 from ..utils.hierarchy import get_subtree_ids
 
 router = APIRouter(prefix="/roi", tags=["ROI"])
@@ -216,10 +217,26 @@ def get_doctor_roi(doctor_id: int, year: int, month: int, db: Session = Depends(
 
 
 @router.get("/doctor/{doctor_id}/full")
-def get_doctor_roi_full(doctor_id: int, year: int, month: int, db: Session = Depends(get_db)):
-    doctor = db.query(Doctor).filter(Doctor.id == doctor_id).first()
+def get_doctor_roi_full(
+    doctor_id: int,
+    year: int,
+    month: int,
+    viewer_id: int,
+    db: Session = Depends(get_db),
+):
+    viewer = db.query(User).filter(User.id == viewer_id, User.is_active == True).first()
+    if not viewer:
+        raise HTTPException(status_code=404, detail="Viewer not found")
+    doctor = apply_viewer_scope(
+        db.query(Doctor).filter(Doctor.id == doctor_id, Doctor.is_active != False),
+        viewer_id,
+        db,
+        year,
+        month,
+    ).first()
     if not doctor:
-        raise HTTPException(status_code=404, detail="Doctor not found")
+        exists = db.query(Doctor.id).filter(Doctor.id == doctor_id).first()
+        raise HTTPException(status_code=403 if exists else 404, detail="Doctor is outside your reporting scope" if exists else "Doctor not found")
 
     actual = db.query(func.sum(SalesEntry.value)).filter(
         SalesEntry.doctor_id == doctor_id,
@@ -300,15 +317,138 @@ def get_doctor_roi_full(doctor_id: int, year: int, month: int, db: Session = Dep
     inv_list = db.query(Investment).filter(Investment.doctor_id == doctor_id)\
                  .order_by(Investment.submitted_at.desc()).all()
 
+    owner = db.query(User).filter(User.id == doctor.manager_id).first() if doctor.manager_id else None
+    recent_visits = db.query(VisitLog).filter(VisitLog.doctor_id == doctor_id)\
+        .order_by(VisitLog.visit_time.desc()).limit(10).all()
+    recent_tasks = db.query(DailyTask).filter(DailyTask.doctor_id == doctor_id)\
+        .order_by(DailyTask.task_date.desc(), DailyTask.created_at.desc()).limit(10).all()
+    last_visit = recent_visits[0].visit_time if recent_visits else None
+    today = date_type.today()
+
+    commitments = []
+    for investment in inv_list:
+        investment_date = _safe_date(investment.year, investment.month, investment.week)
+        if investment_date > today:
+            continue
+        amount = float(investment.amount or 0)
+        expected_multiple = float(investment.expected_multiple or em)
+        commitment_expected = float(investment.expected_sales or (amount * expected_multiple))
+        deadline = _add_months(investment_date, 6)
+        captured = _sales_between_for_doctor(db, doctor_id, investment_date, min(today, deadline))
+        commitment_status, expected_progress, days_left = _commitment_status(
+            captured, commitment_expected, investment_date, deadline, today
+        )
+        commitments.append({
+            "investment_id": investment.id,
+            "investment_date": investment_date.isoformat(),
+            "deadline": deadline.isoformat(),
+            "amount": round(amount, 2),
+            "expected_sales": round(commitment_expected, 2),
+            "sales_captured": round(captured, 2),
+            "achievement_pct": compute_ca_percent(captured, commitment_expected),
+            "expected_progress_pct": expected_progress,
+            "shortfall": round(max(0, commitment_expected - captured), 2),
+            "days_left": days_left,
+            "status": commitment_status,
+        })
+
+    recovery_expected = sum(item["expected_sales"] for item in commitments)
+    recovery_captured = sum(item["sales_captured"] for item in commitments)
+    pending_investments = sum(1 for investment in inv_list if not investment.is_approved)
+    pending_sales = db.query(SalesEntry).filter(
+        SalesEntry.doctor_id == doctor_id,
+        SalesEntry.year == year,
+        SalesEntry.month == month,
+        SalesEntry.approved_by_id.is_(None),
+    ).count()
+    overdue_tasks = sum(
+        1 for task in recent_tasks
+        if task.status != "completed" and task.task_date < today.isoformat()
+    )
+
+    alerts = []
+    breached = sum(1 for item in commitments if item["status"] == "Breached")
+    at_risk = sum(1 for item in commitments if item["status"] == "At Risk")
+    if breached:
+        alerts.append({"severity": "critical", "title": f"{breached} investment recovery deadline{'s' if breached != 1 else ''} breached", "detail": "Open recovery details and follow up on the shortfall."})
+    elif at_risk:
+        alerts.append({"severity": "warning", "title": f"{at_risk} investment commitment{'s are' if at_risk != 1 else ' is'} at risk", "detail": "Sales recovery is behind the expected six-month pace."})
+    if total_invested > 0 and actual <= 0:
+        alerts.append({"severity": "warning", "title": f"No doctor sales recorded for {MONTHS[month]} {year}", "detail": f"{fmt_inr(total_invested)} has been invested across all recorded periods."})
+    if not last_visit:
+        alerts.append({"severity": "warning", "title": "Doctor has never been visited", "detail": "Plan and record the first field visit."})
+    elif (datetime.combine(today, datetime.min.time()) - last_visit).days > 30:
+        days_since_visit = (datetime.combine(today, datetime.min.time()) - last_visit).days
+        alerts.append({"severity": "warning", "title": f"No visit for {days_since_visit} days", "detail": "Schedule a follow-up visit with this doctor."})
+    if overdue_tasks:
+        alerts.append({"severity": "critical", "title": f"{overdue_tasks} overdue task{'s' if overdue_tasks != 1 else ''}", "detail": "The assigned activity has passed its due date."})
+    if pending_investments or pending_sales:
+        alerts.append({"severity": "info", "title": f"{pending_investments + pending_sales} record{'s' if pending_investments + pending_sales != 1 else ''} awaiting approval", "detail": f"{pending_investments} investments · {pending_sales} doctor-sales entries"})
+
+    timeline = []
+    for visit in recent_visits:
+        timeline.append({
+            "type": "visit",
+            "date": visit.visit_time.isoformat(),
+            "title": visit.purpose or "Doctor visit",
+            "detail": visit.notes or visit.address or "Visit recorded",
+            "person": visit.associate.name if visit.associate else "",
+            "status": "completed",
+        })
+    for task in recent_tasks:
+        event_date = task.completed_at or task.created_at
+        timeline.append({
+            "type": "task",
+            "date": event_date.isoformat() if event_date else task.task_date,
+            "title": task.details,
+            "detail": task.completion_comments or f"Due {task.task_date}",
+            "person": task.assigned_to.name if task.assigned_to else "",
+            "status": task.status,
+        })
+    for investment in inv_list[:10]:
+        event_date = investment.submitted_at or datetime.combine(_safe_date(investment.year, investment.month, investment.week), datetime.min.time())
+        timeline.append({
+            "type": "investment",
+            "date": event_date.isoformat(),
+            "title": f"Investment · {_str_val(investment.category) or 'Uncategorised'}",
+            "detail": investment.purpose or (_str_val(investment.sub_category) or "Investment recorded"),
+            "amount": round(float(investment.amount or 0), 2),
+            "person": investment.associate.name if investment.associate else "",
+            "status": "approved" if investment.is_approved else "pending approval",
+        })
+    recent_sales = db.query(SalesEntry).filter(SalesEntry.doctor_id == doctor_id)\
+        .order_by(SalesEntry.submitted_at.desc(), SalesEntry.created_at.desc()).limit(10).all()
+    for sale in recent_sales:
+        event_date = sale.submitted_at or sale.created_at or datetime.combine(_safe_date(sale.year, sale.month, sale.week), datetime.min.time())
+        timeline.append({
+            "type": "sale",
+            "date": event_date.isoformat(),
+            "title": sale.product.name if sale.product else "Doctor sales entry",
+            "detail": f"Qty {round(float(sale.qty or 0), 2)}",
+            "amount": round(float(sale.value or 0), 2),
+            "person": sale.associate.name if sale.associate else "",
+            "status": "approved" if sale.approved_by_id else "pending approval",
+        })
+    timeline.sort(key=lambda event: event["date"] or "", reverse=True)
+
     cm = _str_val(doctor.commercial_model)
     return {
         "doctor_id": doctor_id,
         "doctor_name": doctor.name,
+        "phone": doctor.phone,
+        "email": doctor.email,
         "specialty": doctor.specialty,
         "hospital": doctor.hospital,
         "city": doctor.city,
         "state_code": doctor.state_code,
         "client_code": doctor.client_code,
+        "territory": territory_for_city(doctor.city, doctor.manager_id),
+        "owner": {
+            "id": owner.id,
+            "name": owner.name,
+            "display_role": owner.display_role,
+            "phone": owner.phone,
+        } if owner else None,
         "category": doctor.category,
         "commercial_model": cm or None,
         "commercial_label": COMMERCIAL_LABELS.get(cm, ""),
@@ -326,6 +466,42 @@ def get_doctor_roi_full(doctor_id: int, year: int, month: int, db: Session = Dep
         "investment_by_model": inv_by_model,
         "products_sales": products_sales,
         "monthly_trend": trend,
+        "recovery": {
+            "expected_sales": round(recovery_expected, 2),
+            "sales_captured": round(recovery_captured, 2),
+            "shortfall": round(max(0, recovery_expected - recovery_captured), 2),
+            "achievement_pct": compute_ca_percent(recovery_captured, recovery_expected),
+            "at_risk": at_risk,
+            "breached": breached,
+            "commitments": commitments,
+        },
+        "visits": [{
+            "id": visit.id,
+            "visit_time": visit.visit_time.isoformat(),
+            "purpose": visit.purpose,
+            "notes": visit.notes,
+            "address": visit.address,
+            "associate_name": visit.associate.name if visit.associate else "",
+        } for visit in recent_visits],
+        "tasks": [{
+            "id": task.id,
+            "task_date": task.task_date,
+            "details": task.details,
+            "status": task.status,
+            "completion_comments": task.completion_comments,
+            "assigned_to_name": task.assigned_to.name if task.assigned_to else "",
+            "assigned_by_name": task.assigned_by.name if task.assigned_by else "",
+        } for task in recent_tasks],
+        "activity": timeline[:20],
+        "alerts": alerts,
+        "summary": {
+            "last_visit": last_visit.isoformat() if last_visit else None,
+            "visit_count": db.query(VisitLog).filter(VisitLog.doctor_id == doctor_id).count(),
+            "open_tasks": sum(1 for task in recent_tasks if task.status != "completed"),
+            "overdue_tasks": overdue_tasks,
+            "pending_investments": pending_investments,
+            "pending_sales": pending_sales,
+        },
         "investments": [{
             "id": i.id,
             "commercial_model_type": _str_val(i.commercial_model_type),
