@@ -138,7 +138,7 @@ export const dashboardAPI = {
 export const reportsAPI = {
   weekly: (params = {}) => client.get('/reports/weekly', { params }),
   history: (viewerId, scope = 'overall') => client.get('/reports/weekly/history', { params: { viewer_id: viewerId, scope } }),
-  pdfUrl: (reportId, viewerId) => `${process.env.REACT_APP_API_URL || ''}/reports/weekly/${reportId}/pdf?viewer_id=${viewerId}`,
+  downloadPdf: (reportId) => client.get(`/reports/weekly/${reportId}/pdf`, { responseType: 'blob' }),
 };
 
 // ── EXPORTS ───────────────────────────────────

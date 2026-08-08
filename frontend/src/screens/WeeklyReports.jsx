@@ -96,6 +96,23 @@ export default function WeeklyReports() {
     setYear(nextYear); setMonth(nextMonth); setWeek(nextWeek);
   };
 
+  const downloadPdf = async () => {
+    if (!report?.report_id) return;
+    try {
+      const response = await reportsAPI.downloadPdf(report.report_id);
+      const url = window.URL.createObjectURL(response.data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Fortel_Weekly_Report_${year}_${String(month).padStart(2, '0')}_W${week}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Unable to download this report PDF.');
+    }
+  };
+
   return (
     <div style={{ minHeight: '100vh', background: '#f3f4f6', padding: '22px 24px 42px' }}>
       <div style={{ background: 'linear-gradient(135deg,#0f2027,#203a43,#2c5364)', borderRadius: 18, padding: '20px 22px', color: '#fff', marginBottom: 18, boxShadow: '0 8px 28px rgba(15,32,39,.25)' }}>
@@ -120,7 +137,7 @@ export default function WeeklyReports() {
           <button onClick={() => changeMonth(1)} style={{ border: 'none', background: 'rgba(255,255,255,.1)', color: '#fff', borderRadius: 8, padding: '7px 11px', cursor: 'pointer' }}>›</button>
           {[1, 2, 3, 4].map(value => <button key={value} onClick={() => setWeek(value)} style={{ border: week === value ? '1px solid #9FE1CB' : '1px solid rgba(255,255,255,.18)', background: week === value ? 'rgba(15,110,86,.7)' : 'rgba(255,255,255,.07)', color: '#fff', borderRadius: 8, padding: '7px 10px', fontSize: 10, fontWeight: 800, cursor: 'pointer' }}>Week {value}</button>)}
           <button onClick={() => loadReport(true)} disabled={loading} style={{ marginLeft: 'auto', border: '1px solid rgba(255,255,255,.25)', background: 'rgba(255,255,255,.12)', color: '#fff', borderRadius: 9, padding: '7px 11px', fontSize: 10, fontWeight: 900, cursor: loading ? 'wait' : 'pointer' }}>↻ Refresh snapshot</button>
-          {report?.report_id && <button onClick={() => window.open(reportsAPI.pdfUrl(report.report_id, user.id), '_blank')} style={{ border: 'none', background: '#F5B800', color: '#3b2f00', borderRadius: 9, padding: '8px 12px', fontSize: 10, fontWeight: 900, cursor: 'pointer' }}>Download PDF</button>}
+          {report?.report_id && <button onClick={downloadPdf} style={{ border: 'none', background: '#F5B800', color: '#3b2f00', borderRadius: 9, padding: '8px 12px', fontSize: 10, fontWeight: 900, cursor: 'pointer' }}>Download PDF</button>}
         </div>
       </div>
 

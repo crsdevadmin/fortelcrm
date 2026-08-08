@@ -4,12 +4,13 @@ import json
 from datetime import date as date_type, datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..auth.auth import decode_token
 from ..models.models import (
     DailyTask,
     Doctor,
@@ -28,6 +29,23 @@ from .roi import get_commitment_recovery
 
 
 router = APIRouter(prefix="/reports", tags=["Weekly Reports"])
+
+
+def _require_report_viewer(authorization: Optional[str], viewer_id: int, db: Session) -> User:
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Login required")
+    token = authorization.split(" ", 1)[1].strip()
+    token_data = decode_token(token)
+    try:
+        authenticated_id = int(token_data.get("sub"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Invalid login token")
+    if authenticated_id != viewer_id:
+        raise HTTPException(status_code=403, detail="Report viewer does not match the logged-in user")
+    viewer = db.query(User).filter(User.id == authenticated_id, User.is_active == True).first()
+    if not viewer:
+        raise HTTPException(status_code=401, detail="User account is not active")
+    return viewer
 
 
 def _week_dates(year: int, month: int, week: int):
@@ -360,13 +378,22 @@ def get_weekly_report(
     week: int,
     scope: str = "overall",
     refresh: bool = False,
+    authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db),
 ):
+    _require_report_viewer(authorization, viewer_id, db)
     return save_weekly_report(viewer_id, year, month, week, scope, db, refresh=refresh)
 
 
 @router.get("/weekly/history")
-def get_weekly_report_history(viewer_id: int, scope: str = "overall", limit: int = 24, db: Session = Depends(get_db)):
+def get_weekly_report_history(
+    viewer_id: int,
+    scope: str = "overall",
+    limit: int = 24,
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
+    _require_report_viewer(authorization, viewer_id, db)
     viewer = db.query(User).filter(User.id == viewer_id, User.is_active == True).first()
     if not viewer:
         raise HTTPException(status_code=404, detail="User not found")
@@ -532,15 +559,15 @@ def build_report_pdf(payload: dict) -> io.BytesIO:
 
 
 @router.get("/weekly/{report_id}/pdf")
-def download_weekly_report_pdf(report_id: int, viewer_id: int, db: Session = Depends(get_db)):
+def download_weekly_report_pdf(
+    report_id: int,
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+):
     record = db.query(WeeklyManagementReport).filter(WeeklyManagementReport.id == report_id).first()
     if not record:
         raise HTTPException(status_code=404, detail="Weekly report not found")
-    viewer = db.query(User).filter(User.id == viewer_id, User.is_active == True).first()
-    if not viewer:
-        raise HTTPException(status_code=404, detail="User not found")
-    if record.viewer_id != viewer_id and viewer.role not in {"admin", "md"}:
-        raise HTTPException(status_code=403, detail="You cannot download this report")
+    _require_report_viewer(authorization, record.viewer_id, db)
     payload = json.loads(record.payload_json)
     filename = f"Fortel_Weekly_Report_{record.year}_{record.month:02d}_W{record.week}.pdf"
     return StreamingResponse(
