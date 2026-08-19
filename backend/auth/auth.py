@@ -86,6 +86,9 @@ async def enforce_request_identity(
     """Reject caller-supplied identity claims that are outside the logged-in user's scope."""
     from ..utils.hierarchy import get_subtree_ids
 
+    if current_user.role == "back_office" and not request.url.path.startswith("/primary-sales"):
+        raise HTTPException(status_code=403, detail="Back-office access is limited to primary sales")
+
     direct_identity_fields = {
         "viewer_id", "actor_id", "approver_id", "approved_by_id",
         "user_id", "assigned_by_id", "created_by_id",

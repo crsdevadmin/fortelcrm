@@ -43,6 +43,11 @@ class SecurityContractTests(unittest.TestCase):
         ):
             self.assertIn(f'"{field}"', source)
 
+    def test_back_office_role_is_restricted_to_primary_sales_api(self):
+        source = (ROOT / "backend/auth/auth.py").read_text()
+        self.assertIn('current_user.role == "back_office"', source)
+        self.assertIn('request.url.path.startswith("/primary-sales")', source)
+
     def test_plaintext_password_runtime_references_are_removed(self):
         allowed = ROOT / "backend/scripts/security_migration.py"
         offenders = []

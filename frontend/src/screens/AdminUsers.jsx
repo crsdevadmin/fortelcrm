@@ -11,6 +11,7 @@ const ROLES = [
   { value: 'senior_manager', label: 'Senior Manager' },
   { value: 'manager',        label: 'Manager' },
   { value: 'rep',            label: 'Sales Rep' },
+  { value: 'back_office',    label: 'Back Office (Primary Sales)' },
   { value: 'custom',         label: 'Custom (specify below)' },
 ];
 
@@ -25,12 +26,13 @@ const ROLE_COLORS = {
   senior_manager: { bg: '#f0fdf4', text: '#065f46', border: '#a7f3d0' },
   manager:        { bg: '#f0fdf4', text: '#166534', border: '#bbf7d0' },
   rep:            { bg: '#fffbeb', text: '#92400e', border: '#fcd34d' },
+  back_office:    { bg: '#ecfdf5', text: '#0f766e', border: '#a7f3d0' },
   custom:         { bg: '#f9fafb', text: '#6b7280', border: '#e5e7eb' },
 };
 
 const roleColor = (role) => ROLE_COLORS[role] || ROLE_COLORS.custom;
 const avatarColor = (role) => {
-  const map = { admin:'#7c3aed', md:'#1d4ed8', director:'#0891b2', senior_manager:'#065f46', manager:'#166534', rep:'#92400e', custom:'#6b7280' };
+  const map = { admin:'#7c3aed', md:'#1d4ed8', director:'#0891b2', senior_manager:'#065f46', manager:'#166534', rep:'#92400e', back_office:'#0f766e', custom:'#6b7280' };
   return map[role] || '#6b7280';
 };
 const initials = name => (name || '').split(' ').filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase();
@@ -291,7 +293,7 @@ export default function AdminUsers() {
                   <select value={form.reports_to_id} onChange={e => f('reports_to_id')(e.target.value)}
                     style={{ padding: '8px 10px', borderRadius: 8, border: '1px solid #e5e7eb', fontSize: 13, outline: 'none', background: '#fafafa' }}>
                     <option value="">— Top Level —</option>
-                    {users.filter(u => u.role !== 'rep').map(u => <option key={u.id} value={u.id}>{u.name} ({u.display_role})</option>)}
+                    {users.filter(u => !['rep', 'back_office'].includes(u.role)).map(u => <option key={u.id} value={u.id}>{u.name} ({u.display_role})</option>)}
                   </select>
                 </div>
                 {fld('Phone',          form.phone,          f('phone'), 'tel')}

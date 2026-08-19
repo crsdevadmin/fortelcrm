@@ -22,6 +22,7 @@ import RepActivity from './screens/RepActivity';
 import TargetSetting from './screens/TargetSetting';
 import DailyTasks from './screens/DailyTasks';
 import WeeklyReports from './screens/WeeklyReports';
+import RegionalSalesHub from './screens/RegionalSalesHub';
 
 // Route guard — redirects to / if role not allowed
 function RoleGuard({ children, allowedRoles }) {
@@ -35,6 +36,17 @@ function PrivateRoutes() {
   if (loading) return <div className="loading">Loading...</div>;
   if (!user) return <Navigate to="/login" replace />;
 
+  if (user.role === 'back_office') {
+    return (
+      <Layout>
+        <Routes>
+          <Route path="/regional-sales" element={<RegionalSalesHub />} />
+          <Route path="*" element={<Navigate to="/regional-sales" replace />} />
+        </Routes>
+      </Layout>
+    );
+  }
+
   return (
     <Layout>
       <Routes>
@@ -43,7 +55,7 @@ function PrivateRoutes() {
         <Route path="/enter-sales"      element={<EnterSales />} />
         <Route path="/enter-investment" element={<Navigate to="/investment-roi" replace />} />
         <Route path="/investment-roi"   element={<ROIDashboard />} />
-        <Route path="/regional-sales"   element={<ROIDashboard defaultTab="regional_sales" />} />
+        <Route path="/regional-sales"   element={<RegionalSalesHub />} />
         <Route path="/roi-product"      element={<Navigate to="/product-sales" replace />} />
         <Route path="/control-tower"    element={<Navigate to="/" replace />} />
         <Route path="/business"         element={<Navigate to="/" replace />} />

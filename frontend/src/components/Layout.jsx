@@ -16,6 +16,7 @@ const NAV = {
     ]},
     { label: 'Performance', items: [
       { to: '/investment-roi',           icon: '◈', label: 'Investment & ROI' },
+      { to: '/regional-sales', icon: 'R', label: 'Regional Sales' },
       { to: '/product-sales', icon: '◇', label: 'Product Sales' },
       { to: '/rep-activity',  icon: '📊', label: 'Rep Activity' },
     ]},
@@ -96,6 +97,11 @@ const NAV = {
     ]},
     { label: 'Organisation', items: [
       { to: '/my-team',       icon: '⋮', label: 'My Hierarchy' },
+    ]},
+  ],
+  back_office: [
+    { label: 'Sales Operations', items: [
+      { to: '/regional-sales', icon: 'R', label: 'Regional Sales' },
     ]},
   ],
   custom: [
@@ -181,21 +187,22 @@ export default function Layout({ children }) {
   const [unreadTasks, setUnreadTasks] = useState([]);
 
   const role = user?.role || 'custom';
-  const navSections = [
-    ...(NAV[role] || NAV.custom)
+  const roleNavSections = (NAV[role] || NAV.custom)
     .map(section => ({
       ...section,
       items: [
         ...section.items,
       ].filter(item => item.to !== '/my-team'),
     }))
-    .filter(section => section.items.length > 0),
+    .filter(section => section.items.length > 0);
+  const navSections = role === 'back_office' ? roleNavSections : [
+    ...roleNavSections,
     { label: 'Management', items: [{ to: '/weekly-reports', icon: '▤', label: 'Weekly Reports' }] },
     { label: 'Daily Work', items: [{ to: '/tasks', icon: '✓', label: 'Daily Tasks' }] },
   ];
   const pageTitle = PAGE_TITLES[location.pathname] || 'Fortel CRM';
-  const showTargetSummary = user?.id && !['admin', 'md'].includes(role);
-  const showSalesReminderForRole = user?.id && !['admin', 'md'].includes(role);
+  const showTargetSummary = user?.id && !['admin', 'md', 'back_office'].includes(role);
+  const showSalesReminderForRole = user?.id && !['admin', 'md', 'back_office'].includes(role);
   const targetPct = Math.min(Number(targetSummary?.achievement_pct) || 0, 100);
   const rawTargetPct = Number(targetSummary?.achievement_pct) || 0;
   const targetStatusText = !targetSummary?.has_target
@@ -279,7 +286,7 @@ export default function Layout({ children }) {
   }, [showSalesReminderForRole, user?.id, location.pathname]);
 
   useEffect(() => {
-    if (!user?.id) {
+    if (!user?.id || role === 'back_office') {
       setUnreadTasks([]);
       return undefined;
     }

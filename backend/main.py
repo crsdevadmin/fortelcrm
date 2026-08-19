@@ -19,6 +19,7 @@ from .routers.notifications import router as notifications_router
 from .routers.tasks import router as tasks_router
 from .routers.dashboard import router as dashboard_router
 from .routers.reports import router as reports_router
+from .routers.primary_sales import router as primary_sales_router
 
 Base.metadata.create_all(bind=engine)
 
@@ -53,6 +54,7 @@ app.include_router(notifications_router, dependencies=private)
 app.include_router(tasks_router, dependencies=private)
 app.include_router(dashboard_router, dependencies=private)
 app.include_router(reports_router, dependencies=private)
+app.include_router(primary_sales_router, dependencies=private)
 
 
 @app.get("/")
