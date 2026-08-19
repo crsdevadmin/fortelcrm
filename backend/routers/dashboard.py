@@ -27,8 +27,15 @@ from ..utils.regional_territories import (
     infer_user_territory,
     territory_for_city,
 )
-from ..services.report_scoring import SCORING_WEIGHTS
-from .roi import _add_months, _commitment_status, _expected_mult, _safe_date, _sales_between_for_doctor
+from ..services.report_scoring import SCORING_WEIGHTS, score_people
+from .roi import (
+    _add_months,
+    _commitment_status,
+    _expected_mult,
+    _safe_date,
+    _sales_between_for_doctor,
+    get_commitment_recovery,
+)
 
 
 router = APIRouter(prefix="/targets", tags=["Dashboard"])
@@ -175,6 +182,11 @@ def get_action_center(
             "detail": f"Week {week_number} · {calendar.month_abbr[week_month]} {week_year}",
             "count": len(missing_users),
             "names": [user.name for user in missing_users[:4]],
+            "rows": [{
+                "label": user.name,
+                "meta": " · ".join(sorted(territories_by_user.get(user.id, set()))) or user.city or "Territory not mapped",
+                "value": f"Week {week_number} missing",
+            } for user in missing_users[:50]],
             "action_path": "/regional-sales",
         })
 
@@ -212,11 +224,16 @@ def get_action_center(
     for group in entry_groups:
         key = (group.associate_id, (group.state_code or "").strip().lower(), (group.city or "").strip().lower())
         group_pdfs = pdf_by_group.get(key, [])
-        label = f"{user_map.get(group.associate_id).name if user_map.get(group.associate_id) else 'User'} · {group.city}"
+        user_name = user_map.get(group.associate_id).name if user_map.get(group.associate_id) else "User"
+        row = {
+            "label": user_name,
+            "meta": f"{group.city} · {group.state_code}",
+            "value": f"Week {week_number}",
+        }
         if not group_pdfs:
-            missing_pdf_groups.append(label)
+            missing_pdf_groups.append(row)
         elif not any(getattr(pdf, "validation_status", None) == "matched" for pdf in group_pdfs):
-            mismatch_groups.append(label)
+            mismatch_groups.append(row)
     if missing_pdf_groups:
         items.append({
             "id": "missing-week-pdf",
@@ -225,7 +242,8 @@ def get_action_center(
             "title": f"{len(missing_pdf_groups)} weekly PDF upload{'s' if len(missing_pdf_groups) != 1 else ''} missing",
             "detail": f"Regional entries exist for Week {week_number}",
             "count": len(missing_pdf_groups),
-            "names": missing_pdf_groups[:4],
+            "names": [f"{row['label']} · {row['meta'].split(' · ')[0]}" for row in missing_pdf_groups[:4]],
+            "rows": [{**row, "value": "PDF missing"} for row in missing_pdf_groups[:50]],
             "action_path": "/regional-sales",
         })
     if mismatch_groups:
@@ -236,7 +254,8 @@ def get_action_center(
             "title": f"{len(mismatch_groups)} regional PDF mismatch{'es' if len(mismatch_groups) != 1 else ''}",
             "detail": "Entered sales and uploaded PDF totals do not match",
             "count": len(mismatch_groups),
-            "names": mismatch_groups[:4],
+            "names": [f"{row['label']} · {row['meta'].split(' · ')[0]}" for row in mismatch_groups[:4]],
+            "rows": [{**row, "value": "Mismatch"} for row in mismatch_groups[:50]],
             "action_path": "/regional-sales",
         })
 
@@ -266,6 +285,11 @@ def get_action_center(
             "detail": "Assigned work has passed its due date",
             "count": len(overdue_tasks),
             "names": names[:4],
+            "rows": [{
+                "label": task.assigned_to.name if task.assigned_to else "Assignee not found",
+                "meta": f"{task.doctor.name if task.doctor else 'Doctor not found'} · due {task.task_date}",
+                "value": "Overdue",
+            } for task in overdue_tasks[:50]],
             "action_path": "/tasks",
         })
     if unread_tasks:
@@ -282,6 +306,11 @@ def get_action_center(
             "detail": "The assignee has not opened the task yet",
             "count": len(unread_tasks),
             "names": names[:4],
+            "rows": [{
+                "label": task.assigned_to.name if task.assigned_to else "Assignee not found",
+                "meta": f"{task.doctor.name if task.doctor else 'Doctor not found'} · due {task.task_date}",
+                "value": "Not read",
+            } for task in unread_tasks[:50]],
             "action_path": "/tasks",
         })
 
@@ -304,8 +333,10 @@ def get_action_center(
     if city:
         pending_investment_q = pending_investment_q.filter(Doctor.city.ilike(city.strip()))
         pending_sales_q = pending_sales_q.filter(Doctor.city.ilike(city.strip()))
-    pending_investments = pending_investment_q.count()
-    pending_sales = pending_sales_q.count()
+    pending_investment_rows = pending_investment_q.order_by(Investment.submitted_at.desc()).all()
+    pending_sales_rows = pending_sales_q.order_by(SalesEntry.submitted_at.desc()).all()
+    pending_investments = len(pending_investment_rows)
+    pending_sales = len(pending_sales_rows)
     if pending_investments or pending_sales:
         detail_parts = []
         if pending_investments:
@@ -320,6 +351,15 @@ def get_action_center(
             "detail": " · ".join(detail_parts),
             "count": pending_investments + pending_sales,
             "names": [],
+            "rows": ([{
+                "label": row.doctor.name if row.doctor else "Doctor not found",
+                "meta": f"Investment · {row.associate.name if row.associate else 'Submitted by unknown user'}",
+                "value": f"₹{float(row.amount or 0):,.0f}",
+            } for row in pending_investment_rows] + [{
+                "label": row.doctor.name if row.doctor else "Doctor not found",
+                "meta": f"Doctor sales · {row.associate.name if row.associate else 'Submitted by unknown user'}",
+                "value": f"₹{float(row.value or 0):,.0f}",
+            } for row in pending_sales_rows])[:50],
             "action_path": "/investment-roi",
         })
 
@@ -355,6 +395,11 @@ def get_action_center(
             "detail": f"No visit in 30 days · {never_visited} never visited",
             "count": len(uncovered_doctors),
             "names": [doctor.name for doctor in uncovered_doctors[:4]],
+            "rows": [{
+                "label": doctor.name,
+                "meta": f"{doctor.city or 'City not set'} · {doctor.manager.name if doctor.manager else 'Owner not set'}",
+                "value": "Never visited" if not last_visit_map.get(doctor.id) else last_visit_map[doctor.id].strftime("%d %b %Y"),
+            } for doctor in uncovered_doctors[:50]],
             "action_path": "/visit-log",
         })
 
@@ -695,7 +740,7 @@ def get_rep_scorecard(
     submission_week: Optional[int] = None,
     db: Session = Depends(get_db),
 ):
-    """Return direct-person performance inputs; the dashboard adds its loaded recovery data."""
+    """Return centrally scored person performance with only applicable metrics weighted."""
     viewer = db.query(User).filter(User.id == viewer_id, User.is_active == True).first()
     if not viewer:
         raise HTTPException(status_code=404, detail="User not found")
@@ -969,10 +1014,33 @@ def get_rep_scorecard(
                 continue
         row["visit_coverage_pct"] = round(
             row["visited_30d"] / row["doctor_count"] * 100, 1
-        ) if row["doctor_count"] else 100.0
+        ) if row["doctor_count"] else 0.0
         for key in ("doctor_sales", "doctor_target", "regional_sales", "regional_target"):
             row[key] = round(row[key], 2)
         output.append(row)
+
+    recovery = get_commitment_recovery(
+        viewer_id=viewer_id,
+        as_of=ref_date.isoformat(),
+        manager_id=None,
+        commercial_model=None,
+        status=None,
+        search=None,
+        current_user=viewer,
+        db=db,
+    )
+    recovery_rows = recovery.get("doctor_summary", [])
+    if state_keys:
+        recovery_rows = [
+            row for row in recovery_rows
+            if "".join((row.get("state_code") or "").upper().split()) in state_keys
+        ]
+    if city:
+        recovery_rows = [
+            row for row in recovery_rows
+            if (row.get("city") or "").strip().lower() == city.strip().lower()
+        ]
+    scored_rows = score_people(output, recovery_rows)
 
     return {
         "viewer_id": viewer_id,
@@ -982,5 +1050,5 @@ def get_rep_scorecard(
         "as_of": ref_date.isoformat(),
         "regional_week": {"year": week_year, "month": week_month, "week": week_number},
         "weights": dict(SCORING_WEIGHTS),
-        "rows": output,
+        "rows": scored_rows,
     }

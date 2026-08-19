@@ -839,6 +839,20 @@ tbody tr:hover td { background: var(--gold-light); }
 /* Desktop collapse toggle in header */
 .desktop-collapse-toggle { display: flex; }
 
+/* iPad portrait: keep navigation visible but recover content width. */
+@media (min-width: 769px) and (max-width: 1024px) {
+  .page-content { padding: 20px 18px; }
+  .sidebar-link { min-height: 42px; }
+  .header { padding: 0 16px; }
+  input, select, textarea {
+    font-size: 16px !important;
+    min-height: 44px;
+  }
+  input[type="checkbox"], input[type="radio"], input[type="file"] {
+    min-height: initial;
+  }
+}
+
 @media (max-width: 768px) {
   .sidebar {
     width: min(86vw, 320px) !important;
@@ -920,6 +934,13 @@ tbody tr:hover td { background: var(--gold-light); }
   }
   .target-summary-card span {
     font-size: 9px !important;
+  }
+  input, select, textarea {
+    font-size: 16px !important;
+    min-height: 44px;
+  }
+  input[type="checkbox"], input[type="radio"], input[type="file"] {
+    min-height: initial;
   }
 }
 

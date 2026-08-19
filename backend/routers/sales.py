@@ -18,6 +18,20 @@ from ..services.pdf_totals import validate_labeled_total
 router = APIRouter(prefix="/sales", tags=["Sales"])
 
 
+def _state_keys(value: Optional[str]):
+    key = "".join((value or "").upper().split())
+    aliases = {
+        "TAMILNADU": {"TN", "TAMILNADU"},
+        "KERALA": {"KL", "KERALA"},
+        "TELANGANA": {"TS", "TG", "TELANGANA"},
+        "KARNATAKA": {"KA", "KARNATAKA"},
+        "ANDHRAPRADESH": {"AP", "ANDHRAPRADESH"},
+        "MAHARASHTRA": {"MH", "MAHARASHTRA"},
+        "DELHI": {"DL", "DELHI"},
+    }
+    return aliases.get(key, {key}) if key else set()
+
+
 def _enforce_regional_territory_access(
     user_id: int,
     city: str,
@@ -497,6 +511,8 @@ def get_sales_by_product(year: int, month: int,
                           end_date:   Optional[str] = None,
                           viewer_id: Optional[int] = None,
                           owner_scope: str = "overall",
+                          state_code: Optional[str] = None,
+                          city: Optional[str] = None,
                           current_user = Depends(get_current_user),
                           db: Session = Depends(get_db)):
     viewer_id = current_user.id
@@ -515,8 +531,13 @@ def get_sales_by_product(year: int, month: int,
         owner_ids = get_dashboard_scope_ids(viewer_id, owner_scope, db)
         if not owner_ids:
             return []
-        owned_doctor_ids = db.query(Doctor.id).filter(Doctor.manager_id.in_(owner_ids))
-        q = q.filter(SalesEntry.doctor_id.in_(owned_doctor_ids))
+        doctor_q = db.query(Doctor.id).filter(Doctor.manager_id.in_(owner_ids))
+        state_keys = _state_keys(state_code)
+        if state_keys:
+            doctor_q = doctor_q.filter(func.upper(func.replace(Doctor.state_code, " ", "")).in_(state_keys))
+        if city:
+            doctor_q = doctor_q.filter(Doctor.city.ilike(city.strip()))
+        q = q.filter(SalesEntry.doctor_id.in_(doctor_q))
     rows = q.group_by(SalesEntry.product_id).all()
 
     result = []

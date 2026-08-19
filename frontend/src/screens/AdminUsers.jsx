@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import RegionView from './RegionView';
+import { useAuth } from '../context/AuthContext';
 
 const API = process.env.REACT_APP_API_URL || '';
 
@@ -97,6 +98,7 @@ const fld = (label, value, onChange, type = 'text', opts = null) => (
 
 // ── Main ─────────────────────────────────────────────────────────
 export default function AdminUsers() {
+  const { user: me } = useAuth();
   const [users, setUsers]               = useState([]);
   const [hierarchy, setHierarchy]       = useState([]);
   const [tab, setTab]                   = useState('list');
@@ -139,10 +141,26 @@ export default function AdminUsers() {
     } catch (err) { setError(err.response?.data?.detail || 'Failed to create user'); }
   };
 
-  const handleResetPassword = async (userId) => {
-    const res = await axios.post(`${API}/auth/admin/reset-password`, { user_id: userId });
-    setResetResult(res.data);
-    setViewUser(null);
+  const handleResetPassword = async (user) => {
+    const confirmed = window.confirm(`Generate a new temporary password for ${user.name}?\n\nTheir current password will stop working immediately and they must change the temporary password after signing in.`);
+    if (!confirmed) return;
+    setError('');
+    try {
+      const res = await axios.post(`${API}/auth/admin/reset-password`, { user_id: user.id });
+      setResetResult({ ...res.data, user_name: user.name });
+      setViewUser(null);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to generate temporary password');
+    }
+  };
+
+  const copyTemporaryPassword = async () => {
+    try {
+      await navigator.clipboard.writeText(resetResult?.new_password || '');
+      setResetResult(result => result ? { ...result, copied: true } : result);
+    } catch (_) {
+      setError('Could not copy automatically. Select the temporary password and copy it manually.');
+    }
   };
 
   const handleDeactivate = async (userId) => {
@@ -200,7 +218,7 @@ export default function AdminUsers() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
           <div>
             <div style={{ fontSize: 20, fontWeight: 900 }}>◎ User Management</div>
-            <div style={{ fontSize: 11, opacity: 0.55, marginTop: 2 }}>Create, assign designations, and map the org hierarchy</div>
+            <div style={{ fontSize: 11, opacity: 0.55, marginTop: 2 }}>Create users, manage access, and issue temporary passwords</div>
           </div>
           <button onClick={() => { setShowForm(s => !s); setError(''); }}
             style={{
@@ -245,17 +263,9 @@ export default function AdminUsers() {
               style={{ background: '#dcfce7', color: '#15803d', border: 'none', borderRadius: 8, padding: '5px 14px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>Dismiss</button>
           </div>
         )}
-        {resetResult && (
-          <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 12, padding: 16, marginBottom: 16 }}>
-            <div style={{ fontWeight: 800, color: '#b45309', marginBottom: 6, fontSize: 14 }}>🔑 Password Reset</div>
-            <div style={{ fontSize: 13 }}>
-              <strong>{resetResult.user_email}</strong> — new password:
-              <span style={{ fontFamily: 'monospace', background: '#fff', padding: '3px 12px', borderRadius: 6, marginLeft: 8, fontWeight: 800, border: '1px solid #fcd34d' }}>{resetResult.new_password}</span>
-            </div>
-            <button onClick={() => setResetResult(null)}
-              style={{ marginTop: 10, background: '#fef3c7', color: '#b45309', border: 'none', borderRadius: 8, padding: '5px 14px', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>Dismiss</button>
-          </div>
-        )}
+        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 12, padding: '11px 13px', marginBottom: 16, color: '#1e3a8a', fontSize: 11, lineHeight: 1.5 }}>
+          <strong>Password security:</strong> current passwords cannot be viewed because Fortel CRM stores only secure password hashes. Admin and MD can use <strong>Generate Temp Password</strong>; it is shown once and the user must replace it after login.
+        </div>
 
         {/* ── CREATE USER FORM */}
         {showForm && (
@@ -362,6 +372,8 @@ export default function AdminUsers() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 12 }}>
               {filtered.map(u => {
                 const rc = roleColor(u.role);
+                const canResetPassword = Number(u.id) !== Number(me?.id)
+                  && !(me?.role === 'md' && ['admin', 'md'].includes(u.role));
                 return (
                   <div key={u.id}
                     style={{ background: '#fff', borderRadius: 14, border: `1.5px solid ${u.is_active ? '#e5e7eb' : '#fecaca'}`,
@@ -440,10 +452,12 @@ export default function AdminUsers() {
                         style={{ flex: 1, padding: '6px', borderRadius: 8, border: '1px solid #e5e7eb', background: '#f9fafb', cursor: 'pointer', fontSize: 11, color: '#374151', fontWeight: 600 }}>
                         👁 View
                       </button>
-                      <button onClick={() => handleResetPassword(u.id)}
-                        style={{ flex: 1, padding: '6px', borderRadius: 8, border: '1px solid #bfdbfe', background: '#eff6ff', cursor: 'pointer', fontSize: 11, color: '#1d4ed8', fontWeight: 600 }}>
-                        🔑 Reset
-                      </button>
+                      {canResetPassword && (
+                        <button onClick={() => handleResetPassword(u)}
+                          style={{ flex: 1.35, padding: '6px', borderRadius: 8, border: '1px solid #bfdbfe', background: '#eff6ff', cursor: 'pointer', fontSize: 10, color: '#1d4ed8', fontWeight: 700 }}>
+                          🔑 Generate Temp Password
+                        </button>
+                      )}
                       {u.role !== 'admin' && (
                         <button onClick={() => handleDeactivate(u.id)}
                           style={{ flex: 1, padding: '6px', borderRadius: 8, border: '1px solid #fecaca', background: '#fef2f2', cursor: 'pointer', fontSize: 11, color: '#dc2626', fontWeight: 600 }}>
@@ -524,16 +538,44 @@ export default function AdminUsers() {
             ))}
 
             <div style={{ display: 'flex', gap: 8, marginTop: 18 }}>
-              <button onClick={() => handleResetPassword(viewUser.id)}
+              {Number(viewUser.id) !== Number(me?.id) && !(me?.role === 'md' && ['admin', 'md'].includes(viewUser.role)) && <button onClick={() => handleResetPassword(viewUser)}
                 style={{ flex: 1, padding: '10px', borderRadius: 10, border: 'none', background: '#eff6ff', color: '#1d4ed8', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-                🔑 Reset Password
-              </button>
+                🔑 Generate Temp Password
+              </button>}
               {viewUser.role !== 'admin' && (
                 <button onClick={() => handleDeactivate(viewUser.id)}
                   style={{ flex: 1, padding: '10px', borderRadius: 10, border: 'none', background: '#fef2f2', color: '#dc2626', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
                   Deactivate
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {resetResult && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.58)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+          <div style={{ width: 'min(460px, 100%)', background: '#fff', borderRadius: 18, boxShadow: '0 24px 70px rgba(15,23,42,0.32)', overflow: 'hidden' }}>
+            <div style={{ padding: '17px 20px', background: 'linear-gradient(135deg,#1d4ed8,#2563eb)', color: '#fff' }}>
+              <div style={{ fontSize: 16, fontWeight: 900 }}>🔑 Temporary Password Created</div>
+              <div style={{ marginTop: 3, fontSize: 11, opacity: 0.78 }}>{resetResult.user_name} · {resetResult.user_email}</div>
+            </div>
+            <div style={{ padding: 20 }}>
+              <div style={{ fontSize: 10, fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.5 }}>Temporary password — shown only now</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7 }}>
+                <div style={{ flex: 1, padding: '12px 14px', border: '1px solid #bfdbfe', borderRadius: 10, background: '#eff6ff', color: '#172554', fontFamily: 'monospace', fontSize: 17, fontWeight: 900, letterSpacing: 0.5, overflowWrap: 'anywhere' }}>
+                  {resetResult.new_password}
+                </div>
+                <button onClick={copyTemporaryPassword} style={{ border: 'none', borderRadius: 10, padding: '12px 14px', background: resetResult.copied ? '#dcfce7' : '#1d4ed8', color: resetResult.copied ? '#166534' : '#fff', fontSize: 11, fontWeight: 900, cursor: 'pointer' }}>
+                  {resetResult.copied ? '✓ Copied' : 'Copy'}
+                </button>
+              </div>
+              <div style={{ marginTop: 13, padding: '10px 11px', borderRadius: 10, background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', fontSize: 11, lineHeight: 1.45 }}>
+                Share this securely with the user. Their previous password no longer works, and Fortel CRM will require them to choose a new password after login.
+              </div>
+              <button onClick={() => setResetResult(null)} style={{ width: '100%', marginTop: 16, border: 'none', borderRadius: 10, padding: '10px 14px', background: '#0f172a', color: '#fff', fontSize: 12, fontWeight: 900, cursor: 'pointer' }}>
+                Done — hide password
+              </button>
             </div>
           </div>
         </div>

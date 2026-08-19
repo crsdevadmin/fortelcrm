@@ -6,6 +6,7 @@ const SHOW_INDIVIDUAL_DOCTOR_CARDS = true;
 import { useAuth } from '../context/AuthContext';
 import EnterSales from './EnterSales';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { draftKey, readDraft, removeDraft, writeDraft } from '../utils/draftStorage';
 
 const API = process.env.REACT_APP_API_URL || '';
 
@@ -978,16 +979,16 @@ function normalizeRiskData(data = {}) {
   };
 }
 
-function RegionalSalesPanel({ year, month }) {
+function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity = 'ALL' }) {
   const { user: me } = useAuth();
   const [salesYear, setSalesYear] = useState(year);
   const [salesMonth, setSalesMonth] = useState(month);
   const [week, setWeek] = useState(1);
   const [products, setProducts] = useState([]);
   const [locations, setLocations] = useState([]);
-  const [stateCode, setStateCode] = useState('ALL');
-  const [city, setCity] = useState('ALL');
-  const [regionalSelectionTouched, setRegionalSelectionTouched] = useState(false);
+  const [stateCode, setStateCode] = useState(initialStateCode || 'ALL');
+  const [city, setCity] = useState(initialCity || 'ALL');
+  const [regionalSelectionTouched, setRegionalSelectionTouched] = useState(initialStateCode !== 'ALL' || initialCity !== 'ALL');
   const [rows, setRows] = useState({});
   const [editingRegionalRows, setEditingRegionalRows] = useState({});
   const [dirtyRegionalRows, setDirtyRegionalRows] = useState({});
@@ -1006,6 +1007,9 @@ function RegionalSalesPanel({ year, month }) {
   const [regionalPdfs, setRegionalPdfs] = useState([]);
   const [regionalPdfBusy, setRegionalPdfBusy] = useState(false);
   const [regionalPdfError, setRegionalPdfError] = useState('');
+  const [regionalDraftStatus, setRegionalDraftStatus] = useState('');
+  const pendingRegionalDraftRestore = useRef('');
+  const previousRegionalDraftKey = useRef('');
   const [regionalAccess, setRegionalAccess] = useState({
     direct_territories: [],
     visible_territories: [],
@@ -1029,6 +1033,46 @@ function RegionalSalesPanel({ year, month }) {
   const visibleRegionalTerritorySet = new Set(visibleRegionalTerritories);
   const canUseAggregateRegionalView = regionalAccess.can_view_all || regionalAccess.can_manage_multiple;
   const shouldDefaultToEntryLocation = !canUseAggregateRegionalView;
+  const regionalDraftKey = me?.id && !isAggregateRegionalView
+    ? draftKey('regional-sales', [me.id, salesYear, salesMonth, activeSalesWeek, stateCode, city])
+    : '';
+
+  useEffect(() => {
+    if (previousRegionalDraftKey.current === regionalDraftKey) return;
+    previousRegionalDraftKey.current = regionalDraftKey;
+    setDirtyRegionalRows({});
+    setEditingRegionalRows({});
+    setRegionalDraftStatus('');
+  }, [regionalDraftKey]);
+
+  useEffect(() => {
+    if (!regionalDraftKey) return;
+    if (loading) {
+      pendingRegionalDraftRestore.current = regionalDraftKey;
+      return;
+    }
+    if (pendingRegionalDraftRestore.current !== regionalDraftKey) return;
+    pendingRegionalDraftRestore.current = '';
+    const draft = readDraft(regionalDraftKey);
+    if (!draft?.rows || !draft?.dirtyRows) return;
+    setRows(current => ({ ...current, ...draft.rows }));
+    setDirtyRegionalRows(draft.dirtyRows);
+    setEditingRegionalRows(draft.editingRows || {});
+    setRegionalDraftStatus('Unsaved draft restored from this device');
+  }, [regionalDraftKey, loading]);
+
+  useEffect(() => {
+    if (!regionalDraftKey || Object.keys(dirtyRegionalRows).length === 0) return undefined;
+    const timer = setTimeout(() => {
+      const draftRows = Object.fromEntries(
+        Object.keys(dirtyRegionalRows).map(productId => [productId, rows[productId]])
+      );
+      if (writeDraft(regionalDraftKey, { rows: draftRows, dirtyRows: dirtyRegionalRows, editingRows: editingRegionalRows })) {
+        setRegionalDraftStatus('Draft saved on this device');
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [regionalDraftKey, rows, dirtyRegionalRows, editingRegionalRows]);
 
   useEffect(() => {
     if (!me?.id) return;
@@ -1197,26 +1241,21 @@ function RegionalSalesPanel({ year, month }) {
   const entries = products.map(product => {
     const row = rows[product.id] || {};
     const cumulativeQuantity = Number(row.quantity) || 0;
-    const cumulativeValue = Number(row.value) || 0;
     const previousProduct = Object.values(weekContext.weeksByProduct || {}).reduce((totals, weekProducts) => {
       const previous = weekProducts?.[product.id] || {};
       totals.qty += Number(previous.qty) || 0;
       totals.value += Number(previous.value) || 0;
       return totals;
     }, { qty: 0, value: 0 });
-    const belowPrevious = isCumulativeWeeklyMonth && (
-      cumulativeQuantity < previousProduct.qty
-      || cumulativeValue < previousProduct.value
-    );
+    const belowPrevious = isCumulativeWeeklyMonth && cumulativeQuantity < previousProduct.qty;
     const quantity = isCumulativeWeeklyMonth
       ? belowPrevious ? 0 : Math.max(0, cumulativeQuantity - previousProduct.qty)
       : cumulativeQuantity;
-    const value = isCumulativeWeeklyMonth
-      ? belowPrevious ? 0 : Math.max(0, cumulativeValue - previousProduct.value)
-      : quantity * (Number(row.price) || 0);
-    const price = isCumulativeWeeklyMonth
-      ? (quantity > 0 ? value / quantity : 0)
-      : Number(row.price) || 0;
+    const price = Number(row.price) || Number(product.rate) || 0;
+    const value = quantity * price;
+    const cumulativeValue = isCumulativeWeeklyMonth
+      ? previousProduct.value + value
+      : value;
     return {
       product,
       cumulativeQuantity,
@@ -1237,15 +1276,15 @@ function RegionalSalesPanel({ year, month }) {
     ? Array.from({ length: week - 1 }, (_, index) => index + 1)
     : [];
   const regionalGridTemplate = isCumulativeWeeklyMonth
-    ? `minmax(190px, 1.5fr) ${previousWeekNumbers.map(() => '125px').join(' ')} 120px 135px 140px 86px`
+    ? `minmax(190px, 1.5fr) ${previousWeekNumbers.map(() => '125px').join(' ')} 120px 135px 110px 140px 86px`
     : showPreviousWeekProductData
       ? `minmax(190px, 1.5fr) ${previousWeekNumbers.map(() => '125px').join(' ')} 120px 120px 130px 86px`
       : 'minmax(190px, 1.5fr) 120px 120px 130px 86px';
   const regionalGridMinWidth = isCumulativeWeeklyMonth
-    ? 670 + (previousWeekNumbers.length * 125)
+    ? 780 + (previousWeekNumbers.length * 125)
     : showPreviousWeekProductData ? 650 + (previousWeekNumbers.length * 125) : 650;
   const regionalHeaders = isCumulativeWeeklyMonth
-    ? ['Product', ...previousWeekNumbers.map(previousWeek => `Week ${previousWeek}`), 'Cumulative Qty', 'Cumulative Value', `Week ${week} Result`, 'Action']
+    ? ['Product', ...previousWeekNumbers.map(previousWeek => `Week ${previousWeek}`), 'Cumulative Qty', 'Rate', 'Cumulative Value', `Week ${week} Result`, 'Action']
     : isLegacyJulyWeeklyMonth
       ? ['Product', ...previousWeekNumbers.map(previousWeek => `Week ${previousWeek}`), `Week ${week} Qty`, 'Rate', `Week ${week} Total`, 'Action']
       : ['Product', 'Qty', 'Rate', 'Total', 'Action'];
@@ -1319,7 +1358,7 @@ function RegionalSalesPanel({ year, month }) {
         price: row.quantity > 0 ? row.price : 0,
       }));
     if (!payloadRows.length) {
-      setError(isCumulativeWeeklyMonth ? 'Enter cumulative quantity and value for at least one product.' : 'Enter quantity for at least one product.');
+      setError(isCumulativeWeeklyMonth ? 'Enter cumulative quantity for at least one product.' : 'Enter quantity for at least one product.');
       return;
     }
     setSaving(true);
@@ -1328,6 +1367,8 @@ function RegionalSalesPanel({ year, month }) {
     try {
       const res = await salesAPI.submitRegional({ associate_id: me.id, state_code: stateCode, city, year: salesYear, month: salesMonth, week: activeSalesWeek, entries: payloadRows });
       setMessage(`${res.data?.entries_saved || 0} ${isWeeklyRegionalMonth ? `Week ${week}` : 'full-month'} regional sales rows saved.`);
+      if (regionalDraftKey) removeDraft(regionalDraftKey);
+      setRegionalDraftStatus('');
       setEditingRegionalRows({});
       setDirtyRegionalRows({});
       loadRegional();
@@ -1405,6 +1446,8 @@ function RegionalSalesPanel({ year, month }) {
         entries: byWeek[wk],
       })));
       setMessage(`Regional sales reset for ${city}, ${toStateName(stateCode)} · ${MONTHS[salesMonth]} ${salesYear}.`);
+      if (regionalDraftKey) removeDraft(regionalDraftKey);
+      setRegionalDraftStatus('');
       setRows(prev => Object.fromEntries(Object.entries(prev).map(([productId, row]) => [productId, {
         ...row,
         quantity: '',
@@ -1444,6 +1487,7 @@ function RegionalSalesPanel({ year, month }) {
           <div>
             <div style={{ fontSize: 20, fontWeight: 900 }}>Regional Sales</div>
             <div style={{ fontSize: 11, opacity: 0.55, marginTop: 3 }}>Product-wise sales by region · week-wise quantity and price</div>
+            {regionalDraftStatus && <div style={{ fontSize: 10, color: '#86efac', fontWeight: 800, marginTop: 4 }}>✓ {regionalDraftStatus}</div>}
           </div>
           <div style={{ display: 'flex', gap: 8, marginLeft: 'auto', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             <button onClick={resetRegionalMonth} disabled={saving || loading || isAggregateRegionalView}
@@ -1628,7 +1672,7 @@ function RegionalSalesPanel({ year, month }) {
       {!loading && isWeeklyRegionalMonth && !isAggregateRegionalView && (
         <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534', borderRadius: 10, padding: 12, marginBottom: 12, fontSize: 13 }}>
           {isCumulativeWeeklyMonth ? (
-            <>Enter the <strong>cumulative quantity and cumulative value</strong> shown in the Week {week} PDF. Earlier weeks are subtracted product-wise, and only the Week {week} difference is saved.</>
+            <>Enter only the <strong>cumulative quantity</strong> shown in the Week {week} PDF. The Product Master rate fills automatically, the value is calculated for you, and earlier weeks are subtracted product-wise.</>
           ) : (
             <>July data remains unchanged. Enter and edit the <strong>Week {week} quantity and rate</strong> directly; no cumulative subtraction is applied.</>
           )}
@@ -1671,7 +1715,7 @@ function RegionalSalesPanel({ year, month }) {
       )}
       {entries.some(entry => entry.belowPrevious) && (
         <div style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', borderRadius: 10, padding: 12, marginBottom: 12, fontSize: 13 }}>
-          Some cumulative quantities or values are below the earlier-weeks total. Their current-week result has been set to zero.
+          Some cumulative quantities are below the earlier-weeks total. Their current-week result has been set to zero.
         </div>
       )}
       {!loading && isCumulativeWeeklyMonth && !isAggregateRegionalView && (
@@ -1756,11 +1800,17 @@ function RegionalSalesPanel({ year, month }) {
                   style={{ width: '100%', boxSizing: 'border-box', padding: '8px 9px', border: calculated.belowPrevious ? '1px solid #f59e0b' : '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: inputDisabled ? '#f3f4f6' : '#fff', color: inputDisabled ? '#6b7280' : '#111827' }} />
               </div>
               <div style={{ padding: '10px 12px' }}>
-                <input type="number" min="0" value={(isCumulativeWeeklyMonth ? row.value : row.price) || ''}
-                  onChange={e => updateRow(product.id, isCumulativeWeeklyMonth ? 'value' : 'price', e.target.value)}
+                <input type="number" min="0" value={row.price || ''}
+                  onChange={e => updateRow(product.id, 'price', e.target.value)}
                   disabled={inputDisabled}
                   style={{ width: '100%', boxSizing: 'border-box', padding: '8px 9px', border: calculated.belowPrevious ? '1px solid #f59e0b' : '1px solid #d1d5db', borderRadius: 8, fontSize: 13, background: inputDisabled ? '#f3f4f6' : '#fff', color: inputDisabled ? '#6b7280' : '#111827' }} />
               </div>
+              {isCumulativeWeeklyMonth && (
+                <div style={{ padding: '10px 12px', color: calculated.cumulativeValue > 0 ? '#111827' : '#9ca3af' }}>
+                  <div style={{ fontSize: 13, fontWeight: 900 }}>{fmtInr(calculated.cumulativeValue)}</div>
+                  <div style={{ marginTop: 2, fontSize: 10, fontWeight: 700, color: '#6b7280' }}>calculated</div>
+                </div>
+              )}
               <div style={{ padding: '10px 12px', color: quantity || calculated.value ? '#0F6E56' : '#9ca3af' }}>
                 {isCumulativeWeeklyMonth ? (
                   <>
@@ -1809,16 +1859,25 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
   const { user: me } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const [year, setYear]     = useState(CUR_YEAR);
-  const [month, setMonth]   = useState(CUR_MONTH);
+  const initialRouteParams = new URLSearchParams(location.search);
+  const requestedYear = Number(initialRouteParams.get('year'));
+  const requestedMonth = Number(initialRouteParams.get('month'));
+  const initialYear = Number.isInteger(requestedYear) && requestedYear >= 2020 ? requestedYear : CUR_YEAR;
+  const initialMonth = Number.isInteger(requestedMonth) && requestedMonth >= 1 && requestedMonth <= 12 ? requestedMonth : CUR_MONTH;
+  const initialRegion = initialRouteParams.get('region') || 'ALL';
+  const initialCity = initialRouteParams.get('city') || 'ALL';
+  const requestedScope = initialRouteParams.get('scope');
+  const routeScope = ['overall', 'mine', 'team'].includes(requestedScope) ? requestedScope : 'overall';
+  const [year, setYear]     = useState(initialYear);
+  const [month, setMonth]   = useState(initialMonth);
   const [doctors, setDoctors]   = useState([]);
   const [summary, setSummary]   = useState(null);
   const [loading, setLoading]   = useState(true);
   const [search, setSearch]     = useState('');
   const [gradeFilter, setGradeFilter] = useState('All');
   const [modelFilter, setModelFilter] = useState('All');
-  const [roiStateCode, setRoiStateCode] = useState('ALL');
-  const [roiCity, setRoiCity] = useState('ALL');
+  const [roiStateCode, setRoiStateCode] = useState(initialRegion);
+  const [roiCity, setRoiCity] = useState(initialCity);
   const [activityFilter, setActivityFilter] = useState('all');
   const [selectedDoctor, setSelectedDoctor] = useState(null);
   const [addInvDoctor,  setAddInvDoctor]  = useState(null);
@@ -1837,12 +1896,19 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
   };
 
   useEffect(() => {
-    const tab = new URLSearchParams(location.search).get('tab');
+    const params = new URLSearchParams(location.search);
+    const tab = params.get('tab');
     if (['roi', 'my_sales', 'regional_sales'].includes(tab)) {
       setWorkTab(tab);
     } else {
       setWorkTab(defaultTab);
     }
+    const routeYear = Number(params.get('year'));
+    const routeMonth = Number(params.get('month'));
+    if (Number.isInteger(routeYear) && routeYear >= 2020) setYear(routeYear);
+    if (Number.isInteger(routeMonth) && routeMonth >= 1 && routeMonth <= 12) setMonth(routeMonth);
+    setRoiStateCode(params.get('region') || 'ALL');
+    setRoiCity(params.get('city') || 'ALL');
   }, [defaultTab, location.search]);
 
   // Inline investment form
@@ -1856,11 +1922,36 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
   const [invSaving,   setInvSaving]   = useState(false);
   const [invError,    setInvError]    = useState('');
   const [invSuccess,  setInvSuccess]  = useState('');
+  const [investmentDraftStatus, setInvestmentDraftStatus] = useState('');
   const [myInvestments, setMyInvestments] = useState([]);
   const [editingInvestmentId, setEditingInvestmentId] = useState(null);
   const [deletingInvestmentId, setDeletingInvestmentId] = useState(null);
   const investmentFormRef = useRef(null);
   const investmentAmountRef = useRef(null);
+  const investmentDraftLoadedRef = useRef(false);
+  const investmentDraftKey = me?.id ? draftKey('investment', [me.id]) : '';
+
+  useEffect(() => {
+    if (!investmentDraftKey || investmentDraftLoadedRef.current) return;
+    investmentDraftLoadedRef.current = true;
+    const draft = readDraft(investmentDraftKey);
+    if (!draft?.invForm) return;
+    setInvForm({ ...EMPTY_INV, ...draft.invForm });
+    setSelDoc(draft.selDoc || null);
+    setShowForm(true);
+    setInvestmentDraftStatus('Unsaved draft restored from this device');
+  }, [investmentDraftKey]);
+
+  useEffect(() => {
+    const hasDraftData = invForm.doctor_id || invForm.amount || invForm.purpose || invForm.commercial_model_type;
+    if (!investmentDraftKey || !showForm || editingInvestmentId || !hasDraftData) return undefined;
+    const timer = setTimeout(() => {
+      if (writeDraft(investmentDraftKey, { invForm, selDoc })) {
+        setInvestmentDraftStatus('Draft saved on this device');
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [investmentDraftKey, showForm, editingInvestmentId, invForm, selDoc]);
 
   useEffect(() => {
     if (!editingInvestmentId) return;
@@ -1926,7 +2017,13 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
       .then(r => setCommitmentData(r.data)).catch(() => setCommitmentData(null));
   }, [year, month, search, modelFilter, refreshKey, me?.id]);
 
-  const roiLocations = Object.values(myDoctors.reduce((acc, doctor) => {
+  const matchesRouteScope = doctor => routeScope === 'mine'
+    ? Number(doctor.manager_id) === Number(me?.id)
+    : routeScope === 'team'
+      ? Number(doctor.manager_id) !== Number(me?.id)
+      : true;
+  const scopedMyDoctors = myDoctors.filter(matchesRouteScope);
+  const roiLocations = Object.values(scopedMyDoctors.reduce((acc, doctor) => {
     const stateCode = (doctor.state_code || '').trim();
     const cityName = groupedCityName(doctor);
     if (!stateCode || !cityName) return acc;
@@ -1955,12 +2052,13 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
   const doctorLocationMap = new Map(myDoctors.map(doctor => [doctor.id, doctor]));
   const matchesRoiLocation = doctor => {
     const locationDoctor = doctorLocationMap.get(doctor.doctor_id || doctor.id) || doctor;
-    return (roiStateCode === 'ALL' || toStateName(locationDoctor.state_code) === toStateName(roiStateCode))
+    return matchesRouteScope(locationDoctor)
+      && (roiStateCode === 'ALL' || toStateName(locationDoctor.state_code) === toStateName(roiStateCode))
       && (roiCity === 'ALL' || groupedCityName(locationDoctor) === roiCity);
   };
   const visibleMyInvestments = myInvestments.filter(investment => matchesRoiLocation({ doctor_id: investment.doctor_id }));
 
-  const filteredFormDocs = myDoctors.filter(d =>
+  const filteredFormDocs = scopedMyDoctors.filter(d =>
     matchesRoiLocation(d) && (
       !docSearch || d.name.toLowerCase().includes(docSearch.toLowerCase()) ||
       (d.city || '').toLowerCase().includes(docSearch.toLowerCase())
@@ -1974,6 +2072,8 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
   };
 
   const resetInvestmentForm = () => {
+    if (investmentDraftKey) removeDraft(investmentDraftKey);
+    setInvestmentDraftStatus('');
     setInvForm(EMPTY_INV);
     setSelDoc(null);
     setDocSearch('');
@@ -2064,6 +2164,12 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
   };
 
   const selectedMonthIndex = (year * 12) + (month - 1);
+  const sixMonthStart = new Date(year, month - 6, 1);
+  const sixMonthStartYear = sixMonthStart.getFullYear();
+  const sixMonthStartMonth = sixMonthStart.getMonth() + 1;
+  const sixMonthWindowLabel = sixMonthStartYear === year
+    ? `${MONTHS[sixMonthStartMonth]}–${MONTHS[month]} ${year}`
+    : `${MONTHS[sixMonthStartMonth]} ${sixMonthStartYear}–${MONTHS[month]} ${year}`;
   const isInSixMonthWindow = row => {
     const rowMonthIndex = (Number(row.year) * 12) + (Number(row.month) - 1);
     return rowMonthIndex >= selectedMonthIndex - 5 && rowMonthIndex <= selectedMonthIndex;
@@ -2154,7 +2260,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
   );
 
   const visibleDoctorIds = new Set(locationDoctors.map(doc => doc.doctor_id));
-  const hasRoiLocationFilter = roiStateCode !== 'ALL' || roiCity !== 'ALL';
+  const hasRoiLocationFilter = routeScope !== 'overall' || roiStateCode !== 'ALL' || roiCity !== 'ALL';
 
   const displaySpendData = (() => {
     if (!spendData || !hasRoiLocationFilter) return spendData;
@@ -2358,7 +2464,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
   if (workTab === 'regional_sales') {
     return (
       <div style={{ minHeight: '100vh', background: 'var(--color-background-tertiary,#f7f7f5)' }}>
-        <RegionalSalesPanel year={year} month={month} />
+        <RegionalSalesPanel year={year} month={month} initialStateCode={initialRegion} initialCity={initialCity} />
       </div>
     );
   }
@@ -2379,6 +2485,11 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
           <div>
             <div style={{ fontSize: 20, fontWeight: 900 }}>◈ Investment & ROI</div>
             <div style={{ fontSize: 11, opacity: 0.55, marginTop: 2 }}>Commitment achievement · investment tracking · grade analysis</div>
+            {requestedScope && (
+              <div style={{ fontSize: 9, opacity: 0.72, marginTop: 5 }}>
+                Dashboard selection · {routeScope === 'mine' ? 'My Business' : routeScope === 'team' ? 'My Team' : 'Overall'} · {initialRegion === 'ALL' ? 'All regions' : initialRegion} · {initialCity === 'ALL' ? 'All cities' : initialCity}
+              </div>
+            )}
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.12)', borderRadius: 10, border: '1px solid rgba(255,255,255,0.2)', overflow: 'hidden' }}>
@@ -2686,6 +2797,7 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
       {showForm && (
         <div ref={investmentFormRef} style={{ margin: '16px 24px 0', scrollMarginTop: 16, background: '#fff', borderRadius: 16, border: editingInvestmentId ? '2px solid #2563eb' : '1.5px solid #1D9E75', padding: 20, boxShadow: editingInvestmentId ? '0 4px 24px rgba(37,99,235,0.18)' : '0 4px 20px rgba(29,158,117,0.1)' }}>
           {editingInvestmentId && <div style={{ marginBottom: 12, fontSize: 13, fontWeight: 900, color: '#1d4ed8' }}>Editing saved investment</div>}
+          {!editingInvestmentId && investmentDraftStatus && <div style={{ marginBottom: 12, fontSize: 11, fontWeight: 800, color: '#047857' }}>✓ {investmentDraftStatus}</div>}
           <form onSubmit={submitInvestment}>
             {/* Doctor search */}
             <div style={{ marginBottom: 16 }}>
@@ -2935,10 +3047,10 @@ export default function ROIDashboard({ defaultTab = 'roi' }) {
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                   <div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: '#111' }}>
-                      Top Active Doctors — Returns Tracker
+                      Top Active Doctors — 6-Month Returns Tracker
                       {belowTarget > 0 && <span style={{ marginLeft: 10, fontSize: 11, fontWeight: 700, color: '#dc2626', background: '#fef2f2', padding: '2px 8px', borderRadius: 20 }}>⚠ {belowTarget} below break-even</span>}
                     </div>
-                    <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>Sorted by sales and investment activity · orange line = break-even · click a doctor to drill in</div>
+                    <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>{sixMonthWindowLabel} · sorted by six-month sales and investment activity · orange line = break-even · click a doctor to drill in</div>
                   </div>
                   <div style={{ display: 'flex', gap: 14 }}>
                     <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#555' }}>

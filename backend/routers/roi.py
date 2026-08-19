@@ -780,7 +780,12 @@ def get_all_doctors_roi(
         SalesEntry.doctor_id,
         func.sum(SalesEntry.value).label("total"),
     ).filter(SalesEntry.doctor_id.in_(doctor_ids))
-    if eff_year and eff_month:
+    if start_date and end_date:
+        sales_q = sales_q.filter(
+            SalesEntry.sale_date >= start_date,
+            SalesEntry.sale_date <= end_date,
+        )
+    elif eff_year and eff_month:
         sales_q = sales_q.filter(SalesEntry.year == eff_year, SalesEntry.month == eff_month)
     sales_map = {r.doctor_id: float(r.total or 0) for r in sales_q.group_by(SalesEntry.doctor_id).all()}
 

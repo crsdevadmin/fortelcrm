@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { dashboardAPI, roiAPI, salesAPI, targetsAPI } from '../api';
+import DrilldownPanel from '../components/DrilldownPanel';
 
 const API   = process.env.REACT_APP_API_URL || '';
 const NOW   = new Date();
@@ -56,6 +57,30 @@ function fmtInr(v) {
   if (v >= 100000)   return `₹${(v/100000).toFixed(1)}L`;
   if (v >= 1000)     return `₹${(v/1000).toFixed(1)}K`;
   return `₹${Math.round(v)}`;
+}
+function fmtPeriodDate(value) {
+  if (!value) return '—';
+  const [year, month, day] = String(value).split('-').map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString('en-IN', {
+    day: 'numeric', month: 'short', year: 'numeric',
+  });
+}
+function previousMonth(year, month) {
+  return month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 };
+}
+function salesTrend(currentValue, previousValue, previousLabel) {
+  const current = Number(currentValue) || 0;
+  const previous = Number(previousValue) || 0;
+  if (previous <= 0) {
+    return current > 0
+      ? { label: `Monthly sales: new activity vs ${previousLabel}`, tone: 'positive' }
+      : { label: `Monthly sales: none in ${previousLabel}`, tone: 'neutral' };
+  }
+  const change = Math.round(((current - previous) / previous) * 1000) / 10;
+  return {
+    label: `Monthly sales ${change >= 0 ? '↑' : '↓'} ${Math.abs(change)}% vs ${previousLabel}`,
+    tone: change >= 0 ? 'positive' : 'negative',
+  };
 }
 function fmtROIValue(sales, invested, roi) {
   if ((invested || 0) > 0) return `${roi || 0}x`;
@@ -183,6 +208,139 @@ function CABar({ pct }) {
         <div style={{ height: '100%', width: `${Math.min(p, 100)}%`, background: color, borderRadius: 3, transition: 'width 0.6s' }} />
       </div>
       <div style={{ fontSize: 10, color, fontWeight: 700, marginTop: 2 }}>{p}%</div>
+    </div>
+  );
+}
+
+function DecisionMetricCard({
+  title, period, icon, accent, value, status, statusTone = 'neutral',
+  targetLabel, achievementPct, trend, detail, completeness, actionLabel, onOpen,
+}) {
+  const tone = {
+    positive: { color: '#047857', bg: '#ecfdf5' },
+    warning: { color: '#b45309', bg: '#fffbeb' },
+    negative: { color: '#b91c1c', bg: '#fef2f2' },
+    neutral: { color: '#475569', bg: '#f1f5f9' },
+  }[statusTone] || { color: '#475569', bg: '#f1f5f9' };
+  const pct = achievementPct == null ? null : Math.max(0, Math.min(100, Number(achievementPct) || 0));
+  const trendTone = trend?.tone === 'positive' ? '#047857' : trend?.tone === 'negative' ? '#b91c1c' : '#64748b';
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      style={{
+        minWidth: 0, width: '100%', padding: 0, textAlign: 'left', cursor: 'pointer',
+        background: '#fff', border: '1px solid #e2e8f0', borderRadius: 16,
+        overflow: 'hidden', boxShadow: '0 5px 18px rgba(15,23,42,0.08)',
+      }}
+    >
+      <div style={{ height: 5, background: accent }} />
+      <div style={{ padding: '14px 15px 13px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 11, fontWeight: 900, color: '#334155', textTransform: 'uppercase', letterSpacing: 0.55 }}>{title}</div>
+            <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 3, lineHeight: 1.35 }}>{period}</div>
+          </div>
+          <span style={{ fontSize: 20, lineHeight: 1 }}>{icon}</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 9, marginTop: 11 }}>
+          <div style={{ fontSize: 25, lineHeight: 1, fontWeight: 950, color: '#0f172a', letterSpacing: '-0.7px' }}>{value}</div>
+          <span style={{ fontSize: 9, fontWeight: 900, color: tone.color, background: tone.bg, borderRadius: 20, padding: '4px 7px', whiteSpace: 'nowrap' }}>{status}</span>
+        </div>
+        {(targetLabel || pct != null) && (
+          <div style={{ marginTop: 11 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 9, color: '#64748b', marginBottom: 5 }}>
+              <span>{targetLabel || 'Progress'}</span>
+              <strong style={{ color: tone.color }}>{pct == null ? '—' : `${Math.round(Number(achievementPct) * 10) / 10}%`}</strong>
+            </div>
+            <div style={{ height: 6, borderRadius: 99, background: '#e2e8f0', overflow: 'hidden' }}>
+              <div style={{ width: `${pct || 0}%`, height: '100%', borderRadius: 99, background: accent }} />
+            </div>
+          </div>
+        )}
+        {trend?.label && <div style={{ fontSize: 10, color: trendTone, fontWeight: 800, marginTop: 9 }}>{trend.label}</div>}
+        {detail && <div style={{ fontSize: 10, color: '#475569', marginTop: 7, lineHeight: 1.35 }}>{detail}</div>}
+        {completeness && <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 5, lineHeight: 1.35 }}>{completeness}</div>}
+        <div style={{ fontSize: 10, color: accent, fontWeight: 900, marginTop: 11 }}>{actionLabel} →</div>
+      </div>
+    </button>
+  );
+}
+
+function DashboardDrilldownDrawer({ config, context, onClose, onOpenFull }) {
+  useEffect(() => {
+    const onKeyDown = event => { if (event.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+  if (!config) return null;
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 1200, display: 'flex', justifyContent: 'flex-end' }}>
+      <button aria-label="Close details" onClick={onClose} style={{ position: 'absolute', inset: 0, border: 'none', background: 'rgba(15,23,42,0.42)', cursor: 'default' }} />
+      <aside style={{ position: 'relative', width: 'min(460px, 94vw)', height: '100%', background: '#fff', boxShadow: '-16px 0 48px rgba(15,23,42,0.22)', overflowY: 'auto' }}>
+        <div style={{ position: 'sticky', top: 0, zIndex: 2, padding: '18px 20px 15px', background: `linear-gradient(135deg, ${config.accent} 0%, ${config.accent}dd 100%)`, color: '#fff' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 800, opacity: 0.72, textTransform: 'uppercase', letterSpacing: 1 }}>Dashboard drill-down</div>
+              <div style={{ fontSize: 20, fontWeight: 900, marginTop: 4 }}>{config.icon} {config.title}</div>
+              <div style={{ fontSize: 11, opacity: 0.78, marginTop: 3 }}>{config.period}</div>
+            </div>
+            <button onClick={onClose} aria-label="Close details" style={{ width: 32, height: 32, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.3)', background: 'rgba(255,255,255,0.13)', color: '#fff', fontSize: 19, cursor: 'pointer' }}>×</button>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 12 }}>
+            {context.map(item => <span key={item} style={{ fontSize: 9, padding: '4px 7px', borderRadius: 20, background: 'rgba(255,255,255,0.14)', border: '1px solid rgba(255,255,255,0.16)' }}>{item}</span>)}
+          </div>
+        </div>
+
+        <div style={{ padding: 20 }}>
+          {config.periodTabs?.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${config.periodTabs.length}, minmax(0, 1fr))`, gap: 5, padding: 4, marginBottom: 16, background: '#f1f5f9', borderRadius: 11 }}>
+              {config.periodTabs.map(tab => (
+                <button key={tab.key} onClick={tab.onClick} style={{ border: tab.active ? '1px solid #dbe4ee' : '1px solid transparent', borderRadius: 8, padding: '8px 9px', background: tab.active ? '#fff' : 'transparent', color: tab.active ? config.accent : '#64748b', boxShadow: tab.active ? '0 1px 3px rgba(15,23,42,0.08)' : 'none', fontSize: 10, fontWeight: 900, cursor: 'pointer' }}>
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          )}
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-end' }}>
+            <div>
+              <div style={{ fontSize: 10, color: '#94a3b8', fontWeight: 800, textTransform: 'uppercase' }}>{config.valueLabel || 'Current result'}</div>
+              <div style={{ fontSize: 29, fontWeight: 950, color: '#0f172a', marginTop: 3 }}>{config.value}</div>
+            </div>
+            <span style={{ color: config.statusColor || '#475569', background: `${config.statusColor || '#475569'}12`, borderRadius: 20, padding: '5px 9px', fontSize: 10, fontWeight: 900 }}>{config.status}</span>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 8, marginTop: 16 }}>
+            {config.metrics.map(metric => (
+              <div key={metric.label} style={{ border: '1px solid #e2e8f0', background: '#f8fafc', borderRadius: 11, padding: '10px 11px' }}>
+                <div style={{ fontSize: 8, color: '#94a3b8', textTransform: 'uppercase', fontWeight: 800, letterSpacing: 0.4 }}>{metric.label}</div>
+                <div style={{ fontSize: 14, color: metric.color || '#0f172a', fontWeight: 900, marginTop: 4 }}>{metric.value}</div>
+                {metric.note && <div style={{ fontSize: 9, color: '#64748b', marginTop: 3 }}>{metric.note}</div>}
+              </div>
+            ))}
+          </div>
+
+          {config.notice && <div style={{ marginTop: 14, padding: '10px 11px', borderRadius: 10, background: config.notice.tone === 'warning' ? '#fffbeb' : '#f1f5f9', color: config.notice.tone === 'warning' ? '#92400e' : '#475569', fontSize: 10, lineHeight: 1.45 }}>{config.notice.text}</div>}
+
+          <div style={{ marginTop: 18 }}>
+            <div style={{ fontSize: 11, fontWeight: 900, color: '#334155', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>{config.listTitle}</div>
+            {config.rows.length === 0 ? (
+              <div style={{ padding: '18px 12px', border: '1px dashed #cbd5e1', borderRadius: 11, textAlign: 'center', color: '#64748b', fontSize: 11 }}>No recorded data for this selection.</div>
+            ) : config.rows.map((row, index) => (
+              <div key={`${row.label}-${index}`} style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '10px 2px', borderBottom: '1px solid #f1f5f9' }}>
+                <span style={{ width: 22, height: 22, borderRadius: '50%', background: `${config.accent}16`, color: config.accent, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 900, flexShrink: 0 }}>{index + 1}</span>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 11, fontWeight: 850, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.label}</div>
+                  <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 2 }}>{row.meta}</div>
+                </div>
+                <div style={{ fontSize: 12, color: row.color || config.accent, fontWeight: 900, textAlign: 'right', flexShrink: 0 }}>{row.value}</div>
+              </div>
+            ))}
+          </div>
+
+          <button onClick={onOpenFull} style={{ width: '100%', border: 'none', borderRadius: 11, background: config.accent, color: '#fff', padding: '11px 14px', marginTop: 18, fontSize: 11, fontWeight: 900, cursor: 'pointer' }}>Open full details with these filters →</button>
+        </div>
+      </aside>
     </div>
   );
 }
@@ -318,7 +476,7 @@ function ActionCentre({ items, loading, onOpen }) {
           {visible.map(item => {
             const style = severityStyle[item.severity] || severityStyle.info;
             return (
-              <button key={item.id} onClick={() => item.action_path && onOpen(item.action_path)}
+              <button key={item.id} onClick={() => item.action_path && onOpen(item)}
                 style={{ border: `1px solid ${style.border}`, background: style.bg, borderRadius: 11, padding: '10px 11px', textAlign: 'left', cursor: item.action_path ? 'pointer' : 'default', minWidth: 0 }}>
                 <div style={{ display: 'flex', gap: 9, alignItems: 'flex-start' }}>
                   <span style={{ width: 28, height: 28, borderRadius: 8, background: '#fff', color: style.color, border: `1px solid ${style.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: item.type === 'weekly_pdf' ? 8 : 13, fontWeight: 900, flexShrink: 0 }}>
@@ -476,6 +634,7 @@ function RepPerformanceScorecard({ rows, loading, month, year, week, onOpenPerso
     green: { label: 'On track', color: '#047857', bg: '#ecfdf5', border: '#a7f3d0' },
     amber: { label: 'Needs attention', color: '#b45309', bg: '#fffbeb', border: '#fde68a' },
     red: { label: 'Immediate follow-up', color: '#b91c1c', bg: '#fef2f2', border: '#fecaca' },
+    unassigned: { label: 'Not measurable', color: '#64748b', bg: '#f8fafc', border: '#cbd5e1' },
   };
   const visible = showAll ? rows : rows.slice(0, 10);
   const metric = (label, value, color) => (
@@ -493,7 +652,7 @@ function RepPerformanceScorecard({ rows, loading, month, year, week, onOpenPerso
           <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>{MONTH_NAMES[month]} {year} · business, recovery and execution · regional and doctor sales scored separately</div>
         </div>
         <div style={{ display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          {['green', 'amber', 'red'].map(level => {
+          {['green', 'amber', 'red', 'unassigned'].map(level => {
             const style = statusStyle[level];
             const count = rows.filter(row => row.status === level).length;
             return <span key={level} style={{ fontSize: 8, fontWeight: 900, color: style.color, background: style.bg, border: `1px solid ${style.border}`, borderRadius: 20, padding: '3px 7px' }}>{count} {style.label}</span>;
@@ -533,14 +692,14 @@ function RepPerformanceScorecard({ rows, loading, month, year, week, onOpenPerso
                     </td>
                     <td style={{ padding: '11px', minWidth: 115 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ width: 39, height: 39, borderRadius: '50%', background: style.bg, border: `3px solid ${style.border}`, color: style.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900 }}>{row.score}</span>
+                        <span style={{ width: 39, height: 39, borderRadius: '50%', background: style.bg, border: `3px solid ${style.border}`, color: style.color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 900 }}>{row.score ?? '—'}</span>
                         <span style={{ fontSize: 8, fontWeight: 900, color: style.color, maxWidth: 55 }}>{style.label}</span>
                       </div>
                     </td>
                     <td style={{ padding: '11px', minWidth: 230 }}>
                       <div style={{ display: 'flex', gap: 15 }}>
-                        {metric('Doctor sales', row.doctor_count > 0 ? `${row.doctor_sales_pct}%` : 'N/A', '#047857')}
-                        {metric('Regional sales', row.regional_required ? `${row.regional_sales_pct}%` : 'N/A', '#2563eb')}
+                        {metric('Doctor sales', row.doctor_sales_pct == null ? 'N/A' : `${row.doctor_sales_pct}%`, '#047857')}
+                        {metric('Regional sales', row.regional_sales_pct == null ? 'N/A' : `${row.regional_sales_pct}%`, '#2563eb')}
                       </div>
                       <div style={{ fontSize: 8, color: '#94a3b8', marginTop: 5 }}>
                         {fmtInr(row.doctor_sales)} doctor · {fmtInr(row.regional_sales)} regional
@@ -553,9 +712,9 @@ function RepPerformanceScorecard({ rows, loading, month, year, week, onOpenPerso
                     </td>
                     <td style={{ padding: '11px', minWidth: 250 }}>
                       <div style={{ display: 'flex', gap: 13 }}>
-                        {metric('Visits', `${row.visit_coverage_pct}%`, row.visit_coverage_pct >= 60 ? '#047857' : '#b45309')}
-                        {metric(`Week ${week?.week || ''}`, `${row.weekly_score}%`, row.weekly_score >= 80 ? '#047857' : '#b45309')}
-                        {metric('Tasks', `${row.task_score}%`, row.overdue_tasks > 0 ? '#b91c1c' : '#7c3aed')}
+                        {metric('Visits · 30d', row.visit_coverage_pct == null ? 'N/A' : `${row.visit_coverage_pct}%`, row.visit_coverage_pct == null ? '#64748b' : row.visit_coverage_pct >= 60 ? '#047857' : '#b45309')}
+                        {metric(`Week ${week?.week || ''}`, row.weekly_score == null ? 'N/A' : `${row.weekly_score}%`, row.weekly_score == null ? '#64748b' : row.weekly_score >= 80 ? '#047857' : '#b45309')}
+                        {metric(`Tasks · ${MONTH_NAMES[month]}`, row.task_score == null ? 'N/A' : `${row.task_score}%`, row.task_score == null ? '#64748b' : row.overdue_tasks > 0 ? '#b91c1c' : '#7c3aed')}
                       </div>
                     </td>
                     <td style={{ padding: '11px', minWidth: 210 }}>
@@ -579,6 +738,118 @@ function RepPerformanceScorecard({ rows, loading, month, year, week, onOpenPerso
           {showAll ? 'Show top 10' : `Show ${rows.length - 10} more people`}
         </button>
       )}
+    </div>
+  );
+}
+
+function DoctorPerformanceTab({ doctors, onOpenDoctor }) {
+  const [sortMode, setSortMode] = useState('sales');
+  const [showAll, setShowAll] = useState(false);
+  const modes = [
+    { key: 'sales', label: 'Top sales' },
+    { key: 'investment', label: 'Highest investment' },
+    { key: 'shortfall', label: 'Highest shortfall' },
+    { key: 'best_roi', label: 'Best ROI' },
+    { key: 'lowest_roi', label: 'Lowest ROI' },
+  ];
+  const ranked = doctors
+    .map(doctor => ({
+      ...doctor,
+      shortfall: Math.max(0, (Number(doctor.expected_sales) || 0) - (Number(doctor.actual_sales) || 0)),
+    }))
+    .filter(doctor => {
+      if (sortMode === 'sales') return Number(doctor.actual_sales) > 0;
+      if (sortMode === 'shortfall') return doctor.shortfall > 0;
+      return Number(doctor.total_invested) > 0;
+    })
+    .sort((a, b) => {
+      if (sortMode === 'sales') return Number(b.actual_sales) - Number(a.actual_sales);
+      if (sortMode === 'investment') return Number(b.total_invested) - Number(a.total_invested);
+      if (sortMode === 'shortfall') return b.shortfall - a.shortfall;
+      if (sortMode === 'best_roi') return Number(b.roi_multiple) - Number(a.roi_multiple);
+      return Number(a.roi_multiple) - Number(b.roi_multiple);
+    });
+  const visible = showAll ? ranked : ranked.slice(0, 10);
+  return (
+    <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 16, overflow: 'hidden' }}>
+      <div style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9', background: 'linear-gradient(135deg,#fff,#fff7ed)' }}>
+        <div style={{ fontSize: 14, fontWeight: 900, color: '#111827' }}>Doctor Performance</div>
+        <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>Sales, investment, recovery and ROI in one ranked view</div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 11 }}>
+          {modes.map(mode => (
+            <button key={mode.key} onClick={() => { setSortMode(mode.key); setShowAll(false); }} style={{ border: sortMode === mode.key ? '1px solid #c2410c' : '1px solid #e2e8f0', background: sortMode === mode.key ? '#fff7ed' : '#fff', color: sortMode === mode.key ? '#9a3412' : '#64748b', borderRadius: 20, padding: '5px 9px', fontSize: 9, fontWeight: 850, cursor: 'pointer' }}>{mode.label}</button>
+          ))}
+        </div>
+      </div>
+      {ranked.length === 0 ? (
+        <div style={{ padding: 28, textAlign: 'center', color: '#64748b', fontSize: 12 }}>No recorded doctors for this ranking.</div>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', minWidth: 760, borderCollapse: 'collapse' }}>
+            <thead><tr style={{ background: '#f8fafc' }}>{['#', 'Doctor', 'Doctor sales', 'Investment', 'Expected return', 'Shortfall', 'ROI'].map(label => <th key={label} style={{ padding: '9px 11px', textAlign: label === 'Doctor' || label === '#' ? 'left' : 'right', fontSize: 8, color: '#64748b', textTransform: 'uppercase', borderBottom: '1px solid #e5e7eb' }}>{label}</th>)}</tr></thead>
+            <tbody>
+              {visible.map((doctor, index) => (
+                <tr key={doctor.doctor_id} onClick={() => onOpenDoctor(doctor)} style={{ borderBottom: '1px solid #f1f5f9', cursor: 'pointer' }}>
+                  <td style={{ padding: 11, color: '#94a3b8', fontSize: 10, fontWeight: 800 }}>{index + 1}</td>
+                  <td style={{ padding: 11 }}>
+                    <div style={{ fontSize: 11, fontWeight: 900, color: '#111827' }}>{doctor.doctor_name}</div>
+                    <div style={{ fontSize: 8, color: '#94a3b8', marginTop: 2 }}>{doctor.city || 'City not set'} · {doctor.manager_name || 'Owner not set'}</div>
+                  </td>
+                  <td style={{ padding: 11, textAlign: 'right', fontSize: 11, fontWeight: 900, color: '#047857' }}>{fmtInr(doctor.actual_sales)}</td>
+                  <td style={{ padding: 11, textAlign: 'right', fontSize: 11, fontWeight: 800, color: '#c2410c' }}>{fmtInr(doctor.total_invested)}</td>
+                  <td style={{ padding: 11, textAlign: 'right', fontSize: 11, color: '#475569' }}>{fmtInr(doctor.expected_sales)}</td>
+                  <td style={{ padding: 11, textAlign: 'right', fontSize: 11, fontWeight: 900, color: doctor.shortfall > 0 ? '#b91c1c' : '#047857' }}>{fmtInr(doctor.shortfall)}</td>
+                  <td style={{ padding: 11, textAlign: 'right' }}><Pill label={fmtROIValue(doctor.actual_sales, doctor.total_invested, doctor.roi_multiple)} bg={GRADE_BG[doctor.roi_grade]} color={GRADE_COLOR[doctor.roi_grade]} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {ranked.length > 10 && <button onClick={() => setShowAll(value => !value)} style={{ width: '100%', border: 'none', borderTop: '1px solid #f1f5f9', background: '#fff', padding: 9, color: '#475569', fontSize: 10, fontWeight: 800, cursor: 'pointer' }}>{showAll ? 'Show top 10' : `Show ${ranked.length - 10} more doctors`}</button>}
+    </div>
+  );
+}
+
+function ProductPerformanceTab({ products, selectedProduct, doctors, loading, onSelectProduct, onBack }) {
+  const [showAll, setShowAll] = useState(false);
+  const ranked = products.filter(product => Number(product.total_sales) > 0);
+  const visible = showAll ? ranked : ranked.slice(0, 10);
+  const rows = selectedProduct ? doctors : visible;
+  return (
+    <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 16, overflow: 'hidden' }}>
+      <div style={{ padding: '14px 16px', borderBottom: '1px solid #f1f5f9', background: 'linear-gradient(135deg,#fff,#faf5ff)', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 900, color: '#4c1d95' }}>{selectedProduct ? selectedProduct.product_name : 'Product Performance'}</div>
+          <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>{selectedProduct ? 'Doctors contributing to this product' : 'Only products with recorded sales are ranked'}</div>
+        </div>
+        {selectedProduct && <button onClick={onBack} style={{ border: '1px solid #e9d5ff', background: '#faf5ff', color: '#7c3aed', borderRadius: 20, padding: '5px 9px', fontSize: 9, fontWeight: 850, cursor: 'pointer' }}>← All products</button>}
+      </div>
+      {loading ? (
+        <div style={{ padding: 28, textAlign: 'center', color: '#64748b', fontSize: 12 }}>Loading product details…</div>
+      ) : rows.length === 0 ? (
+        <div style={{ padding: 28, textAlign: 'center', color: '#64748b', fontSize: 12 }}>No recorded sales for this selection.</div>
+      ) : (
+        <div style={{ padding: '5px 16px 10px' }}>
+          {rows.map((row, index) => {
+            const value = selectedProduct ? row.total_value : row.total_sales;
+            const quantity = selectedProduct ? row.total_qty : row.total_qty;
+            const maxValue = Number(selectedProduct ? rows[0]?.total_value : ranked[0]?.total_sales) || 1;
+            return (
+              <button key={selectedProduct ? row.doctor_id : row.product_id} onClick={() => !selectedProduct && onSelectProduct(row)} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 11, padding: '11px 2px', border: 'none', borderBottom: '1px solid #f1f5f9', background: '#fff', textAlign: 'left', cursor: selectedProduct ? 'default' : 'pointer' }}>
+                <span style={{ width: 23, height: 23, borderRadius: '50%', background: '#f3e8ff', color: '#7c3aed', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 900 }}>{index + 1}</span>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: 'block', fontSize: 11, fontWeight: 850, color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selectedProduct ? row.doctor_name : row.product_name}</span>
+                  <span style={{ display: 'block', height: 4, borderRadius: 3, background: '#f3e8ff', marginTop: 5, overflow: 'hidden' }}><span style={{ display: 'block', height: '100%', width: `${Math.min(100, (Number(value) / maxValue) * 100)}%`, background: '#8b5cf6' }} /></span>
+                </span>
+                <span style={{ textAlign: 'right', flexShrink: 0 }}><strong style={{ display: 'block', fontSize: 12, color: '#7c3aed' }}>{fmtInr(value)}</strong><span style={{ fontSize: 9, color: '#94a3b8' }}>Qty {quantity}</span></span>
+                {!selectedProduct && <span style={{ color: '#a78bfa' }}>›</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {!selectedProduct && ranked.length > 10 && <button onClick={() => setShowAll(value => !value)} style={{ width: '100%', border: 'none', borderTop: '1px solid #f1f5f9', background: '#fff', padding: 9, color: '#7c3aed', fontSize: 10, fontWeight: 800, cursor: 'pointer' }}>{showAll ? 'Show top 10' : `Show ${ranked.length - 10} more products`}</button>}
     </div>
   );
 }
@@ -997,6 +1268,7 @@ export default function Dashboard() {
   const [topProducts, setTopProducts] = useState([]);
   const [regionalSalesRows, setRegionalSalesRows] = useState([]);
   const [targetAchievement, setTargetAchievement] = useState(null);
+  const [previousTargetAchievement, setPreviousTargetAchievement] = useState(null);
   const [targetLoading, setTargetLoading] = useState(false);
   const [commitmentData, setCommitmentData] = useState(null);
   const [actionCentreData, setActionCentreData] = useState(null);
@@ -1015,6 +1287,10 @@ export default function Dashboard() {
   const [showSalesPanel,    setShowSalesPanel]    = useState(false);
   const [showInvestPanel,   setShowInvestPanel]   = useState(false);
   const [showROIPanel,      setShowROIPanel]      = useState(false);
+  const [drilldownType,     setDrilldownType]     = useState(null);
+  const [actionDetailItem,  setActionDetailItem]  = useState(null);
+  const [doctorSalesWindow, setDoctorSalesWindow] = useState('selected');
+  const [performanceTab,    setPerformanceTab]    = useState('territories');
   const [showAllInvest,     setShowAllInvest]     = useState(false);
   const [showAllProducts,   setShowAllProducts]   = useState(false);
   const [selProduct,        setSelProduct]        = useState(null);
@@ -1092,23 +1368,36 @@ export default function Dashboard() {
         end_date: endDate,
         viewer_id: me.id,
         owner_scope: effectiveScope,
+        ...(selRegion ? { state_code: selRegion } : {}),
+        ...(selCity ? { city: selCity } : {}),
       },
     }).then(response => { if (!cancelled) setTopProducts(response.data || []); })
       .catch(() => { if (!cancelled) setTopProducts([]); });
     return () => { cancelled = true; };
-  }, [me?.id, year, month, startDate, endDate, effectiveScope]);
+  }, [me?.id, year, month, startDate, endDate, effectiveScope, selRegion, selCity]);
 
   useEffect(() => {
     if (!me?.id) return;
     let cancelled = false;
     setTargetLoading(true);
-    targetsAPI.dashboard(me.id, year, month, effectiveScope, {
+    const filters = {
       ...(selRegion ? { state_code: selRegion } : {}),
       ...(selCity ? { city: selCity } : {}),
-    }).then(response => {
-      if (!cancelled) setTargetAchievement(response.data || null);
+    };
+    const prior = previousMonth(year, month);
+    Promise.all([
+      targetsAPI.dashboard(me.id, year, month, effectiveScope, filters),
+      targetsAPI.dashboard(me.id, prior.year, prior.month, effectiveScope, filters),
+    ]).then(([currentResponse, previousResponse]) => {
+      if (!cancelled) {
+        setTargetAchievement(currentResponse.data || null);
+        setPreviousTargetAchievement(previousResponse.data || null);
+      }
     }).catch(() => {
-      if (!cancelled) setTargetAchievement(null);
+      if (!cancelled) {
+        setTargetAchievement(null);
+        setPreviousTargetAchievement(null);
+      }
     }).finally(() => {
       if (!cancelled) setTargetLoading(false);
     });
@@ -1220,17 +1509,22 @@ export default function Dashboard() {
     };
   }, [displayDoctors]);
 
-  const investmentRecovery = useMemo(() => {
-    const rows = (commitmentData?.doctor_summary || [])
+  const filteredRecoveryRows = useMemo(() => (commitmentData?.doctor_summary || [])
       .filter(row => scopeUserIds.has(Number(row.manager_id)))
       .filter(row => !selRegion || toStateName(row.state_code) === selRegion)
-      .filter(row => !selCity || normCity(row.city) === selCity);
+      .filter(row => !selCity || normCity(row.city) === selCity),
+  [commitmentData, scopeUserIds, selRegion, selCity]);
+
+  const investmentRecovery = useMemo(() => {
+    const rows = filteredRecoveryRows;
     const expected = rows.reduce((sum, row) => sum + (Number(row.expected_sales) || 0), 0);
     const sales = rows.reduce((sum, row) => sum + (Number(row.sales_captured) || 0), 0);
+    const invested = rows.reduce((sum, row) => sum + (Number(row.total_invested) || 0), 0);
     const atRiskCount = rows.filter(row => ['At Risk', 'Breached'].includes(row.worst_status)).length;
     const breached = rows.filter(row => row.worst_status === 'Breached').length;
     return {
       doctors: rows.length,
+      invested,
       expected,
       sales,
       shortfall: Math.max(0, expected - sales),
@@ -1238,100 +1532,50 @@ export default function Dashboard() {
       breached,
       achievementPct: expected > 0 ? Math.round((sales / expected) * 1000) / 10 : 0,
     };
-  }, [commitmentData, scopeUserIds, selRegion, selCity]);
+  }, [filteredRecoveryRows]);
 
-  const repScorecardRows = useMemo(() => {
-    const recoveryByOwner = {};
-    (commitmentData?.doctor_summary || [])
-      .filter(row => scopeUserIds.has(Number(row.manager_id)))
-      .filter(row => !selRegion || toStateName(row.state_code) === selRegion)
-      .filter(row => !selCity || normCity(row.city) === selCity)
-      .forEach(row => {
-        const ownerId = Number(row.manager_id);
-        if (!recoveryByOwner[ownerId]) recoveryByOwner[ownerId] = { expected: 0, sales: 0, atRisk: 0, breached: 0 };
-        const bucket = recoveryByOwner[ownerId];
-        bucket.expected += Number(row.expected_sales) || 0;
-        bucket.sales += Number(row.sales_captured) || 0;
-        if (row.worst_status === 'At Risk') bucket.atRisk += 1;
-        if (row.worst_status === 'Breached') bucket.breached += 1;
-      });
+  const repScorecardRows = useMemo(
+    () => Array.isArray(repScorecard?.rows) ? repScorecard.rows : [],
+    [repScorecard]
+  );
 
-    const cap100 = value => Math.max(0, Math.min(100, Number(value) || 0));
-    return (repScorecard?.rows || []).map(row => {
-      const doctorSalesPct = row.doctor_target_available
-        ? (Number(row.doctor_sales) / Math.max(Number(row.doctor_target), 1)) * 100
-        : row.doctor_count > 0 ? 50 : 100;
-      const regionalSalesPct = row.regional_required
-        ? row.regional_target_available
-          ? (Number(row.regional_sales) / Math.max(Number(row.regional_target), 1)) * 100
-          : 50
-        : 100;
-      const recovery = recoveryByOwner[Number(row.user_id)] || { expected: 0, sales: 0, atRisk: 0, breached: 0 };
-      const recoveryPct = recovery.expected > 0 ? (recovery.sales / recovery.expected) * 100 : 100;
-      const weeklyExpected = Number(row.weekly_expected) || 0;
-      const weeklyScore = weeklyExpected > 0
-        ? ((Number(row.weekly_submitted) || 0) / weeklyExpected) * 60
-          + ((Number(row.weekly_pdf_uploaded) || 0) / weeklyExpected) * 20
-          + ((Number(row.weekly_pdf_matched) || 0) / weeklyExpected) * 20
-        : 100;
-      const taskScore = Number(row.task_total) > 0
-        ? (Number(row.task_completed) / Number(row.task_total)) * 100
-        : 100;
-      const score = Math.round(
-        cap100(doctorSalesPct) * 0.25
-        + cap100(regionalSalesPct) * 0.20
-        + cap100(recoveryPct) * 0.20
-        + cap100(row.visit_coverage_pct) * 0.15
-        + cap100(weeklyScore) * 0.10
-        + cap100(taskScore) * 0.10
-      );
-      const reasons = [];
-      if (row.doctor_count > 0 && !row.doctor_target_available) reasons.push('Doctor target not set');
-      else if (row.doctor_target_available && doctorSalesPct < 80) reasons.push('Doctor sales below target');
-      if (row.regional_required && !row.regional_target_available) reasons.push('Regional target not set');
-      else if (row.regional_required && regionalSalesPct < 80) reasons.push('Regional sales below target');
-      if (recovery.breached > 0) reasons.push(`${recovery.breached} recovery breached`);
-      else if (recovery.atRisk > 0) reasons.push(`${recovery.atRisk} recovery at risk`);
-      if (row.doctor_count > 0 && Number(row.visit_coverage_pct) < 60) reasons.push('Low visit coverage');
-      if (weeklyExpected > Number(row.weekly_submitted || 0)) reasons.push('Weekly update missing');
-      if (Number(row.weekly_submitted || 0) > Number(row.weekly_pdf_uploaded || 0)) reasons.push('Weekly PDF missing');
-      if (Number(row.weekly_pdf_uploaded || 0) > Number(row.weekly_pdf_matched || 0)) reasons.push('PDF mismatch');
-      if (Number(row.overdue_tasks) > 0) reasons.push(`${row.overdue_tasks} overdue task${Number(row.overdue_tasks) === 1 ? '' : 's'}`);
-      const pending = Number(row.pending_investments || 0) + Number(row.pending_sales || 0);
-      if (pending > 0) reasons.push(`${pending} pending approval${pending === 1 ? '' : 's'}`);
-
-      const critical = recovery.breached > 0
-        || Number(row.overdue_tasks) > 0
-        || Number(row.weekly_pdf_uploaded || 0) > Number(row.weekly_pdf_matched || 0)
-        || score < 50;
-      return {
-        ...row,
-        score,
-        status: critical ? 'red' : score < 75 || reasons.length > 0 ? 'amber' : 'green',
-        doctor_sales_pct: Math.round(doctorSalesPct * 10) / 10,
-        regional_sales_pct: Math.round(regionalSalesPct * 10) / 10,
-        recovery_expected: recovery.expected,
-        recovery_sales: recovery.sales,
-        recovery_pct: Math.round(recoveryPct * 10) / 10,
-        recovery_at_risk: recovery.atRisk,
-        recovery_breached: recovery.breached,
-        weekly_score: Math.round(cap100(weeklyScore)),
-        task_score: Math.round(cap100(taskScore)),
-        reasons,
-      };
-    }).sort((a, b) => b.score - a.score || a.name.localeCompare(b.name));
-  }, [repScorecard, commitmentData, scopeUserIds, selRegion, selCity]);
+  const executionSummary = useMemo(() => {
+    const totals = repScorecardRows.reduce((result, row) => ({
+      doctors: result.doctors + (Number(row.doctor_count) || 0),
+      visited: result.visited + (Number(row.visited_30d) || 0),
+      tasks: result.tasks + (Number(row.task_total) || 0),
+      completed: result.completed + (Number(row.task_completed) || 0),
+      overdue: result.overdue + (Number(row.overdue_tasks) || 0),
+      weeklyExpected: result.weeklyExpected + (Number(row.weekly_expected) || 0),
+      weeklySubmitted: result.weeklySubmitted + (Number(row.weekly_submitted) || 0),
+      pdfMatched: result.pdfMatched + (Number(row.weekly_pdf_matched) || 0),
+    }), { doctors: 0, visited: 0, tasks: 0, completed: 0, overdue: 0, weeklyExpected: 0, weeklySubmitted: 0, pdfMatched: 0 });
+    return {
+      ...totals,
+      visitPct: totals.doctors > 0 ? Math.round((totals.visited / totals.doctors) * 1000) / 10 : null,
+      taskPct: totals.tasks > 0 ? Math.round((totals.completed / totals.tasks) * 1000) / 10 : null,
+      weeklyPct: totals.weeklyExpected > 0 ? Math.round((totals.weeklySubmitted / totals.weeklyExpected) * 1000) / 10 : null,
+    };
+  }, [repScorecardRows]);
 
   const actionItems = useMemo(() => {
     const items = [...(actionCentreData?.items || [])];
     const doctorTarget = targetAchievement?.doctor_sales;
     const regionalTarget = targetAchievement?.regional_sales;
     if (doctorTarget?.has_target && doctorTarget.status === 'Below pace') {
+      const doctorsBehindTarget = [...displayDoctors]
+        .sort((a, b) => Number(b.actual_sales || 0) - Number(a.actual_sales || 0))
+        .slice(0, 50)
+        .map(doctor => ({
+          label: doctor.doctor_name,
+          meta: `${doctor.city || 'City not set'} · ${doctor.manager_name || 'Owner not set'}`,
+          value: fmtInr(doctor.actual_sales),
+        }));
       items.push({
         id: 'doctor-target-below-pace', type: 'doctor_target', severity: 'warning',
         title: 'Doctor sales target is below pace',
         detail: `${doctorTarget.achievement_pct}% achieved · ${fmtInr(doctorTarget.remaining_value)} remaining`,
-        count: 1, names: [], action_path: '/investment-roi',
+        count: doctorsBehindTarget.length, names: [], rows: doctorsBehindTarget, action_path: '/investment-roi',
       });
     }
     if (regionalTarget?.has_target && regionalTarget.status === 'Below pace') {
@@ -1350,23 +1594,41 @@ export default function Dashboard() {
       });
     }
     if (investmentRecovery.breached > 0) {
+      const breachedDoctors = filteredRecoveryRows
+        .filter(row => row.worst_status === 'Breached')
+        .sort((a, b) => Number(b.shortfall || 0) - Number(a.shortfall || 0))
+        .map(row => ({
+          label: row.doctor_name,
+          meta: `${row.city || 'City not set'} · ${row.manager_name || 'Owner not set'} · recovered ${fmtInr(row.sales_captured)}`,
+          value: `${fmtInr(row.shortfall)} gap`,
+          color: '#b91c1c',
+        }));
       items.push({
         id: 'investment-recovery-breached', type: 'investment', severity: 'critical',
         title: `${investmentRecovery.breached} investment recover${investmentRecovery.breached === 1 ? 'y has' : 'ies have'} breached deadline`,
         detail: `Six-month recovery · ${fmtInr(investmentRecovery.shortfall)} total shortfall`,
-        count: investmentRecovery.breached, names: [], action_path: '/investment-roi',
+        count: investmentRecovery.breached, names: breachedDoctors.slice(0, 4).map(row => row.label), rows: breachedDoctors, action_path: '/investment-roi',
       });
     } else if (investmentRecovery.atRisk > 0) {
+      const atRiskDoctors = filteredRecoveryRows
+        .filter(row => ['At Risk', 'Breached'].includes(row.worst_status))
+        .sort((a, b) => Number(b.shortfall || 0) - Number(a.shortfall || 0))
+        .map(row => ({
+          label: row.doctor_name,
+          meta: `${row.city || 'City not set'} · ${row.manager_name || 'Owner not set'} · ${row.worst_status}`,
+          value: `${fmtInr(row.shortfall)} gap`,
+          color: '#b45309',
+        }));
       items.push({
         id: 'investment-recovery-risk', type: 'investment', severity: 'warning',
         title: `${investmentRecovery.atRisk} investment recover${investmentRecovery.atRisk === 1 ? 'y is' : 'ies are'} at risk`,
         detail: `Six-month recovery · ${fmtInr(investmentRecovery.shortfall)} total shortfall`,
-        count: investmentRecovery.atRisk, names: [], action_path: '/investment-roi',
+        count: investmentRecovery.atRisk, names: atRiskDoctors.slice(0, 4).map(row => row.label), rows: atRiskDoctors, action_path: '/investment-roi',
       });
     }
     const severityOrder = { critical: 0, warning: 1, info: 2 };
     return items.sort((a, b) => (severityOrder[a.severity] ?? 9) - (severityOrder[b.severity] ?? 9) || (Number(b.count) || 0) - (Number(a.count) || 0));
-  }, [actionCentreData, targetAchievement, investmentRecovery, me?.role, month, year]);
+  }, [actionCentreData, targetAchievement, investmentRecovery, filteredRecoveryRows, displayDoctors, me?.role, month, year]);
 
   const {
     totalSales, totalInvested, overallROI,
@@ -1379,9 +1641,18 @@ export default function Dashboard() {
     const totalSales    = displayDoctors.reduce((a, d) => a + (d.actual_sales   || 0), 0);
     const totalInvested = displayDoctors.reduce((a, d) => a + (d.total_invested || 0), 0);
     const overallROI    = totalInvested > 0 ? Math.round((totalSales / totalInvested) * 10) / 10 : 0;
-    const top5Doctors   = [...displayDoctors].sort((a, b) => b.actual_sales - a.actual_sales).slice(0, 5);
-    const atRisk        = displayDoctors.filter(d => d.is_at_risk || d.ca_percent < 60)
-                            .sort((a, b) => a.ca_percent - b.ca_percent).slice(0, 10);
+    const top5Doctors   = [...displayDoctors]
+      .filter(doctor => Number(doctor.actual_sales) > 0)
+      .sort((a, b) => Number(b.actual_sales) - Number(a.actual_sales))
+      .slice(0, 5);
+    const atRisk = displayDoctors
+      .map(doctor => ({
+        ...doctor,
+        recovery_shortfall: Math.max(0, (Number(doctor.expected_sales) || 0) - (Number(doctor.actual_sales) || 0)),
+      }))
+      .filter(doctor => doctor.recovery_shortfall > 0 && (doctor.is_at_risk || doctor.ca_percent < 60))
+      .sort((a, b) => b.recovery_shortfall - a.recovery_shortfall || a.ca_percent - b.ca_percent)
+      .slice(0, 10);
     const repMap = {};
     displayDoctors.forEach(d => {
       if (!d.manager_id) return;
@@ -1389,13 +1660,226 @@ export default function Dashboard() {
       repMap[d.manager_id].sales += d.actual_sales || 0;
       repMap[d.manager_id].count += 1;
     });
-    const top5Reps = Object.values(repMap).sort((a, b) => b.sales - a.sales).slice(0, 5);
+    const top5Reps = Object.values(repMap).filter(rep => rep.sales > 0).sort((a, b) => b.sales - a.sales).slice(0, 5);
     return { totalSales, totalInvested, overallROI, top5Doctors, top5Reps, atRisk };
   }, [displayDoctors]);
 
   const teamListUsers = scopeUsers.filter(u => Number(u.id) !== Number(me?.id) && u.role !== 'admin');
   const totalTeams = teamListUsers.length;
   const totalDocs  = displayDoctors.length;
+  const selectedPeriodLabel = `${fmtPeriodDate(startDate)} – ${fmtPeriodDate(endDate)}`;
+  const sixMonthStart = new Date(year, month - 6, 1);
+  const sixMonthStartYear = sixMonthStart.getFullYear();
+  const sixMonthStartMonth = sixMonthStart.getMonth() + 1;
+  const sixMonthPeriodLabel = sixMonthStartYear === year
+    ? `${MONTH_NAMES[sixMonthStartMonth]}–${MONTH_NAMES[month]} ${year}`
+    : `${MONTH_NAMES[sixMonthStartMonth]} ${sixMonthStartYear}–${MONTH_NAMES[month]} ${year}`;
+  const rollingDoctorSales = useMemo(() => {
+    const selectedIndex = (year * 12) + (month - 1);
+    return displayDoctors.map(doctor => {
+      const rollingSales = (doctor.sales_months || []).reduce((sum, row) => {
+        const rowIndex = (Number(row.year) * 12) + (Number(row.month) - 1);
+        return rowIndex >= selectedIndex - 5 && rowIndex <= selectedIndex
+          ? sum + (Number(row.amount) || 0)
+          : sum;
+      }, 0);
+      return { ...doctor, actual_sales: rollingSales, total_sales: rollingSales };
+    });
+  }, [displayDoctors, year, month]);
+  const prior = previousMonth(year, month);
+  const priorLabel = `${MONTH_NAMES[prior.month]} ${prior.year}`;
+  const regionalTarget = targetAchievement?.regional_sales;
+  const doctorTarget = targetAchievement?.doctor_sales;
+  const regionalTrend = salesTrend(
+    regionalTarget?.actual_value,
+    previousTargetAchievement?.regional_sales?.actual_value,
+    priorLabel,
+  );
+  const doctorTrend = salesTrend(
+    doctorTarget?.actual_value,
+    previousTargetAchievement?.doctor_sales?.actual_value,
+    priorLabel,
+  );
+  const scopeLabel = effectiveScope === 'mine' ? 'My Business' : effectiveScope === 'team' ? 'My Team' : 'Overall';
+  const drilldownContext = [scopeLabel, selRegion || 'All regions', selCity || 'All cities'];
+  const drilldownConfig = useMemo(() => {
+    if (!drilldownType) return null;
+    if (drilldownType === 'regional') {
+      const rows = [...(territoryPerformance?.rows || [])]
+        .filter(row => Number(row.regional_sales) > 0 || Number(row.missing_updates) > 0)
+        .sort((a, b) => Number(b.regional_sales) - Number(a.regional_sales))
+        .slice(0, 8)
+        .map(row => ({
+          label: row.territory,
+          meta: `${toStateName(row.state_code)} · ${row.missing_updates || 0} updates pending`,
+          value: fmtInr(row.regional_sales),
+        }));
+      return {
+        title: 'Regional Sales', icon: '▦', accent: '#2563eb',
+        period: `${MONTH_NAMES[month]} ${year} · cumulative weekly submissions`,
+        value: fmtInr(totalRegionalSales),
+        status: regionalTarget?.has_target ? regionalTarget.status : 'Target not set',
+        statusColor: regionalTarget?.has_target && Number(regionalTarget.achievement_pct) >= 80 ? '#047857' : '#b45309',
+        metrics: [
+          { label: 'Monthly target', value: regionalTarget?.has_target ? fmtInr(regionalTarget.target_value) : 'Not set' },
+          { label: 'Achievement', value: regionalTarget?.has_target ? `${regionalTarget.achievement_pct}%` : 'N/A' },
+          { label: 'Updates received', value: `${executionSummary.weeklySubmitted}/${executionSummary.weeklyExpected || 0}` },
+          { label: 'PDFs validated', value: `${executionSummary.pdfMatched}/${executionSummary.weeklyExpected || 0}` },
+        ],
+        notice: { tone: executionSummary.weeklyExpected > executionSummary.weeklySubmitted ? 'warning' : 'neutral', text: executionSummary.weeklyExpected > 0 ? `${executionSummary.weeklyExpected - executionSummary.weeklySubmitted} territory update(s) are still missing for the selected week.` : 'No weekly regional submission is required for this selection.' },
+        listTitle: 'Territory breakdown', rows,
+      };
+    }
+    if (drilldownType === 'doctor') {
+      const showingSixMonths = doctorSalesWindow === 'six_month';
+      const doctorRows = showingSixMonths ? rollingDoctorSales : displayDoctors;
+      const doctorsWithSales = doctorRows.filter(doctor => Number(doctor.actual_sales) > 0);
+      const doctorSalesTotal = doctorsWithSales.reduce((sum, doctor) => sum + Number(doctor.actual_sales || 0), 0);
+      const rows = [...doctorsWithSales]
+        .filter(doctor => Number(doctor.actual_sales) > 0)
+        .sort((a, b) => Number(b.actual_sales) - Number(a.actual_sales))
+        .slice(0, 8)
+        .map(doctor => ({ label: doctor.doctor_name, meta: `${doctor.city || 'City not set'} · ${doctor.manager_name || 'Owner not set'}`, value: fmtInr(doctor.actual_sales) }));
+      return {
+        title: 'Doctor Sales', icon: '◆', accent: '#0f6e56',
+        period: showingSixMonths ? `Rolling six-month returns · ${sixMonthPeriodLabel}` : `Selected dashboard period · ${selectedPeriodLabel}`,
+        valueLabel: showingSixMonths ? 'Six-month doctor sales' : 'Selected-period doctor sales',
+        value: fmtInr(doctorSalesTotal),
+        status: showingSixMonths ? 'ROI returns window' : (doctorTarget?.has_target ? doctorTarget.status : 'Target not set'),
+        statusColor: showingSixMonths ? '#2563eb' : (doctorTarget?.has_target && Number(doctorTarget.achievement_pct) >= 80 ? '#047857' : '#b45309'),
+        periodTabs: [
+          { key: 'selected', label: 'Selected period', active: !showingSixMonths, onClick: () => setDoctorSalesWindow('selected') },
+          { key: 'six_month', label: '6-month returns', active: showingSixMonths, onClick: () => setDoctorSalesWindow('six_month') },
+        ],
+        metrics: showingSixMonths ? [
+          { label: 'Returns window', value: sixMonthPeriodLabel },
+          { label: 'Doctors with sales', value: `${doctorsWithSales.length}/${totalDocs}` },
+          { label: 'Without 6M sales', value: Math.max(0, totalDocs - doctorsWithSales.length), color: totalDocs > doctorsWithSales.length ? '#b45309' : '#047857' },
+          { label: 'Top doctor', value: rows[0]?.value || 'No sales' },
+        ] : [
+          { label: 'Monthly target', value: doctorTarget?.has_target ? fmtInr(doctorTarget.target_value) : 'Not set' },
+          { label: 'Achievement', value: doctorTarget?.has_target ? `${doctorTarget.achievement_pct}%` : 'N/A' },
+          { label: 'Doctors with sales', value: `${clientStats.prescribed}/${totalDocs}` },
+          { label: 'Without sales entry', value: clientStats.not_prescribed, color: clientStats.not_prescribed > 0 ? '#b45309' : '#047857' },
+        ],
+        notice: showingSixMonths
+          ? { tone: 'neutral', text: 'This is the same rolling six-month sales window used by the Investment & ROI Returns Tracker.' }
+          : { tone: clientStats.not_prescribed > 0 ? 'warning' : 'neutral', text: clientStats.not_prescribed > 0 ? `${clientStats.not_prescribed} active doctor(s) have no doctor-wise sales entry between ${selectedPeriodLabel}. Switch to 6-month returns to compare with Investment & ROI.` : 'All active doctors in this selection have recorded sales.' },
+        listTitle: showingSixMonths ? 'Top doctors · six-month returns' : 'Top doctors · selected period', rows,
+      };
+    }
+    if (drilldownType === 'investment') {
+      const rows = [...filteredRecoveryRows]
+        .filter(row => Number(row.total_invested) > 0)
+        .sort((a, b) => Number(b.shortfall) - Number(a.shortfall) || Number(b.total_invested) - Number(a.total_invested))
+        .slice(0, 8)
+        .map(row => ({ label: row.doctor_name, meta: `${row.city || 'City not set'} · ${row.worst_status}`, value: `${fmtInr(row.shortfall)} gap`, color: Number(row.shortfall) > 0 ? '#b91c1c' : '#047857' }));
+      return {
+        title: 'Investment Recovery', icon: '◈', accent: '#c2410c', period: `Six-month commitment tracking · as of ${fmtPeriodDate(endDate)}`,
+        value: fmtInr(investmentRecovery.invested),
+        status: investmentRecovery.breached > 0 ? `${investmentRecovery.breached} breached` : investmentRecovery.atRisk > 0 ? `${investmentRecovery.atRisk} at risk` : investmentRecovery.doctors > 0 ? 'On track' : 'No commitments',
+        statusColor: investmentRecovery.breached > 0 ? '#b91c1c' : investmentRecovery.atRisk > 0 ? '#b45309' : '#047857',
+        metrics: [
+          { label: 'Expected return', value: fmtInr(investmentRecovery.expected) },
+          { label: 'Recovered sales', value: fmtInr(investmentRecovery.sales), color: '#047857' },
+          { label: 'Recovery achieved', value: `${investmentRecovery.achievementPct}%` },
+          { label: 'Total shortfall', value: fmtInr(investmentRecovery.shortfall), color: investmentRecovery.shortfall > 0 ? '#b91c1c' : '#047857' },
+        ],
+        notice: { tone: investmentRecovery.shortfall > 0 ? 'warning' : 'neutral', text: investmentRecovery.shortfall > 0 ? 'Doctors below their expected return are ranked by rupee shortfall so the largest commercial risk appears first.' : 'No recovery shortfall is currently recorded.' },
+        listTitle: 'Highest rupee shortfalls', rows,
+      };
+    }
+    const rows = [...repScorecardRows]
+      .filter(row => row.status !== 'unassigned' || row.reasons?.length)
+      .sort((a, b) => Number(b.overdue_tasks) - Number(a.overdue_tasks) || (a.score ?? 101) - (b.score ?? 101))
+      .slice(0, 8)
+      .map(row => ({ label: row.name, meta: (row.reasons || []).slice(0, 2).join(' · ') || 'No immediate concerns', value: row.score == null ? 'N/A' : `${row.score}/100`, color: row.status === 'red' ? '#b91c1c' : row.status === 'amber' ? '#b45309' : '#047857' }));
+    return {
+      title: 'Execution', icon: '✓', accent: '#7c3aed', period: `Visits: last 30 days · Tasks: ${MONTH_NAMES[month]} ${year}`,
+      value: executionSummary.visitPct == null ? 'No visit data' : `${executionSummary.visitPct}% visits`,
+      status: executionSummary.overdue > 0 ? `${executionSummary.overdue} overdue` : executionSummary.tasks > 0 ? 'No overdue tasks' : 'No tasks assigned',
+      statusColor: executionSummary.overdue > 0 ? '#b91c1c' : executionSummary.tasks > 0 ? '#047857' : '#64748b',
+      metrics: [
+        { label: 'Doctors visited', value: `${executionSummary.visited}/${executionSummary.doctors}` },
+        { label: 'Tasks completed', value: `${executionSummary.completed}/${executionSummary.tasks}` },
+        { label: 'Weekly updates', value: `${executionSummary.weeklySubmitted}/${executionSummary.weeklyExpected}` },
+        { label: 'PDFs validated', value: `${executionSummary.pdfMatched}/${executionSummary.weeklyExpected}` },
+      ],
+      notice: { tone: executionSummary.overdue > 0 ? 'warning' : 'neutral', text: executionSummary.overdue > 0 ? `${executionSummary.overdue} assigned task(s) are past their due date.` : 'Execution figures clearly distinguish no assignment from completed activity.' },
+      listTitle: 'People needing follow-up', rows,
+    };
+  }, [drilldownType, territoryPerformance, month, year, totalRegionalSales, regionalTarget, executionSummary, displayDoctors, selectedPeriodLabel, doctorSalesWindow, rollingDoctorSales, sixMonthPeriodLabel, doctorTarget, clientStats, totalDocs, filteredRecoveryRows, endDate, investmentRecovery, repScorecardRows]);
+
+  const openFullDrilldown = () => {
+    if (!drilldownType) return;
+    const params = new URLSearchParams({
+      year: String(year), month: String(month), start_date: startDate, end_date: endDate,
+      scope: effectiveScope,
+    });
+    if (selRegion) params.set('region', selRegion);
+    if (selCity) params.set('city', selCity);
+    const path = drilldownType === 'regional'
+      ? '/regional-sales'
+      : drilldownType === 'execution'
+        ? (hasReports ? '/weekly-reports' : '/visit-log')
+        : '/investment-roi';
+    if (drilldownType === 'doctor') params.set('view', 'doctor_sales');
+    if (drilldownType === 'doctor') params.set('window', doctorSalesWindow);
+    if (drilldownType === 'investment') params.set('view', 'recovery');
+    setDrilldownType(null);
+    navigate(`${path}?${params.toString()}`);
+  };
+  const actionDrilldownConfig = useMemo(() => {
+    if (!actionDetailItem) return null;
+    const severityStyle = {
+      critical: { accent: '#b91c1c', status: 'Urgent' },
+      warning: { accent: '#b45309', status: 'Needs attention' },
+      info: { accent: '#2563eb', status: 'Follow up' },
+    };
+    const tone = severityStyle[actionDetailItem.severity] || severityStyle.info;
+    const rows = (actionDetailItem.rows || []).map(row => ({
+      label: row.label || 'Record',
+      meta: row.meta || actionDetailItem.detail,
+      value: row.value || 'Pending',
+      color: row.color || tone.accent,
+    }));
+    const hiddenCount = Math.max(0, Number(actionDetailItem.count || 0) - rows.length);
+    return {
+      title: actionDetailItem.title,
+      icon: actionDetailItem.type === 'investment' ? '₹' : actionDetailItem.type === 'visit' ? '⌖' : actionDetailItem.type === 'approval' ? '⌁' : actionDetailItem.type === 'weekly_pdf' ? 'PDF' : actionDetailItem.type === 'regional_update' ? '▦' : actionDetailItem.type === 'task' ? '✓' : '!',
+      accent: tone.accent,
+      period: actionDetailItem.detail,
+      valueLabel: 'Affected records',
+      value: Number(actionDetailItem.count || rows.length).toLocaleString('en-IN'),
+      status: tone.status,
+      statusColor: tone.accent,
+      metrics: [
+        { label: 'Affected', value: Number(actionDetailItem.count || 0).toLocaleString('en-IN') },
+        { label: 'Shown here', value: rows.length.toLocaleString('en-IN') },
+        { label: 'Scope', value: scopeLabel },
+        { label: 'Location', value: selCity || selRegion || 'All' },
+      ],
+      notice: hiddenCount > 0
+        ? { tone: 'neutral', text: `${hiddenCount.toLocaleString('en-IN')} additional record(s) are available on the full working page. The highest-priority 50 are shown here.` }
+        : { tone: 'neutral', text: 'Review the affected people or records below, then open the full working page only when you need to take action.' },
+      listTitle: actionDetailItem.type === 'investment' ? 'Doctors requiring recovery action' : 'Affected people and records',
+      rows,
+    };
+  }, [actionDetailItem, scopeLabel, selCity, selRegion]);
+
+  const openActionFull = () => {
+    if (!actionDetailItem?.action_path) return;
+    const params = new URLSearchParams({
+      year: String(year), month: String(month), start_date: startDate, end_date: endDate,
+      scope: effectiveScope,
+    });
+    if (selRegion) params.set('region', selRegion);
+    if (selCity) params.set('city', selCity);
+    if (actionDetailItem.type === 'investment') params.set('view', 'recovery');
+    if (actionDetailItem.type === 'doctor_target') params.set('view', 'doctor_sales');
+    setActionDetailItem(null);
+    navigate(`${actionDetailItem.action_path}?${params.toString()}`);
+  };
   const ownDoctorCount = allDoctors.filter(doctor => Number(doctor.manager_id) === Number(me?.id)).length;
   const teamUserIds = new Set(teamUsers.map(user => Number(user.id)));
   const teamDoctorCount = allDoctors.filter(doctor => teamUserIds.has(Number(doctor.manager_id))).length;
@@ -1607,76 +2091,111 @@ export default function Dashboard() {
           );
         })()}
 
-        {/* Metric cards */}
-        {(() => {
-          const CARD_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#0F6E56', '#C2410C'];
-          const roiStatus = fmtROIStatus(totalSales, totalInvested, overallROI);
-          const cards = [
-            ...(hasReports && dashboardScope !== 'mine' ? [
-              { icon: '◈', label: 'Team', val: totalTeams, action: () => { closeAllPanels(); setView('all-teams'); setSelUser(null); } },
-            ] : []),
-            { icon: '✦', label: 'Clients',    val: totalDocs,             action: () => { closeAllPanels(); setView('all-clients'); setClientSearch(''); setClientsVisible(8); }, prescribed: clientStats?.prescribed, notPrescribed: clientStats?.not_prescribed },
-            { icon: '◆', label: 'Doctor-wise Sales', val: fmtInr(totalSales), action: () => { setView('overview'); setShowInvestPanel(false); setShowROIPanel(false); setShowSalesPanel(s => !s); setSelProduct(null); setShowAllProducts(false); setShowAllProdDoctors(false); } },
-            { icon: '▦', label: 'Regional Sales', val: fmtInr(totalRegionalSales), action: () => navigate('/regional-sales') },
-            { icon: '◈', label: 'Investment', val: fmtInr(totalInvested), action: () => { setView('overview'); setShowSalesPanel(false); setShowROIPanel(false); setShowInvestPanel(s => !s); setShowAllInvest(false); } },
-            { icon: '◇', label: 'ROI',        val: fmtROIValue(totalSales, totalInvested, overallROI),      action: () => { setView('overview'); setShowSalesPanel(false); setShowInvestPanel(false); setShowROIPanel(s => !s); }, sub: roiStatus },
-          ];
-          return (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12, marginTop: 20, position: 'relative', zIndex: 2 }}>
-              {cards.map((m, i) => {
-                const c = CARD_COLORS[i % CARD_COLORS.length];
-                return (
-                  <div key={i} onClick={m.action || undefined}
-                    style={{
-                      background: `linear-gradient(135deg, ${c}ee 0%, ${c}bb 100%)`,
-                      borderRadius: 14, padding: '14px 16px',
-                      cursor: m.action ? 'pointer' : 'default',
-                      boxShadow: `0 4px 20px ${c}55`,
-                      border: `1px solid ${c}44`,
-                      color: '#fff',
-                    }}
-                    onMouseEnter={e => { if (m.action) { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = `0 8px 28px ${c}77`; } }}
-                    onMouseLeave={e => { e.currentTarget.style.transform = ''; e.currentTarget.style.boxShadow = `0 4px 20px ${c}55`; }}
-                  >
-                    <div style={{ fontSize: 11, fontWeight: 700, opacity: 0.8, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 6 }}>{m.label}</div>
-                    {m.prescribed === undefined && <div style={{ fontSize: 22, fontWeight: 900, letterSpacing: '-0.5px' }}>{m.val}</div>}
-                    {m.sub && <div style={{ fontSize: 10, opacity: 0.85, marginTop: 4 }}>{m.sub}</div>}
-                    {m.action && !m.sub && !m.prescribed && <div style={{ fontSize: 10, opacity: 0.7, marginTop: 4 }}>tap to explore</div>}
+        {/* Scope context — useful counts, without competing with the four decision cards. */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 17, position: 'relative', zIndex: 2 }}>
+          {hasReports && dashboardScope !== 'mine' && (
+            <button onClick={() => { closeAllPanels(); setView('all-teams'); setSelUser(null); }} style={{ border: '1px solid rgba(255,255,255,0.18)', borderRadius: 10, padding: '7px 10px', background: 'rgba(255,255,255,0.08)', color: '#fff', cursor: 'pointer', fontSize: 10 }}>
+              <strong>{totalTeams}</strong> team members →
+            </button>
+          )}
+          <button onClick={() => { closeAllPanels(); setView('all-clients'); setClientSearch(''); setClientsVisible(8); }} style={{ border: '1px solid rgba(255,255,255,0.18)', borderRadius: 10, padding: '7px 10px', background: 'rgba(255,255,255,0.08)', color: '#fff', cursor: 'pointer', fontSize: 10 }}>
+            <strong>{totalDocs}</strong> active doctors · {clientStats.prescribed} with sales · {clientStats.not_prescribed} without →
+          </button>
+        </div>
 
-                    {/* Clients card — 2-column layout */}
-                    {m.prescribed !== undefined && (
-                      <div style={{ display: 'flex', gap: 0, marginTop: 8 }}>
-                        {/* Col 1 — total */}
-                        <div style={{ flex: 1, borderRight: '1px solid rgba(255,255,255,0.25)', paddingRight: 10 }}>
-                          <div style={{ fontSize: 26, fontWeight: 900 }}>{m.val}</div>
-                          <div style={{ fontSize: 9, opacity: 0.55 }}>Total</div>
-                          <div style={{ fontSize: 9, opacity: 0.4, marginTop: 8 }}>tap to explore</div>
-                        </div>
-                        {/* Col 2 — prescribed / not prescribed */}
-                        <div style={{ flex: 1, paddingLeft: 10 }}>
-                          <div style={{ paddingBottom: 6, borderBottom: '1px solid rgba(255,255,255,0.2)' }}>
-                            <div style={{ fontSize: 18, fontWeight: 800 }}>{m.prescribed ?? '—'}</div>
-                            <div style={{ fontSize: 9, opacity: 0.55 }}>Prescribed</div>
-                          </div>
-                          <div style={{ paddingTop: 6 }}>
-                            <div style={{ fontSize: 18, fontWeight: 800 }}>{m.notPrescribed ?? '—'}</div>
-                            <div style={{ fontSize: 9, opacity: 0.55 }}>Not Prescribed</div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          );
-        })()}
+        {/* Four decision cards — value, context, completeness and one clear drill-down. */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(225px, 1fr))', gap: 12, marginTop: 12, position: 'relative', zIndex: 2 }}>
+          <DecisionMetricCard
+            title="Regional Sales"
+            period={`${MONTH_NAMES[month]} ${year} · cumulative weekly submissions`}
+            icon="▦"
+            accent="#2563eb"
+            value={fmtInr(totalRegionalSales)}
+            status={regionalTarget?.has_target ? regionalTarget.status : 'Target not set'}
+            statusTone={!regionalTarget?.has_target ? 'neutral' : Number(regionalTarget.achievement_pct) >= 100 ? 'positive' : Number(regionalTarget.achievement_pct) >= 80 ? 'warning' : 'negative'}
+            targetLabel={regionalTarget?.has_target ? `${MONTH_NAMES[month]} target ${fmtInr(regionalTarget.target_value)}` : `${MONTH_NAMES[month]} target not set`}
+            achievementPct={regionalTarget?.has_target ? regionalTarget.achievement_pct : null}
+            trend={regionalTrend}
+            detail={executionSummary.weeklyExpected > 0 ? `${executionSummary.weeklySubmitted} of ${executionSummary.weeklyExpected} territory updates submitted` : 'No weekly submission requirement for this selection'}
+            completeness={executionSummary.weeklyExpected > 0 ? `${executionSummary.pdfMatched} of ${executionSummary.weeklyExpected} PDFs validated` : 'Completeness: not applicable'}
+            actionLabel="Open regional sales"
+            onOpen={() => setDrilldownType('regional')}
+          />
+          <DecisionMetricCard
+            title="Doctor Sales"
+            period={selectedPeriodLabel}
+            icon="◆"
+            accent="#0f6e56"
+            value={fmtInr(totalSales)}
+            status={doctorTarget?.has_target ? doctorTarget.status : 'Target not set'}
+            statusTone={!doctorTarget?.has_target ? 'neutral' : Number(doctorTarget.achievement_pct) >= 100 ? 'positive' : Number(doctorTarget.achievement_pct) >= 80 ? 'warning' : 'negative'}
+            targetLabel={doctorTarget?.has_target ? `${MONTH_NAMES[month]} target ${fmtInr(doctorTarget.target_value)}` : `${MONTH_NAMES[month]} target not set`}
+            achievementPct={doctorTarget?.has_target ? doctorTarget.achievement_pct : null}
+            trend={doctorTrend}
+            detail={`${clientStats.prescribed} of ${totalDocs} active doctors have sales in this period`}
+            completeness={`${clientStats.not_prescribed} doctors have no doctor-wise sales entry`}
+            actionLabel="Open doctor sales"
+            onOpen={() => setDrilldownType('doctor')}
+          />
+          <DecisionMetricCard
+            title="Investment Recovery"
+            period={`Six-month commitment tracking · as of ${fmtPeriodDate(endDate)}`}
+            icon="◈"
+            accent="#c2410c"
+            value={fmtInr(investmentRecovery.invested)}
+            status={investmentRecovery.doctors === 0 ? 'No commitments' : investmentRecovery.breached > 0 ? `${investmentRecovery.breached} breached` : investmentRecovery.atRisk > 0 ? `${investmentRecovery.atRisk} at risk` : 'On track'}
+            statusTone={investmentRecovery.doctors === 0 ? 'neutral' : investmentRecovery.breached > 0 ? 'negative' : investmentRecovery.atRisk > 0 ? 'warning' : 'positive'}
+            targetLabel={investmentRecovery.doctors > 0 ? `Recovered ${fmtInr(investmentRecovery.sales)} of ${fmtInr(investmentRecovery.expected)}` : 'No recovery target due'}
+            achievementPct={investmentRecovery.doctors > 0 ? investmentRecovery.achievementPct : null}
+            detail={investmentRecovery.doctors > 0 ? `${fmtInr(investmentRecovery.shortfall)} recovery shortfall across ${investmentRecovery.doctors} doctors` : 'No active six-month investment commitments in this selection'}
+            completeness="Investment and recovery use a rolling six-month window"
+            actionLabel="Open investment & ROI"
+            onOpen={() => setDrilldownType('investment')}
+          />
+          <DecisionMetricCard
+            title="Execution"
+            period={`Visits: last 30 days · Tasks: ${MONTH_NAMES[month]} ${year}`}
+            icon="✓"
+            accent="#7c3aed"
+            value={executionSummary.visitPct == null ? 'No visit data' : `${executionSummary.visitPct}% visits`}
+            status={executionSummary.overdue > 0 ? `${executionSummary.overdue} overdue` : executionSummary.tasks > 0 ? 'No overdue tasks' : 'No tasks assigned'}
+            statusTone={executionSummary.overdue > 0 ? 'negative' : executionSummary.tasks > 0 ? 'positive' : 'neutral'}
+            targetLabel={executionSummary.tasks > 0 ? `${executionSummary.completed} of ${executionSummary.tasks} tasks completed` : 'No tasks assigned in this month'}
+            achievementPct={executionSummary.taskPct}
+            detail={executionSummary.doctors > 0 ? `${executionSummary.visited} of ${executionSummary.doctors} active doctors visited in 30 days` : 'No assigned doctors in this selection'}
+            completeness={executionSummary.weeklyExpected > 0 ? `Weekly updates ${executionSummary.weeklySubmitted}/${executionSummary.weeklyExpected} · PDFs validated ${executionSummary.pdfMatched}/${executionSummary.weeklyExpected}` : 'Weekly regional compliance: not applicable'}
+            actionLabel="Open execution details"
+            onOpen={() => setDrilldownType('execution')}
+          />
+        </div>
 
         <div style={{ height: 24 }} />
       </div>
 
       {/* MAIN BODY */}
       <div style={{ padding: '16px 28px 28px' }}>
+
+        {drilldownType && drilldownConfig && (
+          <DrilldownPanel
+            type={drilldownType}
+            accent={drilldownConfig.accent}
+            title={drilldownConfig.title}
+            period={drilldownConfig.period}
+            value={drilldownConfig.value}
+            status={drilldownConfig.status}
+            me={me}
+            year={year}
+            month={month}
+            regionalRows={regionalSalesRows.filter(r => scopeUserIds.has(Number(r.associate_id)))}
+            recoveryRows={filteredRecoveryRows}
+            doctorRows={displayDoctors}
+            scorecardRows={repScorecardRows}
+            toStateName={toStateName}
+            onClose={() => setDrilldownType(null)}
+            onOpenFull={openFullDrilldown}
+            onOpenDoctor={(d) => { setSelDoctor(d); setSelUser(null); setView('client'); setDrilldownType(null); }}
+          />
+        )}
 
         {view !== 'overview' && <Breadcrumb crumbs={crumbs} onGo={handleBreadcrumb} />}
 
@@ -1687,8 +2206,98 @@ export default function Dashboard() {
             <ActionCentre
               items={actionItems}
               loading={actionCentreLoading || targetLoading}
-              onOpen={path => navigate(path)}
+              onOpen={item => {
+                setDrilldownType(null);
+                setActionDetailItem(item);
+              }}
             />
+
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '16px 16px 0 0', padding: '13px 15px 0' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 900, color: '#111827' }}>Performance Explorer</div>
+                    <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>One focused view at a time · all Dashboard filters remain applied</div>
+                  </div>
+                  <span style={{ fontSize: 9, color: '#64748b', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 20, padding: '4px 8px' }}>{scopeLabel} · {selCity || selRegion || 'All territories'}</span>
+                </div>
+                <div style={{ display: 'flex', gap: 4, overflowX: 'auto' }}>
+                  {[
+                    { key: 'territories', label: 'Territories', count: territoryPerformance?.rows?.length || 0, color: '#2563eb' },
+                    { key: 'reps', label: 'Reps', count: repScorecardRows.length, color: '#7c3aed' },
+                    { key: 'doctors', label: 'Doctors', count: totalDocs, color: '#c2410c' },
+                    { key: 'products', label: 'Products', count: topProducts.filter(product => Number(product.total_sales) > 0).length, color: '#0f6e56' },
+                  ].map(tab => {
+                    const active = performanceTab === tab.key;
+                    return (
+                      <button key={tab.key} onClick={() => { setPerformanceTab(tab.key); if (tab.key !== 'products') { setSelProduct(null); setProductDoctors([]); } }} style={{ border: 'none', borderBottom: active ? `3px solid ${tab.color}` : '3px solid transparent', background: active ? `${tab.color}08` : '#fff', color: active ? tab.color : '#64748b', padding: '9px 13px', fontSize: 10, fontWeight: 900, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                        {tab.label} <span style={{ opacity: 0.62 }}>· {tab.count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div style={{ paddingTop: 12 }}>
+                {performanceTab === 'territories' && (
+                  <TerritoryPerformanceMatrix
+                    data={territoryPerformance}
+                    loading={territoryPerformanceLoading}
+                    month={month}
+                    year={year}
+                    onOpen={path => {
+                      if (path === '/regional-sales') setDrilldownType('regional');
+                      else if (path === '/visit-log' || path === '/tasks') setDrilldownType('execution');
+                      else setDrilldownType('investment');
+                    }}
+                    onSetTarget={me?.role === 'md' ? () => navigate('/target-setting') : null}
+                  />
+                )}
+                {performanceTab === 'reps' && (
+                  <RepPerformanceScorecard
+                    rows={repScorecardRows}
+                    loading={repScorecardLoading}
+                    month={month}
+                    year={year}
+                    week={repScorecard?.regional_week}
+                    onOpenPerson={row => {
+                      const selected = allUsers.find(user => Number(user.id) === Number(row.user_id));
+                      if (!selected) return;
+                      setSelUser(selected); setSelDoctor(null); setSelProduct(null); setView('team');
+                    }}
+                  />
+                )}
+                {performanceTab === 'doctors' && (
+                  <DoctorPerformanceTab doctors={displayDoctors} onOpenDoctor={doctor => {
+                    setSelDoctor(doctor);
+                    setSelUser(allUsers.find(user => Number(user.id) === Number(doctor.manager_id)) || null);
+                    if (doctor.state_code) setSelState(toStateName(doctor.state_code));
+                    setView('product');
+                  }} />
+                )}
+                {performanceTab === 'products' && (
+                  <ProductPerformanceTab
+                    products={topProducts}
+                    selectedProduct={selProduct}
+                    doctors={productDoctors}
+                    loading={productDoctorsLoading}
+                    onBack={() => { setSelProduct(null); setProductDoctors([]); setShowAllProdDoctors(false); }}
+                    onSelectProduct={product => {
+                      setSelProduct(product);
+                      setProductDoctorsLoading(true);
+                      axios.get(`${API}/sales/product/${product.product_id}/doctors`, {
+                        params: { year, month, start_date: startDate, end_date: endDate, viewer_id: me.id, owner_scope: effectiveScope },
+                      }).then(response => {
+                        const visibleDoctorIds = new Set(displayDoctors.map(doctor => Number(doctor.doctor_id || doctor.id)));
+                        setProductDoctors((response.data || []).filter(doctor => visibleDoctorIds.has(Number(doctor.doctor_id))));
+                      }).catch(() => setProductDoctors([])).finally(() => setProductDoctorsLoading(false));
+                    }}
+                  />
+                )}
+              </div>
+            </div>
+
+            {/* Legacy dashboard blocks are intentionally retired; their data now lives in the explorer above. */}
+            {false && <>
 
             <TerritoryPerformanceMatrix
               data={territoryPerformance}
@@ -2141,7 +2750,7 @@ export default function Dashboard() {
                     repMap[d.manager_id].sales += d.actual_sales || 0;
                     repMap[d.manager_id].count += 1;
                   });
-                  const top5Reps = Object.values(repMap).sort((a, b) => b.sales - a.sales).slice(0, 5);
+                  const top5Reps = Object.values(repMap).filter(rep => rep.sales > 0).sort((a, b) => b.sales - a.sales).slice(0, 5);
                   if (top5Reps.length === 0) return <div style={{ textAlign: 'center', color: '#aaa', padding: '24px 0', fontSize: 13 }}>No sales data yet</div>;
                   const rankColors = ['#10B981','#9CA3AF','#6B7280','#6B7280','#6B7280'];
                   return top5Reps.map((r, i) => {
@@ -2178,12 +2787,13 @@ export default function Dashboard() {
                     <div style={{ fontSize: 10, color: '#7C3AED', opacity: 0.8 }}>{MONTH_NAMES[month]} · by value</div>
                   </div>
                 </div>
-                {topProducts.length === 0 ? (
+                {topProducts.filter(product => Number(product.total_sales) > 0).length === 0 ? (
                   <div style={{ textAlign: 'center', color: '#aaa', padding: '24px 0', fontSize: 13 }}>No sales data yet</div>
                 ) : (() => {
                   const colors = ['#7C3AED','#A855F7','#6D28D9','#8B5CF6','#C084FC'];
-                  const maxVal = topProducts[0] ? topProducts[0].total_sales : 1;
-                  const visible = showMoreProducts ? topProducts : topProducts.slice(0, 5);
+                  const rankedProducts = topProducts.filter(product => Number(product.total_sales) > 0);
+                  const maxVal = rankedProducts[0] ? rankedProducts[0].total_sales : 1;
+                  const visible = showMoreProducts ? rankedProducts : rankedProducts.slice(0, 5);
                   return (
                     <div>
                       {visible.map((p, i) => {
@@ -2209,11 +2819,11 @@ export default function Dashboard() {
                           </div>
                         );
                       })}
-                      {topProducts.length > 5 && (
+                      {rankedProducts.length > 5 && (
                         <button onClick={() => setShowMoreProducts(s => !s)}
                           style={{ marginTop: 6, padding: '5px 12px', borderRadius: 20, border: '1px solid #E9D5FF',
                             background: '#FAF5FF', fontSize: 11, fontWeight: 600, color: '#7C3AED', cursor: 'pointer' }}>
-                          {showMoreProducts ? 'Show less' : `+ ${topProducts.length - 5} more`}
+                          {showMoreProducts ? 'Show less' : `+ ${rankedProducts.length - 5} more`}
                         </button>
                       )}
                     </div>
@@ -2226,7 +2836,7 @@ export default function Dashboard() {
             <div style={{ background: '#fff', borderRadius: 14, padding: '18px 20px', border: '0.5px solid #e5e7eb' }}>
               <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
                 At-Risk Doctors
-                <span style={{ fontSize: 11, fontWeight: 400, color: '#888' }}>CA below 60% or Bronze grade</span>
+                <span style={{ fontSize: 11, fontWeight: 400, color: '#888' }}>Ranked by highest recovery shortfall</span>
                 <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 800, color: '#DC2626',
                   background: '#FEE2E2', padding: '3px 10px', borderRadius: 20 }}>{atRisk.length}</span>
               </div>
@@ -2254,13 +2864,17 @@ export default function Dashboard() {
                       </div>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center', justifyContent: 'space-between' }}>
                         <CABar pct={d.ca_percent} />
-                        <Pill label={d.roi_grade || 'Bronze'} bg={GRADE_BG[d.roi_grade]} color={GRADE_COLOR[d.roi_grade]} />
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: 11, color: '#b91c1c', fontWeight: 900 }}>{fmtInr(d.recovery_shortfall)} shortfall</div>
+                          <div style={{ marginTop: 3 }}><Pill label={d.roi_grade || 'Bronze'} bg={GRADE_BG[d.roi_grade]} color={GRADE_COLOR[d.roi_grade]} /></div>
+                        </div>
                       </div>
                     </div>
                   ))}
                 </div>
               )}
             </div>
+            </>}
           </div>
         )}
 
@@ -2440,8 +3054,16 @@ export default function Dashboard() {
         {(view === 'client' || view === 'product') && selDoctor && (
           <Doctor360View doctor={selDoctor} repUser={selUser} year={year} month={month} viewer={me} />
         )}
-
       </div>
+
+      {actionDrilldownConfig && (
+        <DashboardDrilldownDrawer
+          config={actionDrilldownConfig}
+          context={drilldownContext}
+          onClose={() => setActionDetailItem(null)}
+          onOpenFull={openActionFull}
+        />
+      )}
     </div>
   );
 }

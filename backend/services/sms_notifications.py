@@ -71,6 +71,15 @@ def build_manager_message(manager_name: str, pending_name: str, week: int) -> st
     )
 
 
+def build_md_summary_message(md_name: str, week: int, pending_count: int) -> str:
+    return (
+        f"Dear {_dlt_value(md_name, 'Management')}, weekly sales updates for week {week} "
+        f"are pending from {max(int(pending_count or 0), 0)} team members. "
+        f"Please follow up in Fortel CRM by {_dlt_value(settings.SMS_MANAGER_DEADLINE, 'Tuesday 10 AM')}. "
+        "- Fortel Life Sciences"
+    )
+
+
 def _sns_client():
     kwargs = {"region_name": settings.AWS_REGION}
     if settings.AWS_ACCESS_KEY_ID and settings.AWS_SECRET_ACCESS_KEY:
@@ -268,7 +277,12 @@ def send_weekly_sales_sms_reminders(
 
     user_ids = {int(row["user_id"]) for row in pending_rows}
     manager_ids = {int(row["reports_to_id"]) for row in pending_rows if row.get("reports_to_id")}
-    all_ids = user_ids | manager_ids
+    md_summary_recipient = (
+        _find_scorecard_viewer(db)
+        if pending_rows and normalized_stage in {"manager", "all"}
+        else None
+    )
+    all_ids = user_ids | manager_ids | ({md_summary_recipient.id} if md_summary_recipient else set())
     users = {
         user.id: user
         for user in db.query(User).filter(User.id.in_(all_ids), User.is_active == True).all()
@@ -302,10 +316,26 @@ def send_weekly_sales_sms_reminders(
             ))
 
     if normalized_stage in {"manager", "all"}:
+        if md_summary_recipient:
+            results.append(_delivery_result(
+                db,
+                notification_type="md_escalation_summary",
+                recipient=md_summary_recipient,
+                related_user_id=None,
+                period=period,
+                template_id=settings.SMS_MANAGER_TEMPLATE_ID,
+                message=build_md_summary_message(
+                    md_summary_recipient.name,
+                    int(period["week"]),
+                    len(pending_rows),
+                ),
+                client=client,
+                is_in_sandbox=is_in_sandbox,
+            ))
         for row in pending_rows:
             manager_id = int(row.get("reports_to_id") or 0)
             manager = users.get(manager_id)
-            if not manager:
+            if not manager or (md_summary_recipient and manager.id == md_summary_recipient.id):
                 continue
             results.append(_delivery_result(
                 db,

@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useLocation } from 'react-router-dom';
 import { salesAPI } from '../api';
 import { useAuth } from '../context/AuthContext';
+import { draftKey, readDraft, removeDraft, writeDraft } from '../utils/draftStorage';
 
 const API = process.env.REACT_APP_API_URL || '';
 const MN  = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -39,6 +40,9 @@ export default function SalesScreen() {
   const [entries,   setEntries]   = useState([]);
   const [busy,      setBusy]      = useState(false);
   const [err,       setErr]       = useState('');
+  const [draftStatus, setDraftStatus] = useState('');
+  const draftLoadedRef = useRef(false);
+  const salesDraftKey = me?.id ? draftKey('doctor-sales', [me.id]) : '';
 
   /* ── history state ── */
   const [year,     setYear]     = useState(CUR_Y);
@@ -62,6 +66,28 @@ export default function SalesScreen() {
       setShowForm(true);
     }
   }, [location.search]);
+
+  useEffect(() => {
+    if (!salesDraftKey || draftLoadedRef.current) return;
+    draftLoadedRef.current = true;
+    const draft = readDraft(salesDraftKey);
+    if (!draft) return;
+    setSaleDate(draft.saleDate || today());
+    setSelDoctor(draft.selDoctor || null);
+    setEntries(Array.isArray(draft.entries) ? draft.entries : []);
+    setShowForm(true);
+    setDraftStatus('Unsaved draft restored from this device');
+  }, [salesDraftKey]);
+
+  useEffect(() => {
+    if (!salesDraftKey || !showForm || (!selDoctor && entries.length === 0)) return undefined;
+    const timer = setTimeout(() => {
+      if (writeDraft(salesDraftKey, { saleDate, selDoctor, entries })) {
+        setDraftStatus('Draft saved on this device');
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [salesDraftKey, showForm, saleDate, selDoctor, entries]);
 
   /* ── outside-click refs ── */
   const docRef  = useRef(null);
@@ -251,6 +277,8 @@ export default function SalesScreen() {
   const grandQty = entries.reduce((s,e) => s + (parseFloat(e.qty)||0), 0);
 
   const resetForm = () => {
+    if (salesDraftKey) removeDraft(salesDraftKey);
+    setDraftStatus('');
     clearDoctor(); setEntries([]); setProdQ(''); setErr(''); setShowForm(false);
   };
 
@@ -409,6 +437,7 @@ export default function SalesScreen() {
             <div>
               <div style={{ fontSize: 14, fontWeight: 800, color: '#111' }}>Weekly sales entry</div>
               <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>Select week, enter day-wise sales, then validate with store PDF</div>
+              {draftStatus && <div style={{ fontSize: 10, color: '#047857', fontWeight: 700, marginTop: 4 }}>✓ {draftStatus}</div>}
             </div>
             <button
               onClick={() => {

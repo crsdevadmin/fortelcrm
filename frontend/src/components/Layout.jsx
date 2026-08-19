@@ -168,7 +168,11 @@ export default function Layout({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen]       = useState(false);   // mobile drawer
-  const [collapsed, setCollapsed]           = useState(false);   // desktop collapse
+  const [collapsed, setCollapsed] = useState(() => {
+    const saved = localStorage.getItem('fortel_sidebar_collapsed');
+    if (saved !== null) return saved === '1';
+    return window.matchMedia?.('(min-width: 769px) and (max-width: 1024px)').matches || false;
+  });
   const [profileOpen, setProfileOpen]       = useState(false);
   const [targetOpen, setTargetOpen]         = useState(false);
   const [targetSummary, setTargetSummary]   = useState(null);
@@ -208,6 +212,19 @@ export default function Layout({ children }) {
   const currentPathWithSearch = `${location.pathname}${location.search}`;
 
   const handleLogout = () => { logout(); navigate('/login'); };
+
+  useEffect(() => {
+    localStorage.setItem('fortel_sidebar_collapsed', collapsed ? '1' : '0');
+  }, [collapsed]);
+
+  useEffect(() => {
+    const tablet = window.matchMedia?.('(min-width: 769px) and (max-width: 1024px)');
+    if (!tablet) return undefined;
+    const applyTabletLayout = event => { if (event.matches) setCollapsed(true); };
+    applyTabletLayout(tablet);
+    tablet.addEventListener?.('change', applyTabletLayout);
+    return () => tablet.removeEventListener?.('change', applyTabletLayout);
+  }, []);
 
   useEffect(() => {
     if (!showTargetSummary) {
