@@ -226,6 +226,7 @@ def get_doctor_roi_full(
     year: int,
     month: int,
     viewer_id: Optional[int] = None,
+    as_of: Optional[str] = None,
     authorization: Optional[str] = Header(None),
     db: Session = Depends(get_db),
 ):
@@ -342,18 +343,27 @@ def get_doctor_roi_full(
     last_visit = recent_visits[0].visit_time if recent_visits else None
     today = date_type.today()
 
+    # Recovery is measured as of `as_of` (to match the dashboard's date filter);
+    # falls back to today. Task/visit staleness below still uses the real today.
+    recovery_ref = today
+    if as_of:
+        try:
+            recovery_ref = date_type.fromisoformat(as_of.strip())
+        except (TypeError, ValueError):
+            recovery_ref = today
+
     commitments = []
     for investment in inv_list:
         investment_date = _safe_date(investment.year, investment.month, investment.week)
-        if investment_date > today:
+        if investment_date > recovery_ref:
             continue
         amount = float(investment.amount or 0)
         expected_multiple = float(investment.expected_multiple or em)
         commitment_expected = float(investment.expected_sales or (amount * expected_multiple))
         deadline = _add_months(investment_date, 6)
-        captured = _sales_between_for_doctor(db, doctor_id, investment_date, min(today, deadline))
+        captured = _sales_between_for_doctor(db, doctor_id, investment_date, min(recovery_ref, deadline))
         commitment_status, expected_progress, days_left = _commitment_status(
-            captured, commitment_expected, investment_date, deadline, today
+            captured, commitment_expected, investment_date, deadline, recovery_ref
         )
         commitments.append({
             "investment_id": investment.id,

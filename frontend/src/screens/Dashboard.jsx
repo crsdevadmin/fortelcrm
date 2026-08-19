@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { dashboardAPI, roiAPI, salesAPI, targetsAPI } from '../api';
 import DrilldownPanel from '../components/DrilldownPanel';
+import DashboardCharts from '../components/DashboardCharts';
 
 const API   = process.env.REACT_APP_API_URL || '';
 const NOW   = new Date();
@@ -217,51 +218,51 @@ function DecisionMetricCard({
   targetLabel, achievementPct, trend, detail, completeness, actionLabel, onOpen,
 }) {
   const tone = {
-    positive: { color: '#047857', bg: '#ecfdf5' },
-    warning: { color: '#b45309', bg: '#fffbeb' },
-    negative: { color: '#b91c1c', bg: '#fef2f2' },
-    neutral: { color: '#475569', bg: '#f1f5f9' },
-  }[statusTone] || { color: '#475569', bg: '#f1f5f9' };
+    positive: { color: '#2A6B2D', bg: '#EAF5EA' },
+    warning: { color: '#A07A00', bg: '#FFF8D6' },
+    negative: { color: '#D93025', bg: '#FFF0EF' },
+    neutral: { color: '#5C5A52', bg: '#F5F4F0' },
+  }[statusTone] || { color: '#5C5A52', bg: '#F5F4F0' };
   const pct = achievementPct == null ? null : Math.max(0, Math.min(100, Number(achievementPct) || 0));
-  const trendTone = trend?.tone === 'positive' ? '#047857' : trend?.tone === 'negative' ? '#b91c1c' : '#64748b';
+  const trendTone = trend?.tone === 'positive' ? '#2A6B2D' : trend?.tone === 'negative' ? '#D93025' : '#5C5A52';
   return (
     <button
       type="button"
       onClick={onOpen}
       style={{
         minWidth: 0, width: '100%', padding: 0, textAlign: 'left', cursor: 'pointer',
-        background: '#fff', border: '1px solid #e2e8f0', borderRadius: 16,
-        overflow: 'hidden', boxShadow: '0 5px 18px rgba(15,23,42,0.08)',
+        background: '#FFFFFF', border: '1px solid #E8E6DF', borderRadius: 12,
+        overflow: 'hidden', boxShadow: '0 1px 3px rgba(26,26,26,0.08)',
       }}
     >
-      <div style={{ height: 5, background: accent }} />
+      <div style={{ height: 4, background: accent }} />
       <div style={{ padding: '14px 15px 13px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 11, fontWeight: 900, color: '#334155', textTransform: 'uppercase', letterSpacing: 0.55 }}>{title}</div>
-            <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 3, lineHeight: 1.35 }}>{period}</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#1A1A1A', letterSpacing: 0.2 }}>{title}</div>
+            <div style={{ fontSize: 10, color: '#9E9B8E', marginTop: 3, lineHeight: 1.35 }}>{period}</div>
           </div>
-          <span style={{ fontSize: 20, lineHeight: 1 }}>{icon}</span>
+          <span style={{ fontSize: 18, lineHeight: 1, color: accent }}>{icon}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 9, marginTop: 11 }}>
-          <div style={{ fontSize: 25, lineHeight: 1, fontWeight: 950, color: '#0f172a', letterSpacing: '-0.7px' }}>{value}</div>
-          <span style={{ fontSize: 9, fontWeight: 900, color: tone.color, background: tone.bg, borderRadius: 20, padding: '4px 7px', whiteSpace: 'nowrap' }}>{status}</span>
+          <div style={{ fontSize: 24, lineHeight: 1, fontWeight: 700, color: '#1A1A1A', letterSpacing: '-0.4px' }}>{value}</div>
+          <span style={{ fontSize: 10, fontWeight: 600, color: tone.color, background: tone.bg, borderRadius: 20, padding: '3px 9px', whiteSpace: 'nowrap' }}>{status}</span>
         </div>
         {(targetLabel || pct != null) && (
           <div style={{ marginTop: 11 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 9, color: '#64748b', marginBottom: 5 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 10, color: '#5C5A52', marginBottom: 5 }}>
               <span>{targetLabel || 'Progress'}</span>
-              <strong style={{ color: tone.color }}>{pct == null ? '—' : `${Math.round(Number(achievementPct) * 10) / 10}%`}</strong>
+              <strong style={{ color: tone.color, fontWeight: 600 }}>{pct == null ? '—' : `${Math.round(Number(achievementPct) * 10) / 10}%`}</strong>
             </div>
-            <div style={{ height: 6, borderRadius: 99, background: '#e2e8f0', overflow: 'hidden' }}>
+            <div style={{ height: 6, borderRadius: 99, background: '#E8E6DF', overflow: 'hidden' }}>
               <div style={{ width: `${pct || 0}%`, height: '100%', borderRadius: 99, background: accent }} />
             </div>
           </div>
         )}
-        {trend?.label && <div style={{ fontSize: 10, color: trendTone, fontWeight: 800, marginTop: 9 }}>{trend.label}</div>}
-        {detail && <div style={{ fontSize: 10, color: '#475569', marginTop: 7, lineHeight: 1.35 }}>{detail}</div>}
-        {completeness && <div style={{ fontSize: 9, color: '#94a3b8', marginTop: 5, lineHeight: 1.35 }}>{completeness}</div>}
-        <div style={{ fontSize: 10, color: accent, fontWeight: 900, marginTop: 11 }}>{actionLabel} →</div>
+        {trend?.label && <div style={{ fontSize: 11, color: trendTone, fontWeight: 600, marginTop: 9 }}>{trend.label}</div>}
+        {detail && <div style={{ fontSize: 11, color: '#5C5A52', marginTop: 7, lineHeight: 1.4 }}>{detail}</div>}
+        {completeness && <div style={{ fontSize: 10, color: '#9E9B8E', marginTop: 5, lineHeight: 1.4 }}>{completeness}</div>}
+        <div style={{ fontSize: 11, color: accent, fontWeight: 600, marginTop: 11 }}>{actionLabel} →</div>
       </div>
     </button>
   );
@@ -1494,12 +1495,14 @@ export default function Dashboard() {
     return d;
   }, [scopedDoctors, selRegion, selCity]);
 
-  const totalRegionalSales = useMemo(() => regionalSalesRows
+  const filteredRegionalSalesRows = useMemo(() => regionalSalesRows
     .filter(row => scopeUserIds.has(Number(row.associate_id)))
     .filter(row => !selRegion || toStateName(row.state_code) === selRegion)
-    .filter(row => !selCity || normCity(row.city) === selCity)
-    .reduce((sum, row) => sum + (Number(row.value) || 0), 0),
+    .filter(row => !selCity || normCity(row.city) === selCity),
   [regionalSalesRows, scopeUserIds, selRegion, selCity]);
+  const totalRegionalSales = useMemo(() => filteredRegionalSalesRows
+    .reduce((sum, row) => sum + (Number(row.value) || 0), 0),
+  [filteredRegionalSalesRows]);
 
   const clientStats = useMemo(() => {
     const prescribed = displayDoctors.filter(doctor => Number(doctor.actual_sales) > 0).length;
@@ -1715,7 +1718,7 @@ export default function Dashboard() {
           value: fmtInr(row.regional_sales),
         }));
       return {
-        title: 'Regional Sales', icon: '▦', accent: '#2563eb',
+        title: 'Regional Sales', icon: '▦', accent: '#2a78d6',
         period: `${MONTH_NAMES[month]} ${year} · cumulative weekly submissions`,
         value: fmtInr(totalRegionalSales),
         status: regionalTarget?.has_target ? regionalTarget.status : 'Target not set',
@@ -1741,7 +1744,7 @@ export default function Dashboard() {
         .slice(0, 8)
         .map(doctor => ({ label: doctor.doctor_name, meta: `${doctor.city || 'City not set'} · ${doctor.manager_name || 'Owner not set'}`, value: fmtInr(doctor.actual_sales) }));
       return {
-        title: 'Doctor Sales', icon: '◆', accent: '#0f6e56',
+        title: 'Doctor Sales', icon: '◆', accent: '#3D8C40',
         period: showingSixMonths ? `Rolling six-month returns · ${sixMonthPeriodLabel}` : `Selected dashboard period · ${selectedPeriodLabel}`,
         valueLabel: showingSixMonths ? 'Six-month doctor sales' : 'Selected-period doctor sales',
         value: fmtInr(doctorSalesTotal),
@@ -1775,7 +1778,7 @@ export default function Dashboard() {
         .slice(0, 8)
         .map(row => ({ label: row.doctor_name, meta: `${row.city || 'City not set'} · ${row.worst_status}`, value: `${fmtInr(row.shortfall)} gap`, color: Number(row.shortfall) > 0 ? '#b91c1c' : '#047857' }));
       return {
-        title: 'Investment Recovery', icon: '◈', accent: '#c2410c', period: `Six-month commitment tracking · as of ${fmtPeriodDate(endDate)}`,
+        title: 'Investment Recovery', icon: '◈', accent: '#D4A017', period: `Six-month commitment tracking · as of ${fmtPeriodDate(endDate)}`,
         value: fmtInr(investmentRecovery.invested),
         status: investmentRecovery.breached > 0 ? `${investmentRecovery.breached} breached` : investmentRecovery.atRisk > 0 ? `${investmentRecovery.atRisk} at risk` : investmentRecovery.doctors > 0 ? 'On track' : 'No commitments',
         statusColor: investmentRecovery.breached > 0 ? '#b91c1c' : investmentRecovery.atRisk > 0 ? '#b45309' : '#047857',
@@ -1795,7 +1798,7 @@ export default function Dashboard() {
       .slice(0, 8)
       .map(row => ({ label: row.name, meta: (row.reasons || []).slice(0, 2).join(' · ') || 'No immediate concerns', value: row.score == null ? 'N/A' : `${row.score}/100`, color: row.status === 'red' ? '#b91c1c' : row.status === 'amber' ? '#b45309' : '#047857' }));
     return {
-      title: 'Execution', icon: '✓', accent: '#7c3aed', period: `Visits: last 30 days · Tasks: ${MONTH_NAMES[month]} ${year}`,
+      title: 'Execution', icon: '✓', accent: '#0891B2', period: `Visits: last 30 days · Tasks: ${MONTH_NAMES[month]} ${year}`,
       value: executionSummary.visitPct == null ? 'No visit data' : `${executionSummary.visitPct}% visits`,
       status: executionSummary.overdue > 0 ? `${executionSummary.overdue} overdue` : executionSummary.tasks > 0 ? 'No overdue tasks' : 'No tasks assigned',
       statusColor: executionSummary.overdue > 0 ? '#b91c1c' : executionSummary.tasks > 0 ? '#047857' : '#64748b',
@@ -2109,7 +2112,7 @@ export default function Dashboard() {
             title="Regional Sales"
             period={`${MONTH_NAMES[month]} ${year} · cumulative weekly submissions`}
             icon="▦"
-            accent="#2563eb"
+            accent="#2a78d6"
             value={fmtInr(totalRegionalSales)}
             status={regionalTarget?.has_target ? regionalTarget.status : 'Target not set'}
             statusTone={!regionalTarget?.has_target ? 'neutral' : Number(regionalTarget.achievement_pct) >= 100 ? 'positive' : Number(regionalTarget.achievement_pct) >= 80 ? 'warning' : 'negative'}
@@ -2125,7 +2128,7 @@ export default function Dashboard() {
             title="Doctor Sales"
             period={selectedPeriodLabel}
             icon="◆"
-            accent="#0f6e56"
+            accent="#3D8C40"
             value={fmtInr(totalSales)}
             status={doctorTarget?.has_target ? doctorTarget.status : 'Target not set'}
             statusTone={!doctorTarget?.has_target ? 'neutral' : Number(doctorTarget.achievement_pct) >= 100 ? 'positive' : Number(doctorTarget.achievement_pct) >= 80 ? 'warning' : 'negative'}
@@ -2141,7 +2144,7 @@ export default function Dashboard() {
             title="Investment Recovery"
             period={`Six-month commitment tracking · as of ${fmtPeriodDate(endDate)}`}
             icon="◈"
-            accent="#c2410c"
+            accent="#D4A017"
             value={fmtInr(investmentRecovery.invested)}
             status={investmentRecovery.doctors === 0 ? 'No commitments' : investmentRecovery.breached > 0 ? `${investmentRecovery.breached} breached` : investmentRecovery.atRisk > 0 ? `${investmentRecovery.atRisk} at risk` : 'On track'}
             statusTone={investmentRecovery.doctors === 0 ? 'neutral' : investmentRecovery.breached > 0 ? 'negative' : investmentRecovery.atRisk > 0 ? 'warning' : 'positive'}
@@ -2156,7 +2159,7 @@ export default function Dashboard() {
             title="Execution"
             period={`Visits: last 30 days · Tasks: ${MONTH_NAMES[month]} ${year}`}
             icon="✓"
-            accent="#7c3aed"
+            accent="#0891B2"
             value={executionSummary.visitPct == null ? 'No visit data' : `${executionSummary.visitPct}% visits`}
             status={executionSummary.overdue > 0 ? `${executionSummary.overdue} overdue` : executionSummary.tasks > 0 ? 'No overdue tasks' : 'No tasks assigned'}
             statusTone={executionSummary.overdue > 0 ? 'negative' : executionSummary.tasks > 0 ? 'positive' : 'neutral'}
@@ -2186,7 +2189,8 @@ export default function Dashboard() {
             me={me}
             year={year}
             month={month}
-            regionalRows={regionalSalesRows.filter(r => scopeUserIds.has(Number(r.associate_id)))}
+            asOf={endDate}
+            regionalRows={filteredRegionalSalesRows}
             recoveryRows={filteredRecoveryRows}
             doctorRows={displayDoctors}
             scorecardRows={repScorecardRows}
@@ -2202,6 +2206,15 @@ export default function Dashboard() {
         {/* OVERVIEW */}
         {view === 'overview' && (
           <div>
+
+            {!drilldownType && (
+              <DashboardCharts
+                territoryRows={territoryPerformance?.rows || []}
+                products={topProducts}
+                regionalRows={filteredRegionalSalesRows}
+                monthLabel={`${MONTH_NAMES[month]} ${year}`}
+              />
+            )}
 
             <ActionCentre
               items={actionItems}

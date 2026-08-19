@@ -72,8 +72,8 @@ export const investmentsAPI = {
 export const roiAPI = {
   doctor: (doctorId, year, month) =>
     client.get(`/roi/doctor/${doctorId}`, { params: { year, month } }),
-  doctorFull: (doctorId, year, month, viewerId) =>
-    client.get(`/roi/doctor/${doctorId}/full`, { params: { year, month, viewer_id: viewerId } }),
+  doctorFull: (doctorId, year, month, viewerId, asOf) =>
+    client.get(`/roi/doctor/${doctorId}/full`, { params: { year, month, viewer_id: viewerId, as_of: asOf } }),
   allDoctors: (year, month, params = {}) =>
     client.get('/roi/all-doctors', { params: { year, month, ...params } }),
   allDoctorsByDate: (startDate, endDate, params = {}) =>

@@ -112,7 +112,7 @@ function MonthlyTrendChart({ points }) {
 }
 
 // ── Doctor expansion: fetch full detail on demand ──────────────
-function DoctorDetail({ doctorId, viewerId, year, month, accent, onOpen360 }) {
+function DoctorDetail({ doctorId, viewerId, year, month, asOf, accent, onOpen360 }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -120,30 +120,67 @@ function DoctorDetail({ doctorId, viewerId, year, month, accent, onOpen360 }) {
   useEffect(() => {
     let alive = true;
     setLoading(true); setError('');
-    roiAPI.doctorFull(doctorId, year, month, viewerId)
+    roiAPI.doctorFull(doctorId, year, month, viewerId, asOf)
       .then(res => { if (alive) setData(res.data); })
       .catch(() => { if (alive) setError('Could not load doctor detail.'); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
-  }, [doctorId, viewerId, year, month]);
+  }, [doctorId, viewerId, year, month, asOf]);
 
   if (loading) return <div style={{ padding: 14, fontSize: 12, color: C.text3 }}>Loading detail…</div>;
   if (error) return <div style={{ padding: 14, fontSize: 12, color: C.red }}>{error}</div>;
   if (!data) return null;
 
   const trend = (data.monthly_trend || []).map(t => ({ label: t.label, value: t.sales }));
-  const rec = data.recovery || {};
   const products = data.products_sales || [];
+  const commitments = (data.recovery && data.recovery.commitments) || [];
+
+  const fmtDate = (iso) => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return `${d.getDate()} ${MONTH_NAMES[d.getMonth() + 1]} ${String(d.getFullYear()).slice(2)}`;
+  };
 
   return (
     <div style={{ padding: '12px 12px 14px', background: C.surface2 }}>
       <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', fontSize: 13, marginBottom: 10 }}>
-        <span style={{ color: C.text2 }}>Invested <strong style={{ color: C.text1 }}>{inr(data.total_invested)}</strong></span>
-        <span style={{ color: C.text2 }}>Expected <strong style={{ color: C.text1 }}>{inr(rec.expected_sales)}</strong></span>
-        <span style={{ color: C.text2 }}>Recovered <strong style={{ color: C.text1 }}>{inr(rec.sales_captured)}</strong></span>
-        <span style={{ color: C.text2 }}>Shortfall <strong style={{ color: Number(rec.shortfall) > 0 ? C.red : C.greenDark }}>{inr(rec.shortfall)}</strong></span>
+        <span style={{ color: C.text2 }}>Total invested <strong style={{ color: C.text1 }}>{inr(data.total_invested)}</strong></span>
+        <span style={{ color: C.text2 }}>Sales · {MONTH_NAMES[month]} <strong style={{ color: C.text1 }}>{inr(data.actual_sales)}</strong></span>
         <span style={{ color: C.text2 }}>ROI <strong style={{ color: C.text1 }}>{data.roi_multiple ? `${data.roi_multiple}×` : '—'}</strong> · {data.roi_grade || '—'}</span>
       </div>
+
+      {/* Per-investment recovery — each investment's own 6-month window */}
+      {commitments.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 12, color: C.text2, marginBottom: 6 }}>Investment recovery · each investment tracks its own 6 months of sales</div>
+          {commitments.map((c) => {
+            const pct = Math.min(100, Math.round(Number(c.achievement_pct) || 0));
+            const barColor = c.status === 'Breached' ? C.red : c.status === 'At Risk' ? C.amber : C.green;
+            return (
+              <div key={c.investment_id} style={{ border: `1px solid ${C.border}`, borderRadius: 8, padding: '9px 11px', marginBottom: 6, background: C.surface }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 13, color: C.text1, fontWeight: 500 }}>
+                    {inr(c.amount)} invested · {fmtDate(c.investment_date)}
+                  </span>
+                  <StatusPill status={c.status} />
+                </div>
+                <div style={{ fontSize: 12, color: C.text2, margin: '3px 0 6px' }}>
+                  Window {fmtDate(c.investment_date)} → {fmtDate(c.deadline)}
+                  {typeof c.days_left === 'number' && c.days_left >= 0 ? ` · ${c.days_left} days left` : ' · closed'}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ flex: 1, height: 6, borderRadius: 3, background: C.border, overflow: 'hidden' }}>
+                    <div style={{ width: `${pct}%`, height: '100%', background: barColor }} />
+                  </div>
+                  <span style={{ fontSize: 12, color: C.text2, whiteSpace: 'nowrap' }}>
+                    {inr(c.sales_captured)} / {inr(c.expected_sales)} ({pct}%)
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {trend.length > 0 && (
         <div style={{ marginBottom: 10 }}>
@@ -200,7 +237,7 @@ function Crumbs({ path, onGo, rootLabel }) {
 // ═══════════════════════════════════════════════════════════════
 export default function DrilldownPanel({
   type, accent = '#2563eb', title, period, value, status,
-  me, year, month,
+  me, year, month, asOf,
   regionalRows = [], recoveryRows = [], doctorRows = [], scorecardRows = [],
   toStateName = (s) => s,
   onClose, onOpenDoctor, onOpenFull,
@@ -244,8 +281,8 @@ export default function DrilldownPanel({
       {/* Body per type */}
       <div style={{ padding: '14px 18px' }}>
         {type === 'regional' && <RegionalBody rows={regionalRows} path={path} descend={descend} toStateName={toStateName} month={month} />}
-        {type === 'doctor' && <DoctorSalesBody rows={doctorRows} path={path} descend={descend} openRow={openRow} setOpenRow={setOpenRow} me={me} year={year} month={month} accent={accentColor} onOpenDoctor={onOpenDoctor} />}
-        {type === 'investment' && <RecoveryBody rows={recoveryRows} openRow={openRow} setOpenRow={setOpenRow} me={me} year={year} month={month} accent={accentColor} onOpenDoctor={onOpenDoctor} />}
+        {type === 'doctor' && <DoctorSalesBody rows={doctorRows} path={path} descend={descend} openRow={openRow} setOpenRow={setOpenRow} me={me} year={year} month={month} asOf={asOf} accent={accentColor} onOpenDoctor={onOpenDoctor} />}
+        {type === 'investment' && <RecoveryBody rows={recoveryRows} openRow={openRow} setOpenRow={setOpenRow} me={me} year={year} month={month} asOf={asOf} accent={accentColor} onOpenDoctor={onOpenDoctor} />}
         {type === 'execution' && <ExecutionBody rows={scorecardRows} openRow={openRow} setOpenRow={setOpenRow} />}
       </div>
     </div>
@@ -386,7 +423,7 @@ function RegionalBody({ rows, path, descend, toStateName, month }) {
 }
 
 // ── DOCTOR SALES: Rep → Doctor → detail ────────────────────────
-function DoctorSalesBody({ rows, path, descend, openRow, setOpenRow, me, year, month, accent, onOpenDoctor }) {
+function DoctorSalesBody({ rows, path, descend, openRow, setOpenRow, me, year, month, asOf, accent, onOpenDoctor }) {
   const level = path.length;
 
   const reps = useMemo(() => {
@@ -446,7 +483,7 @@ function DoctorSalesBody({ rows, path, descend, openRow, setOpenRow, me, year, m
               </tr>
               {isOpen && (
                 <tr><td colSpan={4} style={{ padding: 0, borderBottom: `1px solid ${C.border}` }}>
-                  <DoctorDetail doctorId={did} viewerId={me?.id} year={year} month={month} accent={accent} onOpen360={() => onOpenDoctor && onOpenDoctor(d)} />
+                  <DoctorDetail doctorId={did} viewerId={me?.id} year={year} month={month} asOf={asOf} accent={accent} onOpen360={() => onOpenDoctor && onOpenDoctor(d)} />
                 </td></tr>
               )}
             </React.Fragment>
@@ -458,7 +495,7 @@ function DoctorSalesBody({ rows, path, descend, openRow, setOpenRow, me, year, m
 }
 
 // ── INVESTMENT RECOVERY: flat gap-sorted doctor table ──────────
-function RecoveryBody({ rows, openRow, setOpenRow, me, year, month, accent, onOpenDoctor }) {
+function RecoveryBody({ rows, openRow, setOpenRow, me, year, month, asOf, accent, onOpenDoctor }) {
   const sorted = useMemo(() =>
     [...rows].sort((a, b) => Number(b.shortfall || 0) - Number(a.shortfall || 0)),
   [rows]);
@@ -492,7 +529,7 @@ function RecoveryBody({ rows, openRow, setOpenRow, me, year, month, accent, onOp
               </tr>
               {isOpen && (
                 <tr><td colSpan={7} style={{ padding: 0, borderBottom: `1px solid ${C.border}` }}>
-                  <DoctorDetail doctorId={did} viewerId={me?.id} year={year} month={month} accent={accent} onOpen360={() => onOpenDoctor && onOpenDoctor(r)} />
+                  <DoctorDetail doctorId={did} viewerId={me?.id} year={year} month={month} asOf={asOf} accent={accent} onOpen360={() => onOpenDoctor && onOpenDoctor(r)} />
                 </td></tr>
               )}
             </React.Fragment>
