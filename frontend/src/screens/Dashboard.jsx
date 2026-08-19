@@ -217,21 +217,30 @@ function DecisionMetricCard({
   title, period, icon, accent, value, status, statusTone = 'neutral',
   targetLabel, achievementPct, trend, detail, completeness, actionLabel, onOpen,
 }) {
+  // Light-tinted colourful card: pale wash of the accent, dark text, accent highlights
+  const hx = (accent || '#2a78d6').replace('#', '');
+  const cr = parseInt(hx.slice(0, 2), 16), cg = parseInt(hx.slice(2, 4), 16), cb = parseInt(hx.slice(4, 6), 16);
+  const toWhite = (amt) => `rgb(${Math.round(cr + (255 - cr) * amt)},${Math.round(cg + (255 - cg) * amt)},${Math.round(cb + (255 - cb) * amt)})`;
+  const toBlack = (amt) => `rgb(${Math.round(cr * (1 - amt))},${Math.round(cg * (1 - amt))},${Math.round(cb * (1 - amt))})`;
+  const bgTint = toWhite(0.88);          // very light card background
+  const borderTint = toWhite(0.66);
+  const accentDark = toBlack(0.30);      // readable accent for text/links
+  const trackTint = toWhite(0.72);
   const tone = {
     positive: { color: '#2A6B2D', bg: '#EAF5EA' },
     warning: { color: '#A07A00', bg: '#FFF8D6' },
     negative: { color: '#D93025', bg: '#FFF0EF' },
     neutral: { color: '#5C5A52', bg: '#F5F4F0' },
   }[statusTone] || { color: '#5C5A52', bg: '#F5F4F0' };
-  const pct = achievementPct == null ? null : Math.max(0, Math.min(100, Number(achievementPct) || 0));
   const trendTone = trend?.tone === 'positive' ? '#2A6B2D' : trend?.tone === 'negative' ? '#D93025' : '#5C5A52';
+  const pct = achievementPct == null ? null : Math.max(0, Math.min(100, Number(achievementPct) || 0));
   return (
     <button
       type="button"
       onClick={onOpen}
       style={{
         minWidth: 0, width: '100%', padding: 0, textAlign: 'left', cursor: 'pointer',
-        background: '#FFFFFF', border: '1px solid #E8E6DF', borderRadius: 12,
+        background: bgTint, border: `1px solid ${borderTint}`, borderRadius: 12,
         overflow: 'hidden', boxShadow: '0 1px 3px rgba(26,26,26,0.08)',
       }}
     >
@@ -239,22 +248,22 @@ function DecisionMetricCard({
       <div style={{ padding: '14px 15px 13px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#1A1A1A', letterSpacing: 0.2 }}>{title}</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#1A1A1A', letterSpacing: 0.2 }}>{title}</div>
             <div style={{ fontSize: 10, color: '#9E9B8E', marginTop: 3, lineHeight: 1.35 }}>{period}</div>
           </div>
           <span style={{ fontSize: 18, lineHeight: 1, color: accent }}>{icon}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 9, marginTop: 11 }}>
-          <div style={{ fontSize: 24, lineHeight: 1, fontWeight: 700, color: '#1A1A1A', letterSpacing: '-0.4px' }}>{value}</div>
+          <div style={{ fontSize: 25, lineHeight: 1, fontWeight: 700, color: '#1A1A1A', letterSpacing: '-0.4px' }}>{value}</div>
           <span style={{ fontSize: 10, fontWeight: 600, color: tone.color, background: tone.bg, borderRadius: 20, padding: '3px 9px', whiteSpace: 'nowrap' }}>{status}</span>
         </div>
         {(targetLabel || pct != null) && (
           <div style={{ marginTop: 11 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 10, color: '#5C5A52', marginBottom: 5 }}>
               <span>{targetLabel || 'Progress'}</span>
-              <strong style={{ color: tone.color, fontWeight: 600 }}>{pct == null ? '—' : `${Math.round(Number(achievementPct) * 10) / 10}%`}</strong>
+              <strong style={{ color: accentDark, fontWeight: 600 }}>{pct == null ? '—' : `${Math.round(Number(achievementPct) * 10) / 10}%`}</strong>
             </div>
-            <div style={{ height: 6, borderRadius: 99, background: '#E8E6DF', overflow: 'hidden' }}>
+            <div style={{ height: 6, borderRadius: 99, background: trackTint, overflow: 'hidden' }}>
               <div style={{ width: `${pct || 0}%`, height: '100%', borderRadius: 99, background: accent }} />
             </div>
           </div>
@@ -262,7 +271,7 @@ function DecisionMetricCard({
         {trend?.label && <div style={{ fontSize: 11, color: trendTone, fontWeight: 600, marginTop: 9 }}>{trend.label}</div>}
         {detail && <div style={{ fontSize: 11, color: '#5C5A52', marginTop: 7, lineHeight: 1.4 }}>{detail}</div>}
         {completeness && <div style={{ fontSize: 10, color: '#9E9B8E', marginTop: 5, lineHeight: 1.4 }}>{completeness}</div>}
-        <div style={{ fontSize: 11, color: accent, fontWeight: 600, marginTop: 11 }}>{actionLabel} →</div>
+        <div style={{ fontSize: 11, color: accentDark, fontWeight: 700, marginTop: 11 }}>{actionLabel} →</div>
       </div>
     </button>
   );

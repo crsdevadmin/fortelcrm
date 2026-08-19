@@ -244,9 +244,26 @@ export default function DrilldownPanel({
 }) {
   const [path, setPath] = useState([]);      // drill path, e.g. [{key:'TG',label:'Telangana'}]
   const [openRow, setOpenRow] = useState(null); // expanded doctor id
+  const panelRef = React.useRef(null);
 
   // Reset drill state when the card type changes
   useEffect(() => { setPath([]); setOpenRow(null); }, [type]);
+
+  // Bring the panel into view when it opens (cards sit above it in the hero)
+  useEffect(() => {
+    if (panelRef.current && panelRef.current.scrollIntoView) {
+      panelRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [type]);
+
+  // Escape closes the panel (parity with the old drawer)
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape' && onClose) onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
 
   const goCrumb = (i) => { setPath(p => p.slice(0, i)); setOpenRow(null); };
   const descend = (crumb) => { setPath(p => [...p, crumb]); setOpenRow(null); };
@@ -254,7 +271,14 @@ export default function DrilldownPanel({
   const accentColor = accent || '#2563eb';
 
   return (
-    <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, boxShadow: '0 2px 10px rgba(26,26,26,0.06)', overflow: 'hidden', marginBottom: 18 }}>
+    <div ref={panelRef} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 14, boxShadow: '0 2px 10px rgba(26,26,26,0.06)', overflow: 'hidden', marginBottom: 18, scrollMarginTop: 12 }}>
+      {/* Back to dashboard */}
+      <button
+        onClick={onClose}
+        style={{ width: '100%', textAlign: 'left', padding: '9px 18px', background: C.surface2, border: 'none', borderBottom: `1px solid ${C.border}`, color: C.goldDark, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+      >
+        ← Back to dashboard
+      </button>
       {/* Header */}
       <div style={{ padding: '14px 18px', borderBottom: `1px solid ${C.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
         <div>
