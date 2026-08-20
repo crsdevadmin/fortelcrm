@@ -47,6 +47,7 @@ class SecurityContractTests(unittest.TestCase):
         source = (ROOT / "backend/auth/auth.py").read_text()
         self.assertIn('current_user.role == "back_office"', source)
         self.assertIn('request.url.path.startswith("/primary-sales")', source)
+        self.assertIn('request.url.path.startswith("/sales/primary")', source)
 
     def test_plaintext_password_runtime_references_are_removed(self):
         allowed = ROOT / "backend/scripts/security_migration.py"

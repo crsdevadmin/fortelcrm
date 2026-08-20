@@ -17,6 +17,7 @@ from ..services.primary_sales_import import (
 
 
 router = APIRouter(prefix="/primary-sales", tags=["Primary Sales"])
+transport_router = APIRouter(prefix="/sales/primary", tags=["Primary Sales"])
 
 UPLOAD_ROLES = {"admin", "md", "back_office"}
 MAX_UPLOAD_BYTES = 15 * 1024 * 1024
@@ -50,6 +51,7 @@ def _upload_payload(upload: PrimarySalesUpload):
 
 
 @router.get("/stockists")
+@transport_router.get("/stockists")
 def list_stockists(db: Session = Depends(get_db)):
     ensure_seed_stockists(db)
     db.commit()
@@ -64,6 +66,7 @@ def list_stockists(db: Session = Depends(get_db)):
 
 
 @router.patch("/stockists/{stockist_id}")
+@transport_router.patch("/stockists/{stockist_id}")
 def update_stockist(
     stockist_id: int,
     payload: StockistUpdateRequest,
@@ -86,6 +89,7 @@ def update_stockist(
 
 
 @router.post("/upload")
+@transport_router.post("/upload")
 async def upload_primary_sales(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
@@ -192,6 +196,7 @@ async def upload_primary_sales(
 
 
 @router.get("/summary")
+@transport_router.get("/summary")
 def primary_sales_summary(
     year: Optional[int] = None,
     month: Optional[int] = None,

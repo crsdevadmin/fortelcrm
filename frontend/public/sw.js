@@ -1,4 +1,4 @@
-const CACHE = 'fortel-crm-v3';
+const CACHE = 'fortel-crm-v4';
 const CORE_URLS = ['/index.html', '/manifest.json'];
 
 async function precacheAppShell() {
@@ -37,12 +37,6 @@ self.addEventListener('fetch', event => {
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
-        .then(response => {
-          if (response.ok) {
-            caches.open(CACHE).then(cache => cache.put('/index.html', response.clone()));
-          }
-          return response;
-        })
         .catch(() => caches.match('/index.html'))
     );
     return;

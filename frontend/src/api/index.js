@@ -56,10 +56,10 @@ export const salesAPI = {
 
 // ── PRIMARY SALES (BACK-OFFICE EXCEL) ──────
 export const primarySalesAPI = {
-  summary: (params = {}) => client.get('/primary-sales/summary', { params }),
-  stockists: () => client.get('/primary-sales/stockists'),
-  updateStockist: (id, payload) => client.patch(`/primary-sales/stockists/${id}`, payload),
-  upload: (formData) => client.post('/primary-sales/upload', formData, {
+  summary: (params = {}) => client.get('/sales/primary/summary', { params }),
+  stockists: () => client.get('/sales/primary/stockists'),
+  updateStockist: (id, payload) => client.patch(`/sales/primary/stockists/${id}`, payload),
+  upload: (formData) => client.post('/sales/primary/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   }),
 };
