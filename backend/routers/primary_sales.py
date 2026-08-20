@@ -1,5 +1,13 @@
+import base64
+import binascii
+import hashlib
+import json
+import math
+import re
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
@@ -21,11 +29,28 @@ transport_router = APIRouter(prefix="/sales/primary", tags=["Primary Sales"])
 
 UPLOAD_ROLES = {"admin", "md", "back_office"}
 MAX_UPLOAD_BYTES = 15 * 1024 * 1024
+UPLOAD_CHUNK_BYTES = 4 * 1024
+UPLOAD_SESSION_ROOT = Path("/tmp/fortel-primary-upload-sessions")
 
 
 class StockistUpdateRequest(BaseModel):
     region: str
     territory: str
+
+
+class UploadStartRequest(BaseModel):
+    filename: str
+    file_size: int
+    file_checksum: str
+
+
+class UploadChunkRequest(BaseModel):
+    index: int
+    data: str
+
+
+class UploadCompleteRequest(BaseModel):
+    file_checksum: str
 
 
 def _require_uploader(user: User):
@@ -50,54 +75,36 @@ def _upload_payload(upload: PrimarySalesUpload):
     }
 
 
-@router.get("/stockists")
-@transport_router.get("/stockists")
-def list_stockists(db: Session = Depends(get_db)):
-    ensure_seed_stockists(db)
-    db.commit()
-    rows = db.query(Stockist).filter(Stockist.is_active == True).order_by(Stockist.region, Stockist.territory, Stockist.name).all()
-    return [{
-        "id": row.id,
-        "name": row.name,
-        "region": row.region,
-        "territory": row.territory,
-        "is_unassigned": row.region == "Unassigned" or row.territory == "Unassigned",
-    } for row in rows]
+def _session_path(session_id: str) -> Path:
+    if not re.fullmatch(r"[0-9a-f]{32}", session_id or ""):
+        raise HTTPException(status_code=404, detail="Upload session not found")
+    return UPLOAD_SESSION_ROOT / session_id
 
 
-@router.patch("/stockists/{stockist_id}")
-@transport_router.patch("/stockists/{stockist_id}")
-def update_stockist(
-    stockist_id: int,
-    payload: StockistUpdateRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    _require_uploader(current_user)
-    stockist = db.query(Stockist).filter(Stockist.id == stockist_id).first()
-    if not stockist:
-        raise HTTPException(status_code=404, detail="Stockist not found")
-    region = " ".join(payload.region.strip().split())
-    territory = " ".join(payload.territory.strip().split())
-    if not region or not territory:
-        raise HTTPException(status_code=400, detail="Region and territory are required")
-    stockist.region = region
-    stockist.territory = territory
-    stockist.updated_at = datetime.utcnow()
-    db.commit()
-    return {"id": stockist.id, "name": stockist.name, "region": stockist.region, "territory": stockist.territory}
+def _load_upload_session(session_id: str, current_user: User) -> tuple[Path, dict]:
+    session_path = _session_path(session_id)
+    metadata_path = session_path / "metadata.json"
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, ValueError):
+        raise HTTPException(status_code=404, detail="Upload session not found")
+    if int(metadata.get("user_id") or 0) != current_user.id:
+        raise HTTPException(status_code=403, detail="This upload session belongs to another user")
+    return session_path, metadata
 
 
-@router.post("/upload")
-@transport_router.post("/upload")
-async def upload_primary_sales(
-    file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    _require_uploader(current_user)
-    filename = (file.filename or "primary-sales.xls")[:255]
-    content = await file.read(MAX_UPLOAD_BYTES + 1)
+def _remove_upload_session(session_path: Path):
+    if session_path.parent != UPLOAD_SESSION_ROOT:
+        return
+    if not session_path.exists():
+        return
+    for item in session_path.iterdir():
+        if item.is_file():
+            item.unlink()
+    session_path.rmdir()
+
+
+def _persist_primary_sales(content: bytes, filename: str, current_user: User, db: Session):
     if len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="Excel file must be 15 MB or smaller")
     if not content:
@@ -193,6 +200,144 @@ async def upload_primary_sales(
         "upload": _upload_payload(upload),
         "unassigned_stockists": unassigned,
     }
+
+
+@router.get("/stockists")
+@transport_router.get("/stockists")
+def list_stockists(db: Session = Depends(get_db)):
+    ensure_seed_stockists(db)
+    db.commit()
+    rows = db.query(Stockist).filter(Stockist.is_active == True).order_by(Stockist.region, Stockist.territory, Stockist.name).all()
+    return [{
+        "id": row.id,
+        "name": row.name,
+        "region": row.region,
+        "territory": row.territory,
+        "is_unassigned": row.region == "Unassigned" or row.territory == "Unassigned",
+    } for row in rows]
+
+
+@router.patch("/stockists/{stockist_id}")
+@transport_router.patch("/stockists/{stockist_id}")
+def update_stockist(
+    stockist_id: int,
+    payload: StockistUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _require_uploader(current_user)
+    stockist = db.query(Stockist).filter(Stockist.id == stockist_id).first()
+    if not stockist:
+        raise HTTPException(status_code=404, detail="Stockist not found")
+    region = " ".join(payload.region.strip().split())
+    territory = " ".join(payload.territory.strip().split())
+    if not region or not territory:
+        raise HTTPException(status_code=400, detail="Region and territory are required")
+    stockist.region = region
+    stockist.territory = territory
+    stockist.updated_at = datetime.utcnow()
+    db.commit()
+    return {"id": stockist.id, "name": stockist.name, "region": stockist.region, "territory": stockist.territory}
+
+
+@router.post("/upload")
+@transport_router.post("/upload")
+async def upload_primary_sales(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _require_uploader(current_user)
+    filename = (file.filename or "primary-sales.xls")[:255]
+    content = await file.read(MAX_UPLOAD_BYTES + 1)
+    return _persist_primary_sales(content, filename, current_user, db)
+
+
+@transport_router.post("/upload-session/start")
+def start_upload_session(
+    payload: UploadStartRequest,
+    current_user: User = Depends(get_current_user),
+):
+    _require_uploader(current_user)
+    filename = Path(payload.filename or "").name[:255]
+    if Path(filename).suffix.lower() not in {".xls", ".xlsx"}:
+        raise HTTPException(status_code=400, detail="Please upload an Excel .xls or .xlsx file")
+    if payload.file_size <= 0 or payload.file_size > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Excel file must be between 1 byte and 15 MB")
+    checksum = (payload.file_checksum or "").lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", checksum):
+        raise HTTPException(status_code=400, detail="Invalid file checksum")
+
+    session_id = uuid4().hex
+    UPLOAD_SESSION_ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
+    session_path = UPLOAD_SESSION_ROOT / session_id
+    session_path.mkdir(mode=0o700)
+    chunk_count = math.ceil(payload.file_size / UPLOAD_CHUNK_BYTES)
+    metadata = {
+        "user_id": current_user.id,
+        "filename": filename,
+        "file_size": payload.file_size,
+        "file_checksum": checksum,
+        "chunk_count": chunk_count,
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    (session_path / "metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+    return {"session_id": session_id, "chunk_size": UPLOAD_CHUNK_BYTES, "chunk_count": chunk_count}
+
+
+@transport_router.post("/upload-session/{session_id}/chunk")
+def upload_session_chunk(
+    session_id: str,
+    payload: UploadChunkRequest,
+    current_user: User = Depends(get_current_user),
+):
+    _require_uploader(current_user)
+    session_path, metadata = _load_upload_session(session_id, current_user)
+    chunk_count = int(metadata["chunk_count"])
+    if payload.index < 0 or payload.index >= chunk_count:
+        raise HTTPException(status_code=400, detail="Invalid upload chunk index")
+    try:
+        chunk = base64.b64decode(payload.data, validate=True)
+    except (ValueError, TypeError, binascii.Error):
+        raise HTTPException(status_code=400, detail="Invalid upload chunk")
+    expected_size = UPLOAD_CHUNK_BYTES
+    if payload.index == chunk_count - 1:
+        expected_size = int(metadata["file_size"]) - (payload.index * UPLOAD_CHUNK_BYTES)
+    if len(chunk) != expected_size:
+        raise HTTPException(status_code=400, detail="Upload chunk has the wrong size")
+    chunk_path = session_path / f"{payload.index:06d}.part"
+    temp_path = session_path / f"{payload.index:06d}.tmp"
+    temp_path.write_bytes(chunk)
+    temp_path.replace(chunk_path)
+    return {"received": payload.index, "chunk_count": chunk_count}
+
+
+@transport_router.post("/upload-session/{session_id}/complete")
+def complete_upload_session(
+    session_id: str,
+    payload: UploadCompleteRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _require_uploader(current_user)
+    session_path, metadata = _load_upload_session(session_id, current_user)
+    if payload.file_checksum.lower() != metadata["file_checksum"]:
+        raise HTTPException(status_code=400, detail="File checksum changed during upload")
+    try:
+        parts = []
+        for index in range(int(metadata["chunk_count"])):
+            chunk_path = session_path / f"{index:06d}.part"
+            if not chunk_path.exists():
+                raise HTTPException(status_code=400, detail=f"Upload chunk {index + 1} is missing")
+            parts.append(chunk_path.read_bytes())
+        content = b"".join(parts)
+        if len(content) != int(metadata["file_size"]):
+            raise HTTPException(status_code=400, detail="Uploaded file size does not match")
+        if hashlib.sha256(content).hexdigest() != metadata["file_checksum"]:
+            raise HTTPException(status_code=400, detail="Uploaded file checksum does not match")
+        return _persist_primary_sales(content, metadata["filename"], current_user, db)
+    finally:
+        _remove_upload_session(session_path)
 
 
 @router.get("/summary")

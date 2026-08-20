@@ -59,9 +59,26 @@ export const primarySalesAPI = {
   summary: (params = {}) => client.get('/sales/primary/summary', { params }),
   stockists: () => client.get('/sales/primary/stockists'),
   updateStockist: (id, payload) => client.patch(`/sales/primary/stockists/${id}`, payload),
-  upload: (formData) => client.post('/sales/primary/upload', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  }),
+  upload: async (file, onProgress) => {
+    if (!window.crypto?.subtle) throw new Error('Secure file upload is not supported by this browser');
+    const buffer = await file.arrayBuffer();
+    const digest = await window.crypto.subtle.digest('SHA-256', buffer);
+    const checksum = Array.from(new Uint8Array(digest)).map(value => value.toString(16).padStart(2, '0')).join('');
+    const start = await client.post('/sales/primary/upload-session/start', {
+      filename: file.name,
+      file_size: file.size,
+      file_checksum: checksum,
+    });
+    const { session_id: sessionId, chunk_size: chunkSize, chunk_count: chunkCount } = start.data;
+    onProgress?.(0, chunkCount);
+    for (let index = 0; index < chunkCount; index += 1) {
+      const bytes = new Uint8Array(buffer, index * chunkSize, Math.min(chunkSize, buffer.byteLength - (index * chunkSize)));
+      const data = window.btoa(String.fromCharCode(...bytes));
+      await client.post(`/sales/primary/upload-session/${sessionId}/chunk`, { index, data });
+      onProgress?.(index + 1, chunkCount);
+    }
+    return client.post(`/sales/primary/upload-session/${sessionId}/complete`, { file_checksum: checksum });
+  },
 };
 
 // ── INVESTMENTS ───────────────────────────────

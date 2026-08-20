@@ -50,6 +50,7 @@ export default function PrimarySales() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [mappingDrafts, setMappingDrafts] = useState({});
   const fileRef = useRef(null);
@@ -106,13 +107,12 @@ export default function PrimarySales() {
   const upload = async event => {
     event.preventDefault();
     if (!selectedFile) { setError('Select the primary-sales Excel file first'); return; }
-    const formData = new FormData();
-    formData.append('file', selectedFile);
     setUploading(true);
+    setUploadProgress(null);
     setError('');
     setSuccess('');
     try {
-      const response = await primarySalesAPI.upload(formData);
+      const response = await primarySalesAPI.upload(selectedFile, (completed, total) => setUploadProgress({ completed, total }));
       const result = response.data;
       setSuccess(result.status === 'duplicate'
         ? result.message
@@ -129,6 +129,7 @@ export default function PrimarySales() {
       setError(err.response?.data?.detail || 'Excel upload failed');
     } finally {
       setUploading(false);
+      setUploadProgress(null);
     }
   };
 
@@ -168,7 +169,11 @@ export default function PrimarySales() {
             </div>
             <input ref={fileRef} type="file" accept=".xls,.xlsx" onChange={event => setSelectedFile(event.target.files?.[0] || null)} style={{ ...fieldStyle, flex: '1 1 230px' }} />
             <button type="submit" disabled={uploading} style={{ border: 'none', borderRadius: 10, padding: '10px 18px', background: uploading ? '#94a3b8' : '#0f766e', color: '#fff', fontWeight: 900, cursor: uploading ? 'wait' : 'pointer' }}>
-              {uploading ? 'Importing…' : 'Upload Excel'}
+              {uploading
+                ? uploadProgress?.total
+                  ? `Uploading ${uploadProgress.completed}/${uploadProgress.total}…`
+                  : 'Preparing…'
+                : 'Upload Excel'}
             </button>
           </form>
         )}

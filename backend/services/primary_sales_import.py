@@ -194,12 +194,17 @@ def _read_xlsx(content: bytes):
 
 def parse_primary_sales_workbook(content: bytes, filename: str) -> dict:
     suffix = Path(filename or "").suffix.lower()
-    if suffix == ".xls":
-        rows = _read_xls(content)
-    elif suffix == ".xlsx":
-        rows = _read_xlsx(content)
-    else:
-        raise ValueError("Please upload an Excel .xls or .xlsx file")
+    try:
+        if suffix == ".xls":
+            rows = _read_xls(content)
+        elif suffix == ".xlsx":
+            rows = _read_xlsx(content)
+        else:
+            raise ValueError("Please upload an Excel .xls or .xlsx file")
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError("The Excel file could not be read. Please upload a valid .xls or .xlsx workbook") from exc
     parsed = parse_primary_sales_rows(rows)
     parsed["file_checksum"] = hashlib.sha256(content).hexdigest()
     return parsed
