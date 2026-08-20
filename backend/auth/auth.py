@@ -19,6 +19,7 @@ from ..core.config import settings
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
+MIN_PASSWORD_LENGTH = 8
 
 
 # ── Password helpers ─────────────────────────
@@ -189,8 +190,8 @@ def change_password(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    if len(payload.new_password) < 12:
-        raise HTTPException(status_code=400, detail="Password must be at least 12 characters")
+    if len(payload.new_password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(status_code=400, detail=f"Password must be at least {MIN_PASSWORD_LENGTH} characters")
     current_user.password_hash = hash_password(payload.new_password)
     if hasattr(current_user, "must_reset_password"): current_user.must_reset_password = False
     db.commit()
@@ -216,8 +217,8 @@ def admin_reset_password(
         raise HTTPException(status_code=403, detail="You cannot reset this account")
 
     new_pwd = payload.new_password or generate_password(16)
-    if len(new_pwd) < 12:
-        raise HTTPException(status_code=400, detail="Password must be at least 12 characters")
+    if len(new_pwd) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(status_code=400, detail=f"Password must be at least {MIN_PASSWORD_LENGTH} characters")
     user.password_hash = hash_password(new_pwd)
     if hasattr(user, "must_reset_password"): user.must_reset_password = True    # force user to reset on next login
     db.commit()

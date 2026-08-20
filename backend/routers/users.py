@@ -9,7 +9,7 @@ from datetime import datetime
 
 from ..database import get_db
 from ..models.models import User, UserRole, UserRegionalTerritory
-from ..auth.auth import generate_password, get_current_user, hash_password, require_roles
+from ..auth.auth import MIN_PASSWORD_LENGTH, generate_password, get_current_user, hash_password, require_roles
 from ..utils.hierarchy import get_subtree_ids
 from ..utils.regional_territories import (
     REGIONAL_TERRITORIES,
@@ -84,8 +84,8 @@ def create_user(
     if existing:
         raise HTTPException(status_code=400, detail="Email already exists")
 
-    if payload.password is not None and len(payload.password) < 12:
-        raise HTTPException(status_code=400, detail="Temporary password must be at least 12 characters")
+    if payload.password is not None and len(payload.password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(status_code=400, detail=f"Temporary password must be at least {MIN_PASSWORD_LENGTH} characters")
     auto_pwd = payload.password or generate_password(16)
     user = User(
         name=payload.name,
