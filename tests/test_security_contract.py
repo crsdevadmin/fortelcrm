@@ -49,6 +49,13 @@ class SecurityContractTests(unittest.TestCase):
         self.assertIn('request.url.path.startswith("/primary-sales")', source)
         self.assertIn('request.url.path.startswith("/sales/primary")', source)
 
+    def test_primary_sales_upload_is_limited_to_staff_accounts(self):
+        source = (ROOT / "backend/routers/primary_sales.py").read_text()
+        self.assertIn('"staff1@fortel.in"', source)
+        self.assertIn('"staff2@fortel.in"', source)
+        self.assertIn('user.role != "back_office"', source)
+        self.assertNotIn('UPLOAD_ROLES = {"admin", "md", "back_office"}', source)
+
     def test_plaintext_password_runtime_references_are_removed(self):
         allowed = ROOT / "backend/scripts/security_migration.py"
         offenders = []

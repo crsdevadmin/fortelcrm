@@ -9,6 +9,7 @@ const TERRITORIES = {
   Telangana: ['Hyderabad'],
   Kerala: ['Cochin'],
 };
+const PRIMARY_SALES_UPLOADER_EMAILS = new Set(['staff1@fortel.in', 'staff2@fortel.in']);
 
 function money(value) {
   const n = Number(value) || 0;
@@ -54,7 +55,8 @@ export default function PrimarySales() {
   const [selectedFile, setSelectedFile] = useState(null);
   const [mappingDrafts, setMappingDrafts] = useState({});
   const fileRef = useRef(null);
-  const canUpload = ['admin', 'md', 'back_office'].includes(user?.role);
+  const canUpload = user?.role === 'back_office' && PRIMARY_SALES_UPLOADER_EMAILS.has((user?.email || '').trim().toLowerCase());
+  const canManageStockists = ['admin', 'md', 'back_office'].includes(user?.role);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -181,7 +183,7 @@ export default function PrimarySales() {
         {error && <div style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', padding: '10px 13px', borderRadius: 10, marginBottom: 12, fontSize: 12, fontWeight: 700 }}>{error}</div>}
         {success && <div style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', padding: '10px 13px', borderRadius: 10, marginBottom: 12, fontSize: 12, fontWeight: 700 }}>{success}</div>}
 
-        {canUpload && (summary?.unassigned_stockists || []).length > 0 && (
+        {canManageStockists && (summary?.unassigned_stockists || []).length > 0 && (
           <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 13, padding: 14, marginBottom: 14 }}>
             <div style={{ fontSize: 13, fontWeight: 900, color: '#92400e' }}>Territory mapping required</div>
             <div style={{ fontSize: 10, color: '#a16207', margin: '3px 0 10px' }}>Sales are visible under “Unassigned” until the stockist is mapped.</div>
@@ -302,7 +304,7 @@ export default function PrimarySales() {
           </>
         )}
 
-        {canUpload && (summary?.recent_uploads || []).length > 0 && (
+        {canManageStockists && (summary?.recent_uploads || []).length > 0 && (
           <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: 15 }}>
             <div style={{ fontSize: 13, fontWeight: 900, marginBottom: 9 }}>Recent Excel uploads</div>
             {summary.recent_uploads.map(row => (

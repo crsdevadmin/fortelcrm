@@ -27,7 +27,8 @@ from ..services.primary_sales_import import (
 router = APIRouter(prefix="/primary-sales", tags=["Primary Sales"])
 transport_router = APIRouter(prefix="/sales/primary", tags=["Primary Sales"])
 
-UPLOAD_ROLES = {"admin", "md", "back_office"}
+PRIMARY_SALES_UPLOADER_EMAILS = {"staff1@fortel.in", "staff2@fortel.in"}
+PRIMARY_SALES_MANAGER_ROLES = {"admin", "md", "back_office"}
 MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 UPLOAD_CHUNK_BYTES = 4 * 1024
 UPLOAD_SESSION_ROOT = Path("/tmp/fortel-primary-upload-sessions")
@@ -54,8 +55,14 @@ class UploadCompleteRequest(BaseModel):
 
 
 def _require_uploader(user: User):
-    if user.role not in UPLOAD_ROLES:
-        raise HTTPException(status_code=403, detail="Only back-office, admin, or MD users can upload primary sales")
+    email = (user.email or "").strip().lower()
+    if user.role != "back_office" or email not in PRIMARY_SALES_UPLOADER_EMAILS:
+        raise HTTPException(status_code=403, detail="Only Staff 1 and Staff 2 can upload primary sales")
+
+
+def _require_stockist_manager(user: User):
+    if user.role not in PRIMARY_SALES_MANAGER_ROLES:
+        raise HTTPException(status_code=403, detail="You cannot update primary-sales stockist mappings")
 
 
 def _upload_payload(upload: PrimarySalesUpload):
@@ -225,7 +232,7 @@ def update_stockist(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    _require_uploader(current_user)
+    _require_stockist_manager(current_user)
     stockist = db.query(Stockist).filter(Stockist.id == stockist_id).first()
     if not stockist:
         raise HTTPException(status_code=404, detail="Stockist not found")
