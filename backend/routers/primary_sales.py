@@ -21,6 +21,7 @@ from ..services.primary_sales_import import (
     infer_stockist_location,
     normalize_stockist_name,
     parse_primary_sales_workbook,
+    primary_sales_week_bounds,
 )
 
 
@@ -76,6 +77,7 @@ def _upload_payload(upload: PrimarySalesUpload):
         "updated_count": upload.updated_count,
         "skipped_count": upload.skipped_count,
         "total_net_amount": round(upload.total_net_amount or 0, 2),
+        "total_sales_amount": round(upload.total_net_amount or 0, 2),
         "uploaded_at": upload.uploaded_at,
         "uploaded_by_id": upload.uploaded_by_id,
         "uploaded_by_name": upload.uploaded_by.name if upload.uploaded_by else "",
@@ -137,7 +139,9 @@ def _persist_primary_sales(content: bytes, filename: str, current_user: User, db
         period_end=dates[-1] if dates else None,
         source_row_count=len(rows),
         skipped_count=parsed["skipped_count"],
-        total_net_amount=round(sum(row["net_amount"] for row in rows), 2),
+        # Keep the legacy database column name, but store the selected Primary
+        # Sales metric: Excel "Gross Amount with Discount".
+        total_net_amount=round(sum(row["gross_amount"] for row in rows), 2),
     )
     db.add(upload)
     db.flush()
@@ -352,6 +356,7 @@ def complete_upload_session(
 def primary_sales_summary(
     year: Optional[int] = None,
     month: Optional[int] = None,
+    week: Optional[int] = None,
     region: Optional[str] = None,
     territory: Optional[str] = None,
     stockist_id: Optional[int] = None,
@@ -368,106 +373,145 @@ def primary_sales_summary(
     if month < 1 or month > 12:
         raise HTTPException(status_code=400, detail="Invalid month")
 
+    period_start = start_date
+    period_end = end_date
+    if not start_date and not end_date and week is not None:
+        try:
+            period_start, period_end = primary_sales_week_bounds(year, month, week)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    def apply_dimension_filters(base_query):
+        filtered = base_query
+        if stockist_id:
+            filtered = filtered.filter(PrimarySalesEntry.stockist_id == stockist_id)
+        has_region_filter = bool(region and region != "ALL")
+        has_territory_filter = bool(territory and territory != "ALL")
+        if has_region_filter or has_territory_filter:
+            filtered = filtered.join(Stockist)
+        if has_region_filter:
+            filtered = filtered.filter(Stockist.region == region)
+        if has_territory_filter:
+            filtered = filtered.filter(Stockist.territory == territory)
+        return filtered
+
     query = db.query(PrimarySalesEntry).options(joinedload(PrimarySalesEntry.stockist))
-    if start_date or end_date:
-        if start_date:
-            query = query.filter(PrimarySalesEntry.bill_date >= start_date)
-        if end_date:
-            query = query.filter(PrimarySalesEntry.bill_date <= end_date)
+    if period_start or period_end:
+        if period_start:
+            query = query.filter(PrimarySalesEntry.bill_date >= period_start)
+        if period_end:
+            query = query.filter(PrimarySalesEntry.bill_date <= period_end)
     else:
         query = query.filter(PrimarySalesEntry.bill_date.like(f"{year:04d}-{month:02d}-%"))
-    if stockist_id:
-        query = query.filter(PrimarySalesEntry.stockist_id == stockist_id)
-    if region and region != "ALL":
-        query = query.join(Stockist).filter(Stockist.region == region)
-    if territory and territory != "ALL":
-        if not region or region == "ALL":
-            query = query.join(Stockist)
-        query = query.filter(Stockist.territory == territory)
+    query = apply_dimension_filters(query)
     entries = query.order_by(PrimarySalesEntry.bill_date.desc(), PrimarySalesEntry.id.desc()).all()
+
+    # The week selector controls the headline, territory and product metrics.
+    # Sales by stockist is deliberately a complete-month view so every bill for
+    # that distributor remains visible while managers move between weeks.
+    if period_start or period_end:
+        month_stockist_query = db.query(PrimarySalesEntry).options(joinedload(PrimarySalesEntry.stockist)).filter(
+            PrimarySalesEntry.bill_date.like(f"{year:04d}-{month:02d}-%")
+        )
+        month_stockist_entries = apply_dimension_filters(month_stockist_query).order_by(
+            PrimarySalesEntry.bill_date.desc(), PrimarySalesEntry.id.desc()
+        ).all()
+    else:
+        month_stockist_entries = entries
 
     stockist_rows = {}
     product_rows = {}
     region_totals = {}
     territory_totals = {}
     bills = set()
+    selected_stockists = set()
     total_quantity = 0.0
-    total_net = 0.0
+    total_sales = 0.0
     for entry in entries:
         stockist = entry.stockist
         region_name = stockist.region if stockist else "Unassigned"
         territory_name = stockist.territory if stockist else "Unassigned"
         total_quantity += entry.quantity or 0
-        total_net += entry.net_amount or 0
+        sales_amount = entry.gross_amount or 0
+        total_sales += sales_amount
         bill_key = (entry.stockist_id, entry.bill_number)
         bills.add(bill_key)
-        region_totals[region_name] = region_totals.get(region_name, 0) + (entry.net_amount or 0)
+        selected_stockists.add(entry.stockist_id)
+        region_totals[region_name] = region_totals.get(region_name, 0) + sales_amount
         territory_key = (region_name, territory_name)
-        territory_totals[territory_key] = territory_totals.get(territory_key, 0) + (entry.net_amount or 0)
+        territory_totals[territory_key] = territory_totals.get(territory_key, 0) + sales_amount
 
+        product_key = entry.product_name.strip().upper()
+        product_row = product_rows.setdefault(product_key, {
+            "product_name": entry.product_name,
+            "sales_amount": 0.0,
+            "quantity": 0.0,
+            "line_count": 0,
+        })
+        product_row["sales_amount"] += sales_amount
+        product_row["quantity"] += entry.quantity or 0
+        product_row["line_count"] += 1
+
+    for entry in month_stockist_entries:
+        stockist = entry.stockist
+        region_name = stockist.region if stockist else "Unassigned"
+        territory_name = stockist.territory if stockist else "Unassigned"
         stockist_row = stockist_rows.setdefault(entry.stockist_id, {
             "stockist_id": entry.stockist_id,
             "stockist_name": stockist.name if stockist else "Unknown",
             "region": region_name,
             "territory": territory_name,
-            "net_amount": 0.0,
+            "sales_amount": 0.0,
             "quantity": 0.0,
             "line_count": 0,
             "bills": set(),
         })
-        stockist_row["net_amount"] += entry.net_amount or 0
+        stockist_row["sales_amount"] += entry.gross_amount or 0
         stockist_row["quantity"] += entry.quantity or 0
         stockist_row["line_count"] += 1
         stockist_row["bills"].add(entry.bill_number)
-
-        product_key = entry.product_name.strip().upper()
-        product_row = product_rows.setdefault(product_key, {
-            "product_name": entry.product_name,
-            "net_amount": 0.0,
-            "quantity": 0.0,
-            "line_count": 0,
-        })
-        product_row["net_amount"] += entry.net_amount or 0
-        product_row["quantity"] += entry.quantity or 0
-        product_row["line_count"] += 1
 
     by_stockist = []
     for item in stockist_rows.values():
         by_stockist.append({
             **{key: value for key, value in item.items() if key != "bills"},
             "bill_count": len(item["bills"]),
-            "net_amount": round(item["net_amount"], 2),
+            "sales_amount": round(item["sales_amount"], 2),
+            "net_amount": round(item["sales_amount"], 2),
             "quantity": round(item["quantity"], 2),
         })
-    by_stockist.sort(key=lambda item: (-item["net_amount"], item["stockist_name"]))
+    by_stockist.sort(key=lambda item: (-item["sales_amount"], item["stockist_name"]))
     by_product = [{
         **item,
-        "net_amount": round(item["net_amount"], 2),
+        "sales_amount": round(item["sales_amount"], 2),
+        "net_amount": round(item["sales_amount"], 2),
         "quantity": round(item["quantity"], 2),
     } for item in product_rows.values()]
-    by_product.sort(key=lambda item: (-item["net_amount"], item["product_name"]))
+    by_product.sort(key=lambda item: (-item["sales_amount"], item["product_name"]))
 
     stockists = db.query(Stockist).filter(Stockist.is_active == True).order_by(Stockist.name).all()
     recent_uploads = db.query(PrimarySalesUpload).options(joinedload(PrimarySalesUpload.uploaded_by)).order_by(
         PrimarySalesUpload.uploaded_at.desc()
     ).limit(10).all()
     return {
-        "period": {"year": year, "month": month, "start_date": start_date, "end_date": end_date},
+        "period": {"year": year, "month": month, "week": week, "start_date": period_start, "end_date": period_end},
         "filters": {"region": region or "ALL", "territory": territory or "ALL", "stockist_id": stockist_id},
-        "total_net_amount": round(total_net, 2),
+        "total_sales_amount": round(total_sales, 2),
+        "total_net_amount": round(total_sales, 2),
         "total_quantity": round(total_quantity, 2),
         "bill_count": len(bills),
         "line_count": len(entries),
-        "stockist_count": len(stockist_rows),
+        "stockist_count": len(selected_stockists),
         "by_region": [
-            {"region": name, "net_amount": round(amount, 2)}
+            {"region": name, "sales_amount": round(amount, 2), "net_amount": round(amount, 2)}
             for name, amount in sorted(region_totals.items(), key=lambda item: -item[1])
         ],
         "by_territory": [
-            {"region": key[0], "territory": key[1], "net_amount": round(amount, 2)}
+            {"region": key[0], "territory": key[1], "sales_amount": round(amount, 2), "net_amount": round(amount, 2)}
             for key, amount in sorted(territory_totals.items(), key=lambda item: -item[1])
         ],
         "by_stockist": by_stockist,
+        "by_stockist_period": {"year": year, "month": month},
         "by_product": by_product,
         "options": {
             "regions": sorted({row.region for row in stockists}),

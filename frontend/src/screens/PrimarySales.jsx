@@ -23,6 +23,18 @@ function fullMoney(value) {
   return `₹${Math.round(Number(value) || 0).toLocaleString('en-IN')}`;
 }
 
+function weekForDate(value) {
+  const date = value instanceof Date ? value : new Date(`${value}T00:00:00`);
+  return Math.min(4, Math.max(1, Math.floor((date.getDate() - 1) / 7) + 1));
+}
+
+function weekLabel(year, month, week) {
+  if (!week) return 'All Weeks';
+  const start = ((week - 1) * 7) + 1;
+  const end = week === 4 ? new Date(year, month, 0).getDate() : start + 6;
+  return `Week ${week} · ${start}–${end} ${MONTHS[month]}`;
+}
+
 function MetricCard({ label, value, note, color }) {
   return (
     <div style={{ background: '#fff', border: `1px solid ${color}30`, borderRadius: 14, padding: '14px 16px', boxShadow: '0 2px 10px rgba(15,23,42,0.04)' }}>
@@ -43,6 +55,7 @@ export default function PrimarySales() {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
+  const [week, setWeek] = useState(weekForDate(now));
   const [region, setRegion] = useState('ALL');
   const [territory, setTerritory] = useState('ALL');
   const [stockistId, setStockistId] = useState('');
@@ -63,7 +76,7 @@ export default function PrimarySales() {
     setError('');
     try {
       const response = await primarySalesAPI.summary({
-        year, month,
+        year, month, week: week || undefined,
         region: region === 'ALL' ? undefined : region,
         territory: territory === 'ALL' ? undefined : territory,
         stockist_id: stockistId || undefined,
@@ -74,7 +87,7 @@ export default function PrimarySales() {
     } finally {
       setLoading(false);
     }
-  }, [year, month, region, territory, stockistId]);
+  }, [year, month, week, region, territory, stockistId]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -118,11 +131,12 @@ export default function PrimarySales() {
       const result = response.data;
       setSuccess(result.status === 'duplicate'
         ? result.message
-        : `${result.message}. Net Amount: ${fullMoney(result.upload?.total_net_amount)}`);
+        : `${result.message}. Gross Amount with Discount: ${fullMoney(result.upload?.total_sales_amount)}`);
       const periodEnd = result.upload?.period_end;
       if (periodEnd) {
         setYear(Number(periodEnd.slice(0, 4)));
         setMonth(Number(periodEnd.slice(5, 7)));
+        setWeek(weekForDate(periodEnd));
       }
       await load();
       setSelectedFile(null);
@@ -148,7 +162,7 @@ export default function PrimarySales() {
     }
   };
 
-  const maxStockist = Math.max(...(summary?.by_stockist || []).map(row => Number(row.net_amount) || 0), 1);
+  const maxStockist = Math.max(...(summary?.by_stockist || []).map(row => Number(row.sales_amount) || 0), 1);
 
   return (
     <div style={{ minHeight: '100vh', background: '#f6f8fb', paddingBottom: 36 }}>
@@ -156,7 +170,7 @@ export default function PrimarySales() {
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
           <div>
             <div style={{ fontSize: 21, fontWeight: 900 }}>Primary Sales</div>
-            <div style={{ fontSize: 11, opacity: 0.72, marginTop: 3 }}>Company invoices to stockists · calculated from the Excel Net Amount column</div>
+            <div style={{ fontSize: 11, opacity: 0.72, marginTop: 3 }}>Company invoices to stockists · calculated from Excel Gross Amount with Discount</div>
           </div>
           <span style={{ background: 'rgba(255,255,255,0.13)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 20, padding: '6px 11px', fontSize: 10, fontWeight: 800 }}>No approval required</span>
         </div>
@@ -227,21 +241,38 @@ export default function PrimarySales() {
             <option value="">All stockists</option>
             {stockistOptions.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}
           </select>
+          <span style={{ flexBasis: '100%', height: 0 }} />
+          <span style={{ color: '#64748b', fontSize: 10, fontWeight: 900, textTransform: 'uppercase', letterSpacing: 0.7 }}>Period</span>
+          {[1, 2, 3, 4].map(value => (
+            <button key={value} type="button" onClick={() => setWeek(value)} style={{ ...fieldStyle, minHeight: 32, padding: '6px 12px', cursor: 'pointer', fontWeight: 900, borderColor: week === value ? '#0f766e' : '#dbe2ea', background: week === value ? '#ecfdf5' : '#fff', color: week === value ? '#0f766e' : '#64748b' }}>
+              Week {value}
+            </button>
+          ))}
+          <button type="button" onClick={() => setWeek(0)} style={{ ...fieldStyle, minHeight: 32, padding: '6px 12px', cursor: 'pointer', fontWeight: 900, borderColor: week === 0 ? '#0f766e' : '#dbe2ea', background: week === 0 ? '#ecfdf5' : '#fff', color: week === 0 ? '#0f766e' : '#64748b' }}>
+            All Weeks
+          </button>
+          <span style={{ color: '#64748b', fontSize: 10 }}>{weekLabel(year, month, week)}</span>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: 10, marginBottom: 14 }}>
-          <MetricCard label="Primary sales" value={money(summary?.total_net_amount)} note={`${MONTHS[month]} ${year} · Net Amount`} color="#0f766e" />
+          <MetricCard label="Primary sales" value={money(summary?.total_sales_amount)} note={`${weekLabel(year, month, week)} ${year} · Gross Amount with Discount`} color="#0f766e" />
           <MetricCard label="Stockists" value={summary?.stockist_count || 0} note="with sales in selection" color="#2563eb" />
           <MetricCard label="Invoices" value={summary?.bill_count || 0} note={`${summary?.line_count || 0} product lines`} color="#7c3aed" />
           <MetricCard label="Quantity" value={Number(summary?.total_quantity || 0).toLocaleString('en-IN')} note="total billed units" color="#d97706" />
         </div>
+
+        {!loading && Number(summary?.line_count || 0) === 0 && (summary?.by_stockist || []).length > 0 && (
+          <div style={{ background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', borderRadius: 10, padding: '10px 13px', marginBottom: 12, fontSize: 11, fontWeight: 700 }}>
+            No invoices were recorded for {weekLabel(year, month, week)}. Sales by stockist below still shows the complete month.
+          </div>
+        )}
 
         {loading ? (
           <div style={{ padding: 50, textAlign: 'center', color: '#64748b' }}>Loading primary sales…</div>
         ) : (summary?.by_stockist || []).length === 0 ? (
           <div style={{ background: '#fff', border: '1px dashed #cbd5e1', borderRadius: 14, padding: 45, textAlign: 'center', color: '#64748b' }}>
             <div style={{ fontSize: 28, marginBottom: 8 }}>▦</div>
-            <div style={{ fontWeight: 900, color: '#334155' }}>No primary sales for {MONTHS[month]} {year}</div>
+            <div style={{ fontWeight: 900, color: '#334155' }}>No primary sales for {weekLabel(year, month, week)} {year}</div>
             <div style={{ fontSize: 11, marginTop: 4 }}>{canUpload ? 'Upload the company Excel report above.' : 'The back-office team has not uploaded this period yet.'}</div>
           </div>
         ) : (
@@ -249,24 +280,24 @@ export default function PrimarySales() {
             <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.4fr) minmax(300px,0.8fr)', gap: 14, marginBottom: 14 }}>
               <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, overflow: 'hidden' }}>
                 <div style={{ padding: '13px 15px', borderBottom: '1px solid #eef2f7' }}>
-                  <div style={{ fontSize: 13, fontWeight: 900 }}>Sales by stockist</div>
-                  <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>Region → territory → distributor</div>
+                  <div style={{ fontSize: 13, fontWeight: 900 }}>Sales by stockist · Complete month</div>
+                  <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>{MONTHS[month]} {year} · all bills · region → territory → distributor</div>
                 </div>
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                     <thead><tr style={{ background: '#f8fafc', color: '#64748b', textAlign: 'left' }}>
-                      {['Stockist', 'Region / territory', 'Bills', 'Qty', 'Net Amount'].map(label => <th key={label} style={{ padding: '9px 12px', whiteSpace: 'nowrap' }}>{label}</th>)}
+                      {['Stockist', 'Region / territory', 'Bills', 'Qty', 'Gross Amount with Discount'].map(label => <th key={label} style={{ padding: '9px 12px', whiteSpace: 'nowrap' }}>{label}</th>)}
                     </tr></thead>
                     <tbody>{summary.by_stockist.map(row => (
                       <tr key={row.stockist_id} style={{ borderTop: '1px solid #f1f5f9' }}>
                         <td style={{ padding: '10px 12px', minWidth: 190 }}>
                           <div style={{ fontWeight: 900, color: '#172033' }}>{row.stockist_name}</div>
-                          <div style={{ height: 4, background: '#ecfdf5', borderRadius: 4, marginTop: 6 }}><div style={{ height: '100%', width: `${Math.max(2, (row.net_amount / maxStockist) * 100)}%`, background: '#0f766e', borderRadius: 4 }} /></div>
+                          <div style={{ height: 4, background: '#ecfdf5', borderRadius: 4, marginTop: 6 }}><div style={{ height: '100%', width: `${Math.max(2, (row.sales_amount / maxStockist) * 100)}%`, background: '#0f766e', borderRadius: 4 }} /></div>
                         </td>
                         <td style={{ padding: '10px 12px', color: '#64748b', whiteSpace: 'nowrap' }}>{row.region}<br /><strong style={{ color: '#334155' }}>{row.territory}</strong></td>
                         <td style={{ padding: '10px 12px' }}>{row.bill_count}</td>
                         <td style={{ padding: '10px 12px' }}>{Number(row.quantity).toLocaleString('en-IN')}</td>
-                        <td style={{ padding: '10px 12px', fontWeight: 900, color: '#0f766e', whiteSpace: 'nowrap' }}>{fullMoney(row.net_amount)}</td>
+                        <td style={{ padding: '10px 12px', fontWeight: 900, color: '#0f766e', whiteSpace: 'nowrap' }}>{fullMoney(row.sales_amount)}</td>
                       </tr>
                     ))}</tbody>
                   </table>
@@ -276,12 +307,12 @@ export default function PrimarySales() {
               <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: 15 }}>
                 <div style={{ fontSize: 13, fontWeight: 900, marginBottom: 10 }}>Territory contribution</div>
                 {(summary.by_territory || []).map((row, index) => {
-                  const pct = summary.total_net_amount ? (row.net_amount / summary.total_net_amount) * 100 : 0;
+                  const pct = summary.total_sales_amount ? (row.sales_amount / summary.total_sales_amount) * 100 : 0;
                   return (
                     <div key={`${row.region}-${row.territory}`} style={{ marginBottom: 12 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11 }}>
                         <span><strong>{row.territory}</strong><span style={{ color: '#94a3b8' }}> · {row.region}</span></span>
-                        <strong>{money(row.net_amount)}</strong>
+                        <strong>{money(row.sales_amount)}</strong>
                       </div>
                       <div style={{ height: 6, background: '#eef2f7', borderRadius: 6, marginTop: 5 }}><div style={{ width: `${Math.max(2, pct)}%`, height: '100%', background: ['#0f766e', '#2563eb', '#7c3aed', '#d97706'][index % 4], borderRadius: 6 }} /></div>
                     </div>
@@ -294,9 +325,9 @@ export default function PrimarySales() {
               <div style={{ padding: '13px 15px', borderBottom: '1px solid #eef2f7', fontSize: 13, fontWeight: 900 }}>Products in primary sales</div>
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-                  <thead><tr style={{ background: '#f8fafc', color: '#64748b', textAlign: 'left' }}><th style={{ padding: '9px 12px' }}>Product</th><th style={{ padding: '9px 12px' }}>Quantity</th><th style={{ padding: '9px 12px' }}>Lines</th><th style={{ padding: '9px 12px' }}>Net Amount</th></tr></thead>
+                  <thead><tr style={{ background: '#f8fafc', color: '#64748b', textAlign: 'left' }}><th style={{ padding: '9px 12px' }}>Product</th><th style={{ padding: '9px 12px' }}>Quantity</th><th style={{ padding: '9px 12px' }}>Lines</th><th style={{ padding: '9px 12px' }}>Gross Amount with Discount</th></tr></thead>
                   <tbody>{(summary.by_product || []).slice(0, 20).map(row => (
-                    <tr key={row.product_name} style={{ borderTop: '1px solid #f1f5f9' }}><td style={{ padding: '9px 12px', fontWeight: 800 }}>{row.product_name}</td><td style={{ padding: '9px 12px' }}>{Number(row.quantity).toLocaleString('en-IN')}</td><td style={{ padding: '9px 12px' }}>{row.line_count}</td><td style={{ padding: '9px 12px', fontWeight: 900 }}>{fullMoney(row.net_amount)}</td></tr>
+                    <tr key={row.product_name} style={{ borderTop: '1px solid #f1f5f9' }}><td style={{ padding: '9px 12px', fontWeight: 800 }}>{row.product_name}</td><td style={{ padding: '9px 12px' }}>{Number(row.quantity).toLocaleString('en-IN')}</td><td style={{ padding: '9px 12px' }}>{row.line_count}</td><td style={{ padding: '9px 12px', fontWeight: 900 }}>{fullMoney(row.sales_amount)}</td></tr>
                   ))}</tbody>
                 </table>
               </div>
@@ -310,7 +341,7 @@ export default function PrimarySales() {
             {summary.recent_uploads.map(row => (
               <div key={row.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '8px 0', borderTop: '1px solid #f1f5f9', fontSize: 11, flexWrap: 'wrap' }}>
                 <div><strong>{row.filename}</strong><div style={{ color: '#94a3b8', marginTop: 2 }}>{row.uploaded_by_name} · {row.period_start || '—'} to {row.period_end || '—'}</div></div>
-                <div style={{ textAlign: 'right' }}><strong style={{ color: '#0f766e' }}>{fullMoney(row.total_net_amount)}</strong><div style={{ color: '#94a3b8', marginTop: 2 }}>{row.inserted_count} new · {row.updated_count} refreshed</div></div>
+                <div style={{ textAlign: 'right' }}><strong style={{ color: '#0f766e' }}>{fullMoney(row.total_sales_amount)}</strong><div style={{ color: '#94a3b8', marginTop: 2 }}>{row.inserted_count} new · {row.updated_count} refreshed</div></div>
               </div>
             ))}
           </div>

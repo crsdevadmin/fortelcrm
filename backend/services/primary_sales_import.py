@@ -1,3 +1,4 @@
+import calendar
 import hashlib
 import re
 from datetime import date, datetime
@@ -7,6 +8,16 @@ from typing import Iterable
 
 
 MAX_PRIMARY_SALES_ROWS = 20000
+
+
+def primary_sales_week_bounds(year: int, month: int, week: int) -> tuple[str, str]:
+    if month < 1 or month > 12:
+        raise ValueError("Invalid month")
+    if week < 1 or week > 4:
+        raise ValueError("Invalid week")
+    start_day = ((week - 1) * 7) + 1
+    end_day = calendar.monthrange(year, month)[1] if week == 4 else start_day + 6
+    return f"{year:04d}-{month:02d}-{start_day:02d}", f"{year:04d}-{month:02d}-{end_day:02d}"
 
 
 def normalize_stockist_name(value) -> str:
@@ -63,13 +74,13 @@ REQUIRED_HEADERS = {
     "bill_date": {"billdate", "invoicedate"},
     "product_name": {"productname", "itemname"},
     "quantity": {"quantity", "qty"},
-    "net_amount": {"netamount", "netvalue"},
+    "gross_amount": {"grossamountwithdiscount", "grossamountafterdiscount"},
 }
 
 OPTIONAL_HEADERS = {
     "free_quantity": {"freequantity", "freeqty"},
     "rate": {"rate", "price"},
-    "gross_amount": {"grossamountwithdiscount", "grossamount", "grossbeforediscount"},
+    "net_amount": {"netamount", "netvalue"},
     "tax_amount": {"taxamount", "gst"},
     "batch_number": {"batchdescription", "batchnumber", "batchno"},
     "gst_number": {"gstnumber", "gstin"},
