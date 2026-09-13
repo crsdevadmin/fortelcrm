@@ -1,6 +1,6 @@
 import unittest
 
-from backend.services.primary_sales_import import parse_primary_sales_rows
+from backend.services.primary_sales_import import parse_primary_sales_rows, primary_sales_reconciliation
 
 
 class PrimarySalesImportTests(unittest.TestCase):
@@ -32,6 +32,28 @@ class PrimarySalesImportTests(unittest.TestCase):
         rows = [["Customer Name", "Bill Number", "Bill Date", "Product Name", "Quantity", "Bill Amount"]]
         with self.assertRaisesRegex(ValueError, "Gross Amount"):
             parse_primary_sales_rows(rows)
+
+    def test_city_split_preserves_uploaded_gross_returns_and_city(self):
+        rows = [
+            ["Customer Name", "Bill Number", "Bill Date", "Product Name", "Quantity", "Gross Amount With Discount", "Net Amount", "CityName", "Abberiviation"],
+            ["CBE HEXACARE", "R001", "01/08/2026", "REFILAC CAP", -2, -380, -399, "COIMBATORE", "Return"],
+        ]
+        result = parse_primary_sales_rows(rows, require_city_column=True)
+        self.assertEqual(-380, result["rows"][0]["gross_amount"])
+        self.assertEqual("COIMBATORE", result["rows"][0]["city"])
+        self.assertEqual("Return", result["rows"][0]["sale_type"])
+
+    def test_city_split_requires_city_name_column(self):
+        rows = [["Customer Name", "Bill Number", "Bill Date", "Product Name", "Quantity", "Gross Amount With Discount"]]
+        with self.assertRaisesRegex(ValueError, "City Name"):
+            parse_primary_sales_rows(rows, require_city_column=True)
+
+    def test_reconciliation_replaces_nexus_value_without_double_counting(self):
+        result = primary_sales_reconciliation(3892236.92, 3018559.88, 3622716.19, True)
+        self.assertEqual(604156.31, result["nexus_value_difference"])
+        self.assertEqual(4496393.23, result["adjusted_primary_sales"])
+        self.assertEqual(873677.04, result["fortel_excluding_nexus"])
+        self.assertTrue(result["is_complete"])
 
 
 if __name__ == "__main__":

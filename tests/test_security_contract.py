@@ -56,6 +56,33 @@ class SecurityContractTests(unittest.TestCase):
         self.assertIn('user.role != "back_office"', source)
         self.assertNotIn('UPLOAD_ROLES = {"admin", "md", "back_office"}', source)
 
+    def test_primary_sales_upload_delete_requires_staff_and_typed_confirmation(self):
+        source = (ROOT / "backend/routers/primary_sales.py").read_text()
+        self.assertIn('@transport_router.delete("/uploads/{upload_id}")', source)
+        self.assertIn('payload.confirmation.strip().upper() != "DELETE UPLOAD"', source)
+        delete_function = source[source.index("def delete_primary_sales_upload"):]
+        self.assertIn("_require_uploader(current_user)", delete_function)
+
+    def test_city_split_upload_and_delete_are_staff_only(self):
+        source = (ROOT / "backend/routers/primary_sales.py").read_text()
+        self.assertIn('@transport_router.post("/city-split/upload-session/start")', source)
+        self.assertIn('@transport_router.delete("/city-split/uploads/{upload_id}")', source)
+        upload_function = source[source.index("def start_city_split_upload_session"):]
+        delete_function = source[source.index("def delete_primary_city_split_upload"):]
+        self.assertIn("_require_uploader(current_user)", upload_function)
+        self.assertIn("_require_uploader(current_user)", delete_function)
+
+    def test_new_primary_workbooks_replace_their_previous_dataset(self):
+        source = (ROOT / "backend/routers/primary_sales.py").read_text()
+        primary_function = source[source.index("def _persist_primary_sales"):source.index("@router.get(\"/stockists\")")]
+        city_function = source[source.index("def _persist_primary_city_split"):source.index("def _persist_primary_sales")]
+        self.assertIn("db.query(PrimarySalesEntry).delete", primary_function)
+        self.assertIn("db.query(PrimarySalesUpload).delete", primary_function)
+        self.assertIn("db.query(PrimaryCitySplitEntry).delete", city_function)
+        self.assertIn("db.query(PrimaryCitySplitUpload).delete", city_function)
+        self.assertNotIn('status": "duplicate"', primary_function)
+        self.assertNotIn('status": "duplicate"', city_function)
+
     def test_plaintext_password_runtime_references_are_removed(self):
         allowed = ROOT / "backend/scripts/security_migration.py"
         offenders = []

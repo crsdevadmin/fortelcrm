@@ -4,11 +4,6 @@ import { useAuth } from '../context/AuthContext';
 
 
 const MONTHS = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const TERRITORIES = {
-  'Tamil Nadu': ['Chennai', 'Madurai', 'Coimbatore 1', 'Coimbatore 2'],
-  Telangana: ['Hyderabad'],
-  Kerala: ['Cochin'],
-};
 const PRIMARY_SALES_UPLOADER_EMAILS = new Set(['staff1@fortel.in', 'staff2@fortel.in']);
 
 function money(value) {
@@ -29,7 +24,7 @@ function weekForDate(value) {
 }
 
 function weekLabel(year, month, week) {
-  if (!week) return 'All Weeks';
+  if (!week) return `${MONTHS[month]} · All Weeks`;
   const start = ((week - 1) * 7) + 1;
   const end = week === 4 ? new Date(year, month, 0).getDate() : start + 6;
   return `Week ${week} · ${start}–${end} ${MONTHS[month]}`;
@@ -60,18 +55,32 @@ export default function PrimarySales() {
   const [territory, setTerritory] = useState('ALL');
   const [stockistId, setStockistId] = useState('');
   const [summary, setSummary] = useState(null);
+  const [citySummary, setCitySummary] = useState(null);
+  const [cityFilter, setCityFilter] = useState('ALL');
+  const [cityTerritory, setCityTerritory] = useState('ALL');
   const [loading, setLoading] = useState(true);
+  const [cityLoading, setCityLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [deletingUploadId, setDeletingUploadId] = useState(null);
+  const [deletingCityUploadId, setDeletingCityUploadId] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
-  const [mappingDrafts, setMappingDrafts] = useState({});
+  const [selectedCityFile, setSelectedCityFile] = useState(null);
+  const [cityUploading, setCityUploading] = useState(false);
+  const [cityUploadProgress, setCityUploadProgress] = useState(null);
   const fileRef = useRef(null);
+  const cityFileRef = useRef(null);
+  const initialPeriodResolved = useRef(false);
+  const summaryRequestId = useRef(0);
+  const cityRequestId = useRef(0);
   const canUpload = user?.role === 'back_office' && PRIMARY_SALES_UPLOADER_EMAILS.has((user?.email || '').trim().toLowerCase());
   const canManageStockists = ['admin', 'md', 'back_office'].includes(user?.role);
 
   const load = useCallback(async () => {
+    const requestId = summaryRequestId.current + 1;
+    summaryRequestId.current = requestId;
     setLoading(true);
     setError('');
     try {
@@ -81,29 +90,54 @@ export default function PrimarySales() {
         territory: territory === 'ALL' ? undefined : territory,
         stockist_id: stockistId || undefined,
       });
-      setSummary(response.data);
+      if (requestId !== summaryRequestId.current) return;
+      const data = response.data;
+      if (!initialPeriodResolved.current) {
+        initialPeriodResolved.current = true;
+        const latestPeriodEnd = data.recent_uploads?.[0]?.period_end;
+        if (Number(data.line_count || 0) === 0 && latestPeriodEnd) {
+          const latestYear = Number(latestPeriodEnd.slice(0, 4));
+          const latestMonth = Number(latestPeriodEnd.slice(5, 7));
+          if (latestYear !== year || latestMonth !== month || week !== 0) {
+            setYear(latestYear);
+            setMonth(latestMonth);
+            setWeek(0);
+            setRegion('ALL');
+            setTerritory('ALL');
+            setStockistId('');
+            return;
+          }
+        }
+      }
+      setSummary(data);
     } catch (err) {
       setError(err.response?.data?.detail || 'Unable to load primary sales');
     } finally {
-      setLoading(false);
+      if (requestId === summaryRequestId.current) setLoading(false);
     }
   }, [year, month, week, region, territory, stockistId]);
 
   useEffect(() => { load(); }, [load]);
 
-  useEffect(() => {
-    if (!summary?.unassigned_stockists) return;
-    setMappingDrafts(current => {
-      const next = { ...current };
-      summary.unassigned_stockists.forEach(row => {
-        next[row.id] = next[row.id] || {
-          region: row.region === 'Unassigned' ? 'Tamil Nadu' : row.region,
-          territory: row.territory === 'Unassigned' ? '' : row.territory,
-        };
+  const loadCitySplit = useCallback(async () => {
+    const requestId = cityRequestId.current + 1;
+    cityRequestId.current = requestId;
+    setCityLoading(true);
+    try {
+      const response = await primarySalesAPI.citySplitSummary({
+        year, month, week: week || undefined,
+        city: cityFilter === 'ALL' ? undefined : cityFilter,
+        territory: cityTerritory === 'ALL' ? undefined : cityTerritory,
       });
-      return next;
-    });
-  }, [summary?.unassigned_stockists]);
+      if (requestId === cityRequestId.current) setCitySummary(response.data);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Unable to load the Tamil Nadu city split');
+    } finally {
+      if (requestId === cityRequestId.current) setCityLoading(false);
+    }
+  }, [year, month, week, cityFilter, cityTerritory]);
+
+  useEffect(() => { loadCitySplit(); }, [loadCitySplit]);
 
   const stockistOptions = useMemo(() => (summary?.options?.stockists || []).filter(row =>
     (region === 'ALL' || row.region === region) &&
@@ -129,14 +163,15 @@ export default function PrimarySales() {
     try {
       const response = await primarySalesAPI.upload(selectedFile, (completed, total) => setUploadProgress({ completed, total }));
       const result = response.data;
-      setSuccess(result.status === 'duplicate'
-        ? result.message
-        : `${result.message}. Gross Amount with Discount: ${fullMoney(result.upload?.total_sales_amount)}`);
+      setSuccess(`${result.message}. Gross Amount with Discount: ${fullMoney(result.upload?.total_sales_amount)}`);
       const periodEnd = result.upload?.period_end;
       if (periodEnd) {
         setYear(Number(periodEnd.slice(0, 4)));
         setMonth(Number(periodEnd.slice(5, 7)));
-        setWeek(weekForDate(periodEnd));
+        setWeek(0);
+        setRegion('ALL');
+        setTerritory('ALL');
+        setStockistId('');
       }
       await load();
       setSelectedFile(null);
@@ -149,20 +184,84 @@ export default function PrimarySales() {
     }
   };
 
-  const saveMapping = async row => {
-    const draft = mappingDrafts[row.id];
-    if (!draft?.region || !draft?.territory) { setError(`Select a territory for ${row.name}`); return; }
+  const deleteUpload = async row => {
+    const confirmation = window.prompt(
+      `Delete ${row.filename}?\n\nThis permanently removes the sales rows currently attached to this upload. Previous file versions will not be restored.\n\nType DELETE UPLOAD to continue.`
+    );
+    if (confirmation === null) return;
+    if (confirmation.trim().toUpperCase() !== 'DELETE UPLOAD') {
+      setError('Deletion cancelled. Type DELETE UPLOAD exactly to confirm.');
+      return;
+    }
+    setDeletingUploadId(row.id);
     setError('');
+    setSuccess('');
     try {
-      await primarySalesAPI.updateStockist(row.id, draft);
-      setSuccess(`${row.name} assigned to ${draft.territory}, ${draft.region}`);
+      const response = await primarySalesAPI.deleteUpload(row.id, confirmation);
+      setSuccess(`${response.data?.filename || row.filename} deleted · ${response.data?.deleted_rows || 0} sales rows removed.`);
       await load();
     } catch (err) {
-      setError(err.response?.data?.detail || 'Unable to update stockist territory');
+      setError(err.response?.data?.detail || 'Unable to delete this Primary Sales upload');
+    } finally {
+      setDeletingUploadId(null);
+    }
+  };
+
+  const uploadCitySplit = async event => {
+    event.preventDefault();
+    if (!selectedCityFile) { setError('Select the Tamil Nadu city-split Excel file first'); return; }
+    setCityUploading(true);
+    setCityUploadProgress(null);
+    setError('');
+    setSuccess('');
+    try {
+      const response = await primarySalesAPI.uploadCitySplit(selectedCityFile, (completed, total) => setCityUploadProgress({ completed, total }));
+      const result = response.data;
+      setSuccess(`${result.message}. Nexus onward sales: ${fullMoney(result.upload?.total_sales_amount)}.`);
+      const periodEnd = result.upload?.period_end;
+      if (periodEnd) {
+        setYear(Number(periodEnd.slice(0, 4)));
+        setMonth(Number(periodEnd.slice(5, 7)));
+        setWeek(0);
+        setCityFilter('ALL');
+        setCityTerritory('ALL');
+      }
+      await loadCitySplit();
+      setSelectedCityFile(null);
+      if (cityFileRef.current) cityFileRef.current.value = '';
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Tamil Nadu city-split upload failed');
+    } finally {
+      setCityUploading(false);
+      setCityUploadProgress(null);
+    }
+  };
+
+  const deleteCityUpload = async row => {
+    const confirmation = window.prompt(
+      `Delete Tamil Nadu city split ${row.filename}?\n\nThis permanently removes the city rows attached to this upload.\n\nType DELETE UPLOAD to continue.`
+    );
+    if (confirmation === null) return;
+    if (confirmation.trim().toUpperCase() !== 'DELETE UPLOAD') {
+      setError('Deletion cancelled. Type DELETE UPLOAD exactly to confirm.');
+      return;
+    }
+    setDeletingCityUploadId(row.id);
+    setError('');
+    setSuccess('');
+    try {
+      const response = await primarySalesAPI.deleteCitySplitUpload(row.id, confirmation);
+      setSuccess(`${response.data?.filename || row.filename} deleted · ${response.data?.deleted_rows || 0} city rows removed.`);
+      await loadCitySplit();
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Unable to delete this city-split upload');
+    } finally {
+      setDeletingCityUploadId(null);
     }
   };
 
   const maxStockist = Math.max(...(summary?.by_stockist || []).map(row => Number(row.sales_amount) || 0), 1);
+  const reconciliation = citySummary?.reconciliation || {};
 
   return (
     <div style={{ minHeight: '100vh', background: '#f6f8fb', paddingBottom: 36 }}>
@@ -178,7 +277,7 @@ export default function PrimarySales() {
 
       <div style={{ padding: '16px 24px 0' }}>
         {canUpload && (
-          <form onSubmit={upload} style={{ background: '#fff', border: '1px solid #cbd5e1', borderRadius: 14, padding: 15, marginBottom: 14, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <form onSubmit={upload} style={{ background: '#fff', border: '1px solid #cbd5e1', borderRadius: 14, padding: 15, marginBottom: 10, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <div style={{ flex: '1 1 280px' }}>
               <div style={{ fontWeight: 900, fontSize: 13, color: '#172033' }}>Upload company sales Excel</div>
               <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>.xls or .xlsx · cumulative reports are refreshed without double-counting</div>
@@ -194,31 +293,25 @@ export default function PrimarySales() {
           </form>
         )}
 
+        {canUpload && (
+          <form onSubmit={uploadCitySplit} style={{ background: '#f8fafc', border: '1px solid #bfdbfe', borderRadius: 14, padding: 15, marginBottom: 14, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div style={{ flex: '1 1 280px' }}>
+              <div style={{ fontWeight: 900, fontSize: 13, color: '#172033' }}>Upload Nexus Tamil Nadu city split</div>
+              <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>Separate city detail · values are used exactly as uploaded and are not added again to company Primary Sales</div>
+            </div>
+            <input ref={cityFileRef} type="file" accept=".xls,.xlsx" onChange={event => setSelectedCityFile(event.target.files?.[0] || null)} style={{ ...fieldStyle, flex: '1 1 230px' }} />
+            <button type="submit" disabled={cityUploading} style={{ border: 'none', borderRadius: 10, padding: '10px 18px', background: cityUploading ? '#94a3b8' : '#2563eb', color: '#fff', fontWeight: 900, cursor: cityUploading ? 'wait' : 'pointer' }}>
+              {cityUploading
+                ? cityUploadProgress?.total
+                  ? `Uploading ${cityUploadProgress.completed}/${cityUploadProgress.total}…`
+                  : 'Preparing…'
+                : 'Upload city split'}
+            </button>
+          </form>
+        )}
+
         {error && <div style={{ background: '#fef2f2', color: '#b91c1c', border: '1px solid #fecaca', padding: '10px 13px', borderRadius: 10, marginBottom: 12, fontSize: 12, fontWeight: 700 }}>{error}</div>}
         {success && <div style={{ background: '#ecfdf5', color: '#047857', border: '1px solid #a7f3d0', padding: '10px 13px', borderRadius: 10, marginBottom: 12, fontSize: 12, fontWeight: 700 }}>{success}</div>}
-
-        {canManageStockists && (summary?.unassigned_stockists || []).length > 0 && (
-          <div style={{ background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 13, padding: 14, marginBottom: 14 }}>
-            <div style={{ fontSize: 13, fontWeight: 900, color: '#92400e' }}>Territory mapping required</div>
-            <div style={{ fontSize: 10, color: '#a16207', margin: '3px 0 10px' }}>Sales are visible under “Unassigned” until the stockist is mapped.</div>
-            {(summary.unassigned_stockists || []).map(row => {
-              const draft = mappingDrafts[row.id] || { region: 'Tamil Nadu', territory: '' };
-              return (
-                <div key={row.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(190px,1fr) 150px 170px auto', gap: 8, alignItems: 'center', marginTop: 7 }}>
-                  <div style={{ fontSize: 12, fontWeight: 900, color: '#422006' }}>{row.name}</div>
-                  <select value={draft.region} onChange={event => setMappingDrafts(current => ({ ...current, [row.id]: { region: event.target.value, territory: '' } }))} style={fieldStyle}>
-                    {Object.keys(TERRITORIES).map(value => <option key={value}>{value}</option>)}
-                  </select>
-                  <select value={draft.territory} onChange={event => setMappingDrafts(current => ({ ...current, [row.id]: { ...draft, territory: event.target.value } }))} style={fieldStyle}>
-                    <option value="">Select territory</option>
-                    {(TERRITORIES[draft.region] || []).map(value => <option key={value}>{value}</option>)}
-                  </select>
-                  <button type="button" onClick={() => saveMapping(row)} style={{ border: 'none', borderRadius: 9, padding: '9px 13px', background: '#d97706', color: '#fff', fontWeight: 900, cursor: 'pointer' }}>Save</button>
-                </div>
-              );
-            })}
-          </div>
-        )}
 
         <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: 12, marginBottom: 14, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <button onClick={() => goMonth(-1)} style={{ ...fieldStyle, cursor: 'pointer', fontWeight: 900 }}>‹</button>
@@ -252,6 +345,25 @@ export default function PrimarySales() {
             All Weeks
           </button>
           <span style={{ color: '#64748b', fontSize: 10 }}>{weekLabel(year, month, week)}</span>
+        </div>
+
+        <div style={{ background: '#fff', border: '1px solid #bfdbfe', borderRadius: 14, padding: 14, marginBottom: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 900, color: '#1e3a8a' }}>Fortel + Nexus sales reconciliation</div>
+              <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>{weekLabel(year, month, week)} {year} · overall figures before region, territory or city filters</div>
+            </div>
+            <span style={{ padding: '5px 9px', borderRadius: 20, background: reconciliation.is_complete ? '#dcfce7' : '#fef3c7', color: reconciliation.is_complete ? '#166534' : '#92400e', fontSize: 10, fontWeight: 900 }}>
+              {reconciliation.is_complete ? 'Both sheets loaded' : 'Upload both sheets'}
+            </span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(155px,1fr))', gap: 9 }}>
+            <MetricCard label="Fortel total" value={money(reconciliation.fortel_total_including_nexus)} note="includes Nexus primary value" color="#0f766e" />
+            <MetricCard label="Nexus in Fortel" value={money(reconciliation.nexus_primary_value)} note="original Fortel invoice value" color="#64748b" />
+            <MetricCard label="Nexus onward sales" value={money(reconciliation.nexus_onward_sales)} note="higher selling value · returns deducted" color="#2563eb" />
+            <MetricCard label="Nexus value difference" value={money(reconciliation.nexus_value_difference)} note="onward sales minus Nexus in Fortel" color={Number(reconciliation.nexus_value_difference || 0) >= 0 ? '#15803d' : '#be123c'} />
+            <MetricCard label="Adjusted primary sales" value={money(reconciliation.adjusted_primary_sales)} note="Fortel total with Nexus value replaced" color="#7c3aed" />
+          </div>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: 10, marginBottom: 14 }}>
@@ -335,13 +447,105 @@ export default function PrimarySales() {
           </>
         )}
 
+        <section style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 16, padding: 15, marginBottom: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: 12 }}>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 900, color: '#1e3a8a' }}>Tamil Nadu city split · Nexus Biocare</div>
+              <div style={{ fontSize: 10, color: '#64748b', marginTop: 3 }}>City-level reference only · Gross Amount with Discount already includes the higher distributor value · not added to the company Primary total</div>
+            </div>
+            <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap' }}>
+              <select value={cityTerritory} onChange={event => { setCityTerritory(event.target.value); setCityFilter('ALL'); }} style={fieldStyle}>
+                <option value="ALL">All TN territories</option>
+                {(citySummary?.options?.territories || []).map(value => <option key={value}>{value}</option>)}
+              </select>
+              <select value={cityFilter} onChange={event => setCityFilter(event.target.value)} style={fieldStyle}>
+                <option value="ALL">All cities</option>
+                {(citySummary?.options?.cities || []).map(value => <option key={value}>{value}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(155px,1fr))', gap: 9, marginBottom: 12 }}>
+            <MetricCard label="City-split value" value={money(citySummary?.total_sales_amount)} note={`${weekLabel(year, month, week)} · separate reference`} color="#2563eb" />
+            <MetricCard label="Customers" value={(citySummary?.by_customer || []).length} note={`${citySummary?.bill_count || 0} invoices`} color="#7c3aed" />
+            <MetricCard label="Quantity" value={Number(citySummary?.total_quantity || 0).toLocaleString('en-IN')} note={`${citySummary?.line_count || 0} product lines`} color="#0f766e" />
+            <MetricCard label="Returns" value={fullMoney(citySummary?.return_amount)} note={`${citySummary?.return_line_count || 0} return lines · already deducted`} color="#be123c" />
+          </div>
+
+          {cityLoading ? (
+            <div style={{ padding: 30, textAlign: 'center', color: '#64748b' }}>Loading Tamil Nadu city split…</div>
+          ) : Number(citySummary?.line_count || 0) === 0 ? (
+            <div style={{ background: '#fff', border: '1px dashed #93c5fd', borderRadius: 12, padding: 28, textAlign: 'center', color: '#64748b', fontSize: 11 }}>
+              No Nexus city-split rows for {weekLabel(year, month, week)} {year}.
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', gap: 12 }}>
+              <div style={{ background: '#fff', border: '1px solid #dbeafe', borderRadius: 12, overflow: 'hidden' }}>
+                <div style={{ padding: '11px 13px', fontSize: 12, fontWeight: 900, borderBottom: '1px solid #eff6ff' }}>Sales by city</div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                    <thead><tr style={{ background: '#f8fafc', color: '#64748b', textAlign: 'left' }}><th style={{ padding: '8px 10px' }}>City / territory</th><th style={{ padding: '8px 10px' }}>Customers</th><th style={{ padding: '8px 10px' }}>Qty</th><th style={{ padding: '8px 10px' }}>Value</th></tr></thead>
+                    <tbody>{(citySummary?.by_city || []).map(row => (
+                      <tr key={`${row.city}-${row.territory}`} style={{ borderTop: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '9px 10px' }}><strong>{row.city}</strong><div style={{ color: '#94a3b8', marginTop: 2 }}>{row.territory}</div></td>
+                        <td style={{ padding: '9px 10px' }}>{row.customer_count}</td>
+                        <td style={{ padding: '9px 10px' }}>{Number(row.quantity).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '9px 10px', fontWeight: 900, color: Number(row.sales_amount) < 0 ? '#be123c' : '#1d4ed8' }}>{fullMoney(row.sales_amount)}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div style={{ background: '#fff', border: '1px solid #dbeafe', borderRadius: 12, overflow: 'hidden' }}>
+                <div style={{ padding: '11px 13px', fontSize: 12, fontWeight: 900, borderBottom: '1px solid #eff6ff' }}>Sales by customer / distributor</div>
+                <div style={{ overflowX: 'auto', maxHeight: 390 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                    <thead><tr style={{ background: '#f8fafc', color: '#64748b', textAlign: 'left', position: 'sticky', top: 0 }}><th style={{ padding: '8px 10px' }}>Customer</th><th style={{ padding: '8px 10px' }}>Bills</th><th style={{ padding: '8px 10px' }}>Qty</th><th style={{ padding: '8px 10px' }}>Value</th></tr></thead>
+                    <tbody>{(citySummary?.by_customer || []).map(row => (
+                      <tr key={row.customer_name} style={{ borderTop: '1px solid #f1f5f9' }}>
+                        <td style={{ padding: '9px 10px', minWidth: 190 }}><strong>{row.customer_name}</strong><div style={{ color: '#94a3b8', marginTop: 2 }}>{row.city} · {row.territory}</div></td>
+                        <td style={{ padding: '9px 10px' }}>{row.bill_count}</td>
+                        <td style={{ padding: '9px 10px' }}>{Number(row.quantity).toLocaleString('en-IN')}</td>
+                        <td style={{ padding: '9px 10px', fontWeight: 900, color: Number(row.sales_amount) < 0 ? '#be123c' : '#1d4ed8' }}>{fullMoney(row.sales_amount)}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {canManageStockists && (citySummary?.recent_uploads || []).length > 0 && (
+            <div style={{ background: '#fff', border: '1px solid #dbeafe', borderRadius: 12, padding: 13, marginTop: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 7 }}>Recent Nexus city-split uploads</div>
+              {citySummary.recent_uploads.map(row => (
+                <div key={row.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, padding: '7px 0', borderTop: '1px solid #eff6ff', fontSize: 11, flexWrap: 'wrap' }}>
+                  <div><strong>{row.filename}</strong><div style={{ color: '#94a3b8', marginTop: 2 }}>{row.uploaded_by_name} · {row.period_start || '—'} to {row.period_end || '—'}</div></div>
+                  <div style={{ display: 'flex', gap: 9, alignItems: 'center' }}>
+                    <strong style={{ color: '#1d4ed8' }}>{fullMoney(row.total_sales_amount)}</strong>
+                    {canUpload && <button type="button" disabled={deletingCityUploadId === row.id} onClick={() => deleteCityUpload(row)} style={{ border: '1px solid #fecaca', borderRadius: 8, padding: '6px 9px', background: '#fff1f2', color: '#be123c', fontSize: 10, fontWeight: 900, cursor: deletingCityUploadId === row.id ? 'wait' : 'pointer' }}>{deletingCityUploadId === row.id ? 'Deleting…' : 'Delete'}</button>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
         {canManageStockists && (summary?.recent_uploads || []).length > 0 && (
           <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 14, padding: 15 }}>
             <div style={{ fontSize: 13, fontWeight: 900, marginBottom: 9 }}>Recent Excel uploads</div>
             {summary.recent_uploads.map(row => (
               <div key={row.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '8px 0', borderTop: '1px solid #f1f5f9', fontSize: 11, flexWrap: 'wrap' }}>
                 <div><strong>{row.filename}</strong><div style={{ color: '#94a3b8', marginTop: 2 }}>{row.uploaded_by_name} · {row.period_start || '—'} to {row.period_end || '—'}</div></div>
-                <div style={{ textAlign: 'right' }}><strong style={{ color: '#0f766e' }}>{fullMoney(row.total_sales_amount)}</strong><div style={{ color: '#94a3b8', marginTop: 2 }}>{row.inserted_count} new · {row.updated_count} refreshed</div></div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ textAlign: 'right' }}><strong style={{ color: '#0f766e' }}>{fullMoney(row.total_sales_amount)}</strong><div style={{ color: '#94a3b8', marginTop: 2 }}>{row.inserted_count} new · {row.updated_count} refreshed</div></div>
+                  {canUpload && (
+                    <button type="button" disabled={deletingUploadId === row.id} onClick={() => deleteUpload(row)} style={{ border: '1px solid #fecaca', borderRadius: 8, padding: '6px 9px', background: '#fff1f2', color: '#be123c', fontSize: 10, fontWeight: 900, cursor: deletingUploadId === row.id ? 'wait' : 'pointer' }}>
+                      {deletingUploadId === row.id ? 'Deleting…' : 'Delete'}
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>

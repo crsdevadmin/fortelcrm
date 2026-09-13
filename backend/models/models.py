@@ -368,6 +368,60 @@ class PrimarySalesEntry(Base):
     stockist    = relationship("Stockist", back_populates="primary_sales_entries")
 
 
+class PrimaryCitySplitUpload(Base):
+    """Tamil Nadu city-level detail supplied by the statewide Nexus stockist."""
+
+    __tablename__ = "primary_city_split_uploads"
+
+    id                 = Column(Integer, primary_key=True, index=True)
+    uploaded_by_id     = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    filename           = Column(String(255), nullable=False)
+    file_checksum      = Column(String(64), nullable=False, unique=True, index=True)
+    period_start       = Column(String(10), nullable=True, index=True)
+    period_end         = Column(String(10), nullable=True, index=True)
+    source_row_count   = Column(Integer, nullable=False, default=0)
+    inserted_count     = Column(Integer, nullable=False, default=0)
+    updated_count      = Column(Integer, nullable=False, default=0)
+    skipped_count      = Column(Integer, nullable=False, default=0)
+    total_gross_amount = Column(Float, nullable=False, default=0)
+    uploaded_at        = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    uploaded_by = relationship("User", foreign_keys=[uploaded_by_id])
+    entries = relationship("PrimaryCitySplitEntry", back_populates="upload")
+
+
+class PrimaryCitySplitEntry(Base):
+    """City/customer rows used only to split Nexus Tamil Nadu Primary Sales."""
+
+    __tablename__ = "primary_city_split_entries"
+
+    id             = Column(Integer, primary_key=True, index=True)
+    source_key     = Column(String(64), nullable=False, unique=True, index=True)
+    upload_id      = Column(Integer, ForeignKey("primary_city_split_uploads.id"), nullable=False, index=True)
+    uploaded_by_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    customer_code  = Column(String(100), nullable=True)
+    customer_name  = Column(String(200), nullable=False, index=True)
+    bill_number    = Column(String(100), nullable=False, index=True)
+    bill_date      = Column(String(10), nullable=False, index=True)
+    product_code   = Column(String(100), nullable=True)
+    product_name   = Column(String(200), nullable=False, index=True)
+    batch_number   = Column(String(100), nullable=True)
+    quantity       = Column(Float, nullable=False, default=0)
+    free_quantity  = Column(Float, nullable=False, default=0)
+    rate           = Column(Float, nullable=False, default=0)
+    gross_amount   = Column(Float, nullable=False, default=0)
+    net_amount     = Column(Float, nullable=False, default=0)
+    sale_type      = Column(String(30), nullable=True)
+    source_city    = Column(String(100), nullable=False, default="Unassigned", index=True)
+    territory      = Column(String(100), nullable=False, default="Unassigned", index=True)
+    region         = Column(String(100), nullable=False, default="Tamil Nadu", index=True)
+    created_at     = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at     = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    upload      = relationship("PrimaryCitySplitUpload", back_populates="entries")
+    uploaded_by = relationship("User", foreign_keys=[uploaded_by_id])
+
+
 # PRODUCT TARGET
 
 class ProductTarget(Base):

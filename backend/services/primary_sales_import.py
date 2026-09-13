@@ -10,6 +10,27 @@ from typing import Iterable
 MAX_PRIMARY_SALES_ROWS = 20000
 
 
+def primary_sales_reconciliation(
+    fortel_total: float,
+    nexus_primary_value: float,
+    nexus_onward_sales: float,
+    is_complete: bool,
+) -> dict:
+    """Replace the Nexus invoice value in Fortel total; never count it twice."""
+    return {
+        "is_complete": bool(is_complete),
+        "fortel_total_including_nexus": round(float(fortel_total or 0), 2),
+        "nexus_primary_value": round(float(nexus_primary_value or 0), 2),
+        "fortel_excluding_nexus": round(float(fortel_total or 0) - float(nexus_primary_value or 0), 2),
+        "nexus_onward_sales": round(float(nexus_onward_sales or 0), 2),
+        "nexus_value_difference": round(float(nexus_onward_sales or 0) - float(nexus_primary_value or 0), 2),
+        "adjusted_primary_sales": round(
+            float(fortel_total or 0) - float(nexus_primary_value or 0) + float(nexus_onward_sales or 0),
+            2,
+        ),
+    }
+
+
 def primary_sales_week_bounds(year: int, month: int, week: int) -> tuple[str, str]:
     if month < 1 or month > 12:
         raise ValueError("Invalid month")
@@ -78,12 +99,17 @@ REQUIRED_HEADERS = {
 }
 
 OPTIONAL_HEADERS = {
+    "customer_code": {"customercode"},
+    "product_code": {"productcode", "itemcode"},
     "free_quantity": {"freequantity", "freeqty"},
     "rate": {"rate", "price"},
     "net_amount": {"netamount", "netvalue"},
     "tax_amount": {"taxamount", "gst"},
     "batch_number": {"batchdescription", "batchnumber", "batchno"},
     "gst_number": {"gstnumber", "gstin"},
+    "city": {"cityname", "city"},
+    "state": {"state", "statename"},
+    "sale_type": {"abberiviation", "abbreviation", "saletype", "transactiontype"},
 }
 
 
@@ -98,18 +124,20 @@ def _column_map(header_row) -> dict[str, int]:
     return result
 
 
-def parse_primary_sales_rows(rows: Iterable[Iterable]) -> dict:
+def parse_primary_sales_rows(rows: Iterable[Iterable], require_city_column: bool = False) -> dict:
     materialized = [list(row) for row in rows]
     header_index = None
     columns = {}
     for index, row in enumerate(materialized[:30]):
         candidate = _column_map(row)
-        if all(field in candidate for field in REQUIRED_HEADERS):
+        if all(field in candidate for field in REQUIRED_HEADERS) and (not require_city_column or "city" in candidate):
             header_index = index
             columns = candidate
             break
     if header_index is None:
         required = ", ".join(name.replace("_", " ").title() for name in REQUIRED_HEADERS)
+        if require_city_column:
+            required += ", City Name"
         raise ValueError(f"Could not find the sales header row. Required columns: {required}")
 
     parsed = []
@@ -153,9 +181,11 @@ def parse_primary_sales_rows(rows: Iterable[Iterable]) -> dict:
             "source_key": source_key,
             "stockist_name": stockist_name,
             "normalized_stockist_name": normalize_stockist_name(stockist_name),
+            "customer_code": _text(cell(row, "customer_code")),
             "bill_number": bill_number,
             "bill_date": bill_date,
             "product_name": product_name,
+            "product_code": _text(cell(row, "product_code")),
             "batch_number": batch_number,
             "quantity": _number(cell(row, "quantity")),
             "free_quantity": _number(cell(row, "free_quantity")),
@@ -164,6 +194,9 @@ def parse_primary_sales_rows(rows: Iterable[Iterable]) -> dict:
             "net_amount": _number(cell(row, "net_amount")),
             "tax_amount": _number(cell(row, "tax_amount")),
             "gst_number": _text(cell(row, "gst_number")),
+            "city": _text(cell(row, "city")),
+            "state": _text(cell(row, "state")),
+            "sale_type": _text(cell(row, "sale_type")),
         })
         if len(parsed) > MAX_PRIMARY_SALES_ROWS:
             raise ValueError(f"The workbook contains more than {MAX_PRIMARY_SALES_ROWS:,} sales rows")
@@ -221,6 +254,25 @@ def parse_primary_sales_workbook(content: bytes, filename: str) -> dict:
     return parsed
 
 
+def parse_primary_city_split_workbook(content: bytes, filename: str) -> dict:
+    """Parse the separate Nexus Tamil Nadu city split without altering its values."""
+    suffix = Path(filename or "").suffix.lower()
+    try:
+        if suffix == ".xls":
+            rows = _read_xls(content)
+        elif suffix == ".xlsx":
+            rows = _read_xlsx(content)
+        else:
+            raise ValueError("Please upload an Excel .xls or .xlsx file")
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError("The Excel file could not be read. Please upload a valid .xls or .xlsx workbook") from exc
+    parsed = parse_primary_sales_rows(rows, require_city_column=True)
+    parsed["file_checksum"] = hashlib.sha256(content).hexdigest()
+    return parsed
+
+
 SEED_STOCKISTS = (
     ("CBE HEXACARE", "Tamil Nadu", "Coimbatore 1"),
     ("CONNECT PHARMA DIST AND SUPPLIERS", "Tamil Nadu", "Coimbatore 1"),
@@ -260,7 +312,7 @@ SEED_STOCKISTS = (
     ("UNIQUE PHARMA", "Tamil Nadu", "Chennai"),
     ("V.S.BIOTECH UNIT OF V.S. HOSPITAL PVT LTD", "Tamil Nadu", "Chennai"),
     ("VEDA PHARMA", "Tamil Nadu", "Chennai"),
-    ("NEXUS BIOCARE", "Tamil Nadu", "Unassigned"),
+    ("NEXUS BIOCARE", "Tamil Nadu", "All Tamil Nadu"),
 )
 
 
@@ -279,6 +331,12 @@ def ensure_seed_stockists(db):
             )
             db.add(row)
             existing[normalized] = row
+        elif normalized == "NEXUS BIOCARE":
+            # Nexus is the statewide stockist. Its separate upload provides the
+            # city detail, so the company-level record must not be forced into
+            # one sales territory.
+            existing[normalized].region = "Tamil Nadu"
+            existing[normalized].territory = "All Tamil Nadu"
     db.flush()
     return existing
 
