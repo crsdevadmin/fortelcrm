@@ -1383,7 +1383,7 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
     const selectedFiles = Array.from(files || []);
     if (!selectedFiles.length || !me?.id) return;
     if (pendingRows.length > 0) {
-      setRegionalPdfError('Save the current regional sales entries before uploading PDFs.');
+      setRegionalPdfError('Save the current regional sales entries before uploading more reports.');
       return;
     }
     setRegionalPdfBusy(true);
@@ -1426,11 +1426,11 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
         }), prev));
       }
       setMessage(extractedEntries.length
-        ? `${selectedFiles.length} Week ${week} PDF${selectedFiles.length === 1 ? '' : 's'} uploaded. ${extractedEntries.length} product row${extractedEntries.length === 1 ? '' : 's'} filled from the PDF; review and save them.`
-        : `${selectedFiles.length} PDF${selectedFiles.length === 1 ? '' : 's'} uploaded, but no product rows could be read. The PDF must contain selectable text.`);
+        ? `${selectedFiles.length} Week ${week} report${selectedFiles.length === 1 ? '' : 's'} uploaded. ${extractedEntries.length} product row${extractedEntries.length === 1 ? '' : 's'} filled from the report; review and save them.`
+        : `${selectedFiles.length} report${selectedFiles.length === 1 ? '' : 's'} uploaded, but no product rows could be read. Check the report columns or use a clearer image.`);
       loadRegionalPdfs();
     } catch (error) {
-      setRegionalPdfError(error?.response?.data?.detail || 'Unable to upload and validate the weekly PDF.');
+      setRegionalPdfError(error?.response?.data?.detail || 'Unable to upload and validate the weekly report.');
     } finally {
       setRegionalPdfBusy(false);
     }
@@ -1749,12 +1749,12 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
         <div style={{ marginBottom: 12, padding: 14, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 900, color: '#111827' }}>Week {week} Sales PDFs</div>
-              <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>Upload one or more PDFs after saving the sales entries. Each PDF is validated against the cumulative total through Week {week}.</div>
+              <div style={{ fontSize: 13, fontWeight: 900, color: '#111827' }}>Week {week} Sales Reports</div>
+              <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>Upload PDF, Excel, JPG, PNG, or WebP reports. Extracted quantities and rates are filled below for review and saving.</div>
             </div>
             <label style={{ padding: '8px 13px', borderRadius: 9, background: regionalPdfBusy || pendingRows.length > 0 ? '#9ca3af' : '#1d4ed8', color: '#fff', fontSize: 11, fontWeight: 900, cursor: regionalPdfBusy || pendingRows.length > 0 ? 'default' : 'pointer' }}>
-              {regionalPdfBusy ? 'Uploading…' : '+ Upload PDFs'}
-              <input type="file" accept="application/pdf,.pdf" multiple disabled={regionalPdfBusy || pendingRows.length > 0}
+              {regionalPdfBusy ? 'Uploading…' : '+ Upload Files'}
+              <input type="file" accept="application/pdf,.pdf,.xlsx,.xls,image/png,image/jpeg,image/webp" multiple disabled={regionalPdfBusy || pendingRows.length > 0}
                 onChange={event => {
                   uploadRegionalWeekPdfs(event.target.files);
                   event.target.value = '';
@@ -1770,7 +1770,7 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 11, fontWeight: 900, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pdf.filename}</div>
                     <div style={{ fontSize: 10, color: pdf.matches ? '#047857' : '#c2410c', marginTop: 2 }}>
-                      {pdf.matches ? 'Matched' : pdf.validation_status === 'unverified' ? 'Unverified — labelled total not found' : 'Mismatch'} · PDF {pdf.pdf_total == null ? 'total not found' : fmtInr(pdf.pdf_total)} · Entered {fmtInr(pdf.entered_total)}
+                      {pdf.matches ? 'Matched' : pdf.validation_status === 'unverified' ? 'Unverified — labelled total not found' : 'Mismatch'} · Report {pdf.pdf_total == null ? 'total not found' : fmtInr(pdf.pdf_total)} · Entered {fmtInr(pdf.entered_total)}
                     </div>
                   </div>
                   <button onClick={async () => {
@@ -1783,7 +1783,7 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
                     URL.revokeObjectURL(url);
                   }}
                     style={{ padding: '6px 10px', borderRadius: 7, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', textDecoration: 'none', fontSize: 10, fontWeight: 900 }}>
-                    Download PDF
+                    Download
                   </button>
                 </div>
               ))}

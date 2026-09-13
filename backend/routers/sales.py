@@ -15,6 +15,7 @@ from ..utils.hierarchy import get_dashboard_scope_ids, get_subtree_ids
 from ..utils.regional_territories import TERRITORY_STATES, visible_territories
 from ..services.pdf_totals import validate_labeled_total
 from ..services.regional_sales_pdf import extract_regional_sales_rows
+from ..services.regional_sales_files import extract_excel_rows, extract_image_rows
 
 router = APIRouter(prefix="/sales", tags=["Sales"])
 
@@ -364,9 +365,13 @@ async def upload_regional_week_pdf(
 
     raw = await file.read()
     if not raw or len(raw) > 10 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="PDF must be between 1 byte and 10 MB")
-    if not raw.startswith(b"%PDF-"):
-        raise HTTPException(status_code=400, detail="Upload a valid PDF file")
+        raise HTTPException(status_code=400, detail="Report file must be between 1 byte and 10 MB")
+    filename = (file.filename or "").lower()
+    is_pdf = raw.startswith(b"%PDF-")
+    is_excel = filename.endswith((".xlsx", ".xls"))
+    is_image = filename.endswith((".png", ".jpg", ".jpeg", ".webp"))
+    if not (is_pdf or is_excel or is_image):
+        raise HTTPException(status_code=400, detail="Upload a PDF, Excel workbook, JPG, PNG, or WebP image")
 
     entered_total = float(db.query(func.sum(RegionalSalesEntry.value)).filter(
         RegionalSalesEntry.associate_id == associate_id,
@@ -378,24 +383,30 @@ async def upload_regional_week_pdf(
         RegionalSalesEntry.week <= week,
     ).scalar() or 0)
 
+    active_products = db.query(Product).filter(Product.is_active == True).all()
     text = ""
     try:
-        from pypdf import PdfReader
-        import io
-        reader = PdfReader(io.BytesIO(raw))
-        extracted_pages = []
-        for page in reader.pages:
-            try:
-                extracted_pages.append(page.extract_text(extraction_mode="layout") or "")
-            except (TypeError, ValueError):
-                extracted_pages.append(page.extract_text() or "")
-        text = "\n".join(extracted_pages)
+        if is_pdf:
+            from pypdf import PdfReader
+            import io
+            reader = PdfReader(io.BytesIO(raw))
+            extracted_pages = []
+            for page in reader.pages:
+                try:
+                    extracted_pages.append(page.extract_text(extraction_mode="layout") or "")
+                except (TypeError, ValueError):
+                    extracted_pages.append(page.extract_text() or "")
+            text = "\n".join(extracted_pages)
+            parsed = extract_regional_sales_rows(text, active_products)
+        elif is_excel:
+            parsed = extract_excel_rows(raw, active_products, filename)
+        else:
+            parsed = extract_image_rows(raw, active_products)
     except Exception:
-        text = raw.decode("latin-1", errors="ignore")
+        raise HTTPException(status_code=400, detail="Unable to read the uploaded report. Check that it is a valid, clear PDF, spreadsheet, or image.")
 
-    active_products = db.query(Product).filter(Product.is_active == True).all()
-    parsed = extract_regional_sales_rows(text, active_products)
-    validation_text = f"Grand Total {parsed['pdf_total']}" if parsed.get("pdf_total") is not None else text
+    extracted_total = parsed.get("pdf_total", parsed.get("source_total"))
+    validation_text = f"Grand Total {extracted_total}" if extracted_total is not None else text
     validation = validate_labeled_total(validation_text, entered_total)
 
     record = RegionalSalesWeekPDF(
@@ -405,8 +416,8 @@ async def upload_regional_week_pdf(
         year=year,
         month=month,
         week=week,
-        filename=(file.filename or f"regional-sales-{year}-{month}-week-{week}.pdf")[:255],
-        content_type="application/pdf",
+        filename=(file.filename or f"regional-sales-{year}-{month}-week-{week}")[:255],
+        content_type=(file.content_type or "application/octet-stream")[:100],
         file_data=raw,
         entered_total=entered_total,
         pdf_total=validation.get("total"),
@@ -424,7 +435,7 @@ async def upload_regional_week_pdf(
     result["parsed_entries"] = parsed["entries"]
     result["parsed_count"] = len(parsed["entries"])
     result["unmatched_rows"] = parsed["unmatched_rows"]
-    result["message"] = "Matched" if validation["status"] == "matched" else "PDF total does not match cumulative regional sales" if validation["status"] == "mismatch" else validation.get("reason", "PDF saved but could not be verified")
+    result["message"] = "Matched" if validation["status"] == "matched" else "Report total does not match cumulative regional sales" if validation["status"] == "mismatch" else validation.get("reason", "Report saved but could not be verified")
     return result
 
 
@@ -441,7 +452,7 @@ def get_regional_week_pdf_status(
 ):
     visible_ids = get_subtree_ids(viewer_id, db)
     if visible_ids is not None and associate_id not in visible_ids:
-        raise HTTPException(status_code=403, detail="You cannot view this representative's PDF")
+        raise HTTPException(status_code=403, detail="You cannot view this representative's report")
     _enforce_regional_territory_access(viewer_id, city.strip(), db, state_code)
     records = _regional_pdf_query(db, associate_id, state_code, city, year, month, week)\
         .order_by(RegionalSalesWeekPDF.uploaded_at.desc(), RegionalSalesWeekPDF.id.desc()).all()
@@ -456,15 +467,15 @@ def download_regional_week_pdf(
 ):
     record = db.query(RegionalSalesWeekPDF).filter(RegionalSalesWeekPDF.id == pdf_id).first()
     if not record:
-        raise HTTPException(status_code=404, detail="Weekly PDF not found")
+        raise HTTPException(status_code=404, detail="Weekly report not found")
     visible_ids = get_subtree_ids(viewer_id, db)
     if visible_ids is not None and record.associate_id not in visible_ids:
-        raise HTTPException(status_code=403, detail="You cannot download this representative's PDF")
+        raise HTTPException(status_code=403, detail="You cannot download this representative's report")
     _enforce_regional_territory_access(viewer_id, record.city, db, record.state_code)
     safe_filename = (record.filename or "regional-sales.pdf").replace('"', "").replace("\r", "").replace("\n", "")
     return Response(
         content=record.file_data,
-        media_type="application/pdf",
+        media_type=record.content_type or "application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'},
     )
 

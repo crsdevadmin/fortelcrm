@@ -10,7 +10,7 @@ echo "=== Updating system ==="
 apt-get update -y && apt-get upgrade -y
 
 echo "=== Installing Python 3.11, nginx, git ==="
-apt-get install -y python3.11 python3.11-venv python3-pip nginx git certbot python3-certbot-nginx curl unzip
+apt-get install -y python3.11 python3.11-venv python3-pip nginx git certbot python3-certbot-nginx curl unzip tesseract-ocr
 
 echo "=== Creating app user ==="
 id -u fortel &>/dev/null || useradd -m -s /bin/bash fortel

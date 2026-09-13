@@ -18,6 +18,10 @@ rsync -avz --exclude 'node_modules' --exclude '__pycache__' --exclude '*.pyc' \
 
 echo "=== Installing Python dependencies ==="
 ssh -i "$KEY_FILE" "$EC2_HOST" "
+  if ! command -v tesseract >/dev/null; then
+    sudo apt-get update
+    sudo apt-get install -y tesseract-ocr
+  fi
   source $APP_DIR/venv/bin/activate
   pip install --upgrade pip
   pip install -r $APP_DIR/backend/requirements.txt
