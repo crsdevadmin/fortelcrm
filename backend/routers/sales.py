@@ -14,6 +14,7 @@ from ..models.models import SalesEntry, RegionalSalesEntry, RegionalSalesWeekPDF
 from ..utils.hierarchy import get_dashboard_scope_ids, get_subtree_ids
 from ..utils.regional_territories import TERRITORY_STATES, visible_territories
 from ..services.pdf_totals import validate_labeled_total
+from ..services.regional_sales_pdf import extract_regional_sales_rows
 
 router = APIRouter(prefix="/sales", tags=["Sales"])
 
@@ -387,6 +388,8 @@ async def upload_regional_week_pdf(
         text = raw.decode("latin-1", errors="ignore")
 
     validation = validate_labeled_total(text, entered_total)
+    active_products = db.query(Product).filter(Product.is_active == True).all()
+    parsed = extract_regional_sales_rows(text, active_products)
 
     record = RegionalSalesWeekPDF(
         associate_id=associate_id,
@@ -411,6 +414,9 @@ async def upload_regional_week_pdf(
     db.refresh(record)
 
     result = _regional_pdf_metadata(record)
+    result["parsed_entries"] = parsed["entries"]
+    result["parsed_count"] = len(parsed["entries"])
+    result["unmatched_rows"] = parsed["unmatched_rows"]
     result["message"] = "Matched" if validation["status"] == "matched" else "PDF total does not match cumulative regional sales" if validation["status"] == "mismatch" else validation.get("reason", "PDF saved but could not be verified")
     return result
 

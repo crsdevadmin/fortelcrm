@@ -1389,6 +1389,7 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
     setRegionalPdfBusy(true);
     setRegionalPdfError('');
     try {
+      const extractedByProduct = {};
       for (const file of selectedFiles) {
         const formData = new FormData();
         formData.append('associate_id', me.id);
@@ -1398,9 +1399,35 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
         formData.append('month', salesMonth);
         formData.append('week', week);
         formData.append('file', file);
-        await salesAPI.uploadRegionalWeekPdf(formData);
+        const response = await salesAPI.uploadRegionalWeekPdf(formData);
+        const parsedEntries = Array.isArray(response.data?.parsed_entries) ? response.data.parsed_entries : [];
+        parsedEntries.forEach(entry => {
+          const productId = Number(entry.product_id);
+          const current = extractedByProduct[productId] || { quantity: 0, price: 0 };
+          extractedByProduct[productId] = {
+            quantity: current.quantity + (Number(entry.quantity) || 0),
+            price: Number(entry.price) || current.price,
+          };
+        });
       }
-      setMessage(`${selectedFiles.length} Week ${week} PDF${selectedFiles.length === 1 ? '' : 's'} uploaded and validated.`);
+      const extractedEntries = Object.entries(extractedByProduct);
+      if (extractedEntries.length) {
+        setRows(prev => extractedEntries.reduce((next, [productId, entry]) => ({
+          ...next,
+          [productId]: {
+            ...(next[productId] || {}),
+            quantity: entry.quantity,
+            price: entry.price || next[productId]?.price || '',
+          },
+        }), { ...prev }));
+        setDirtyRegionalRows(prev => extractedEntries.reduce((next, [productId]) => ({
+          ...next,
+          [productId]: true,
+        }), prev));
+      }
+      setMessage(extractedEntries.length
+        ? `${selectedFiles.length} Week ${week} PDF${selectedFiles.length === 1 ? '' : 's'} uploaded. ${extractedEntries.length} product row${extractedEntries.length === 1 ? '' : 's'} filled from the PDF; review and save them.`
+        : `${selectedFiles.length} PDF${selectedFiles.length === 1 ? '' : 's'} uploaded, but no product rows could be read. The PDF must contain selectable text.`);
       loadRegionalPdfs();
     } catch (error) {
       setRegionalPdfError(error?.response?.data?.detail || 'Unable to upload and validate the weekly PDF.');
