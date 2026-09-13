@@ -383,13 +383,20 @@ async def upload_regional_week_pdf(
         from pypdf import PdfReader
         import io
         reader = PdfReader(io.BytesIO(raw))
-        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        extracted_pages = []
+        for page in reader.pages:
+            try:
+                extracted_pages.append(page.extract_text(extraction_mode="layout") or "")
+            except (TypeError, ValueError):
+                extracted_pages.append(page.extract_text() or "")
+        text = "\n".join(extracted_pages)
     except Exception:
         text = raw.decode("latin-1", errors="ignore")
 
-    validation = validate_labeled_total(text, entered_total)
     active_products = db.query(Product).filter(Product.is_active == True).all()
     parsed = extract_regional_sales_rows(text, active_products)
+    validation_text = f"Grand Total {parsed['pdf_total']}" if parsed.get("pdf_total") is not None else text
+    validation = validate_labeled_total(validation_text, entered_total)
 
     record = RegionalSalesWeekPDF(
         associate_id=associate_id,

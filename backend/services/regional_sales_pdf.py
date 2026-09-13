@@ -10,6 +10,10 @@ def _normalise(value):
     return re.sub(r"[^a-z0-9]+", " ", (value or "").lower()).strip()
 
 
+def _compact(value):
+    return re.sub(r"[^a-z0-9]+", "", (value or "").lower())
+
+
 def _numbers(value):
     result = []
     for match in NUMBER_RE.finditer(value or ""):
@@ -40,6 +44,9 @@ def extract_regional_sales_rows(text, products):
     Product master rates are used as anchors because invoice rows often contain
     unrelated numeric fields (HSN, batch, pack and MRP) before quantity/rate.
     """
+    if "stock group summary" in (text or "").lower():
+        return _extract_tally_stock_group_summary(text, products)
+
     product_specs = []
     for product in products:
         name = _normalise(getattr(product, "name", ""))
@@ -102,3 +109,89 @@ def extract_regional_sales_rows(text, products):
         row["quantity"] = round(row["quantity"], 3)
         row["price"] = round(row["price"], 2)
     return {"entries": rows, "unmatched_rows": unmatched}
+
+
+def _tally_product(products, report_name, report_rate):
+    """Match a Tally stock name to the closest Product Master row."""
+    report_tokens = _normalise(report_name).split()
+    report_compact = _compact(report_name)
+    if not report_tokens:
+        return None
+    brand = report_tokens[0]
+    candidates = []
+    for product in products:
+        name = getattr(product, "name", "") or ""
+        tokens = _normalise(name).split()
+        if not tokens or tokens[0] != brand:
+            continue
+        compact = _compact(name)
+        shared = len(set(report_tokens) & set(tokens))
+        containment = compact in report_compact or report_compact in compact
+        expected_rate = float(getattr(product, "price", None) or getattr(product, "rate", None) or 0)
+        rate_gap = abs(expected_rate - report_rate) if expected_rate else 10 ** 9
+        candidates.append((0 if containment else 1, -shared, rate_gap, -len(compact), product))
+    if not candidates:
+        return None
+    return min(candidates, key=lambda item: item[:-1])[-1]
+
+
+def _extract_tally_stock_group_summary(text, products):
+    """Extract the Outwards column from a Tally Stock Group Summary.
+
+    Tally reports opening/inwards/outwards/closing figures on the same row.
+    Regional secondary sales are the Outwards quantity, rate and value.
+    """
+    lines = (text or "").splitlines()
+    quantity_columns = None
+    for line in lines:
+        starts = [match.start() for match in re.finditer(r"\bQuantity\b", line, re.IGNORECASE)]
+        if len(starts) >= 4:
+            quantity_columns = starts[:4]
+            break
+    if not quantity_columns:
+        return {"entries": [], "unmatched_rows": 0, "pdf_total": None}
+
+    boundaries = [
+        (quantity_columns[index] + quantity_columns[index + 1]) / 2
+        for index in range(3)
+    ]
+    row_re = re.compile(
+        r"(?P<qty>\d+(?:\.\d+)?)\s+nos\s+"
+        r"(?P<rate>[\d,]+(?:\.\d+)?)\s+"
+        r"(?P<value>[\d,]+(?:\.\d+)?)",
+        re.IGNORECASE,
+    )
+    total_re = re.compile(r"(?P<qty>\d+(?:\.\d+)?)\s+nos\s+(?P<value>[\d,]+(?:\.\d+)?)", re.IGNORECASE)
+    entries = {}
+    unmatched = 0
+    pdf_total = None
+    for line in lines:
+        is_total = bool(re.match(r"\s*Grand\s+Total\b", line, re.IGNORECASE))
+        matches = list((total_re if is_total else row_re).finditer(line))
+        outward = next((match for match in matches if boundaries[1] <= match.start() < boundaries[2]), None)
+        if not outward:
+            continue
+        if is_total:
+            pdf_total = float(outward.group("value").replace(",", ""))
+            continue
+        report_name = line[:quantity_columns[0]].strip()
+        quantity = float(outward.group("qty"))
+        rate = float(outward.group("rate").replace(",", ""))
+        product = _tally_product(products, report_name, rate)
+        if not product:
+            unmatched += 1
+            continue
+        current = entries.setdefault(product.id, {
+            "product_id": product.id,
+            "product_name": product.name,
+            "quantity": 0.0,
+            "price": rate,
+        })
+        current["quantity"] += quantity
+        current["price"] = rate
+
+    result = list(entries.values())
+    for row in result:
+        row["quantity"] = round(row["quantity"], 3)
+        row["price"] = round(row["price"], 2)
+    return {"entries": result, "unmatched_rows": unmatched, "pdf_total": pdf_total}

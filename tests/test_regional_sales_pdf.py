@@ -38,3 +38,22 @@ def test_reads_a_product_row_wrapped_across_two_lines():
     result = extract_regional_sales_rows("Sample Syrup\n2 45.00 90.00", products)
     assert result["entries"][0]["quantity"] == 2
     assert result["entries"][0]["price"] == 45
+
+
+def test_tally_stock_group_summary_uses_outwards_not_opening_or_closing():
+    products = [product(9, "NEUGARD CAPSULES 10's", 299.66)]
+    text = """Stock Group Summary
+Particulars                               Opening Balance                      Inwards                      Outwards                  Closing Balance
+                                       Quantity   Rate      Value    Quantity    Rate      Value    Quantity   Rate      Value     Quantity   Rate     Value
+EMWET SPRAY                              6 nos   560.00   3,360.00                                                                  6 nos   560.00   3,360.00
+NEUGARD TAB                            20 nos    374.29   7,485.80    20 nos    374.29  7,485.80    20 nos    335.00   6,700.00    20 nos   374.29   7,485.80
+Grand Total                            41 nos             27,129.56  20 nos             7,485.80    20 nos             6,700.00    41 nos            27,129.56
+"""
+    result = extract_regional_sales_rows(text, products)
+    assert result["entries"] == [{
+        "product_id": 9,
+        "product_name": "NEUGARD CAPSULES 10's",
+        "quantity": 20.0,
+        "price": 335.0,
+    }]
+    assert result["pdf_total"] == 6700
