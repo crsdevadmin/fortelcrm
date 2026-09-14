@@ -1852,7 +1852,8 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
 
           {regionalPdfs.length > 0 && (
             <div style={{ display: 'grid', gap: 7, marginTop: 10 }}>
-              {regionalPdfs.map(pdf => (
+              <div style={{ fontSize: 10, color: '#6b7280' }}>Latest uploaded report</div>
+              {regionalPdfs.slice(0, 1).map(pdf => (
                 <div key={pdf.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '8px 10px', background: pdf.matches ? '#ecfdf5' : '#fff7ed', border: `1px solid ${pdf.matches ? '#a7f3d0' : '#fed7aa'}`, borderRadius: 9, flexWrap: 'wrap' }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 11, fontWeight: 900, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pdf.filename}</div>
@@ -1860,18 +1861,37 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
                       {pdf.matches ? 'Matched' : pdf.validation_status === 'unverified' ? 'Unverified — labelled total not found' : 'Mismatch'} · Report {pdf.pdf_total == null ? 'total not found' : fmtInr(pdf.pdf_total)} · Entered {fmtInr(pdf.entered_total)}
                     </div>
                   </div>
-                  <button onClick={async () => {
-                    const response = await salesAPI.downloadRegionalWeekPdf(me.id, pdf.id);
-                    const url = URL.createObjectURL(response.data);
-                    const link = document.createElement('a');
-                    link.href = url;
-                    link.download = pdf.filename || `regional-sales-week-${week}.pdf`;
-                    link.click();
-                    URL.revokeObjectURL(url);
-                  }}
-                    style={{ padding: '6px 10px', borderRadius: 7, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', textDecoration: 'none', fontSize: 10, fontWeight: 900 }}>
-                    Download
-                  </button>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={async () => {
+                      const response = await salesAPI.downloadRegionalWeekPdf(me.id, pdf.id);
+                      const url = URL.createObjectURL(response.data);
+                      const link = document.createElement('a');
+                      link.href = url;
+                      link.download = pdf.filename || `regional-sales-week-${week}.pdf`;
+                      link.click();
+                      URL.revokeObjectURL(url);
+                    }}
+                      style={{ padding: '6px 10px', borderRadius: 7, border: '1px solid #bfdbfe', background: '#eff6ff', color: '#1d4ed8', fontSize: 10, fontWeight: 900 }}>
+                      Download
+                    </button>
+                    <button disabled={regionalPdfBusy} onClick={async () => {
+                      if (!window.confirm(`Remove ${pdf.filename} from the upload history? Imported sales will remain unchanged.`)) return;
+                      setRegionalPdfBusy(true);
+                      setRegionalPdfError('');
+                      try {
+                        await salesAPI.deleteRegionalWeekPdf(pdf.id);
+                        setMessage(`${pdf.filename} removed from upload history. Imported sales remain unchanged.`);
+                        await loadRegionalPdfs();
+                      } catch (removeError) {
+                        setRegionalPdfError(removeError?.response?.data?.detail || 'Unable to remove the uploaded report.');
+                      } finally {
+                        setRegionalPdfBusy(false);
+                      }
+                    }}
+                      style={{ padding: '6px 10px', borderRadius: 7, border: '1px solid #fecaca', background: '#fff', color: '#b91c1c', fontSize: 10, fontWeight: 900, cursor: regionalPdfBusy ? 'default' : 'pointer' }}>
+                      Remove
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

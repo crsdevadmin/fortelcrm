@@ -53,6 +53,7 @@ export const salesAPI = {
   downloadRegionalWeekPdf: (viewerId, pdfId) => client.get('/sales/regional/week-pdf/download', {
     params: { pdf_id: pdfId }, responseType: 'blob',
   }),
+  deleteRegionalWeekPdf: (pdfId) => client.delete(`/sales/regional/week-pdf/${pdfId}`),
 };
 
 async function chunkedPrimarySalesUpload(file, onProgress, basePath) {

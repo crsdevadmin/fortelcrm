@@ -522,6 +522,25 @@ def download_regional_week_pdf(
     )
 
 
+@router.delete("/regional/week-pdf/{pdf_id}")
+def delete_regional_week_pdf(
+    pdf_id: int,
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    viewer_id = current_user.id
+    record = db.query(RegionalSalesWeekPDF).filter(RegionalSalesWeekPDF.id == pdf_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Weekly report not found")
+    visible_ids = get_subtree_ids(viewer_id, db)
+    if visible_ids is not None and record.associate_id not in visible_ids:
+        raise HTTPException(status_code=403, detail="You cannot remove this representative's report")
+    _enforce_regional_territory_access(viewer_id, record.city, db, record.state_code)
+    db.delete(record)
+    db.commit()
+    return {"status": "deleted", "pdf_id": pdf_id}
+
+
 @router.get("/doctor/{doctor_id}/monthly")
 def get_doctor_monthly_sales(doctor_id: int, year: int, month: int, db: Session = Depends(get_db)):
     entries = db.query(SalesEntry).filter(
