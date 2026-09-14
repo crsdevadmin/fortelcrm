@@ -536,9 +536,29 @@ def delete_regional_week_pdf(
     if visible_ids is not None and record.associate_id not in visible_ids:
         raise HTTPException(status_code=403, detail="You cannot remove this representative's report")
     _enforce_regional_territory_access(viewer_id, record.city, db, record.state_code)
+
+    imported_entries = db.query(RegionalSalesEntry).filter(
+        RegionalSalesEntry.associate_id == record.associate_id,
+        RegionalSalesEntry.state_code.ilike(record.state_code),
+        RegionalSalesEntry.city.ilike(record.city),
+        RegionalSalesEntry.year == record.year,
+        RegionalSalesEntry.month == record.month,
+        RegionalSalesEntry.week == record.week,
+        RegionalSalesEntry.remarks.isnot(None),
+    ).all()
+    entries_deleted = 0
+    for entry in imported_entries:
+        remarks = (entry.remarks or "").strip()
+        if not remarks.startswith("Imported from "):
+            continue
+        source_files = [name.strip() for name in remarks.removeprefix("Imported from ").split(",")]
+        if record.filename in source_files:
+            db.delete(entry)
+            entries_deleted += 1
+
     db.delete(record)
     db.commit()
-    return {"status": "deleted", "pdf_id": pdf_id}
+    return {"status": "deleted", "pdf_id": pdf_id, "entries_deleted": entries_deleted}
 
 
 @router.get("/doctor/{doctor_id}/monthly")

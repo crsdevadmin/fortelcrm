@@ -1875,12 +1875,15 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
                       Download
                     </button>
                     <button disabled={regionalPdfBusy} onClick={async () => {
-                      if (!window.confirm(`Remove ${pdf.filename} from the upload history? Imported sales will remain unchanged.`)) return;
+                      if (!window.confirm(`Remove ${pdf.filename} and its imported product quantities, rates, and values?`)) return;
                       setRegionalPdfBusy(true);
                       setRegionalPdfError('');
                       try {
-                        await salesAPI.deleteRegionalWeekPdf(pdf.id);
-                        setMessage(`${pdf.filename} removed from upload history. Imported sales remain unchanged.`);
+                        const response = await salesAPI.deleteRegionalWeekPdf(pdf.id);
+                        const deletedRows = Number(response.data?.entries_deleted) || 0;
+                        setExtractedReport(null);
+                        setMessage(`${pdf.filename} and ${deletedRows} imported product row${deletedRows === 1 ? '' : 's'} removed.`);
+                        await loadRegional();
                         await loadRegionalPdfs();
                       } catch (removeError) {
                         setRegionalPdfError(removeError?.response?.data?.detail || 'Unable to remove the uploaded report.');
