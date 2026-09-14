@@ -60,5 +60,19 @@ Grand Total                            41 nos             27,129.56  20 nos     
         "value": 6700.0,
     }]
     assert result["pdf_total"] == 6700
+
+
+def test_tally_summary_without_rate_column_derives_outward_rate():
+    products = [product(9, "NEUGARD CAPSULES 10's", 299.66)]
+    text = """Stock Group Summary
+  Particulars                                  Inwards                           Outwards                       Closing Balance
+                                      Quantity           Value           Quantity           Value          Quantity           Value
+NEUGARD                                   21 nos          7,350.00           20 nos          7,485.80           28 nos         9,800.00
+  Grand Total                             41 nos         35,590.78           70 nos        41,260.90          287 nos        76,735.07
+"""
+    result = extract_regional_sales_rows(text, products)
+    assert result["entries"][0]["quantity"] == 20
+    assert result["entries"][0]["price"] == 374.29
+    assert result["pdf_total"] == 41260.90
     # EMWET SPRAY has no Outwards figures, so it is not reported as an unmatched sale.
     assert result["unmatched_items"] == []

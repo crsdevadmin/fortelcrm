@@ -151,7 +151,7 @@ def _extract_tally_stock_group_summary(text, products):
     quantity_columns = None
     for line in lines:
         starts = [match.start() for match in re.finditer(r"\bQuantity\b", line, re.IGNORECASE)]
-        if len(starts) >= 4:
+        if len(starts) >= 3:
             quantity_columns = starts[:4]
             break
     if not quantity_columns:
@@ -159,14 +159,23 @@ def _extract_tally_stock_group_summary(text, products):
 
     boundaries = [
         (quantity_columns[index] + quantity_columns[index + 1]) / 2
-        for index in range(3)
+        for index in range(len(quantity_columns) - 1)
     ]
-    row_re = re.compile(
-        r"(?P<qty>\d+(?:\.\d+)?)\s+nos\s+"
-        r"(?P<rate>[\d,]+(?:\.\d+)?)\s+"
-        r"(?P<value>[\d,]+(?:\.\d+)?)",
-        re.IGNORECASE,
-    )
+    has_rate_column = len(quantity_columns) >= 4
+    outward_index = 2 if has_rate_column else 1
+    if has_rate_column:
+        row_re = re.compile(
+            r"(?P<qty>\d+(?:\.\d+)?)\s+nos\s+"
+            r"(?P<rate>[\d,]+(?:\.\d+)?)\s+"
+            r"(?P<value>[\d,]+(?:\.\d+)?)",
+            re.IGNORECASE,
+        )
+    else:
+        row_re = re.compile(
+            r"(?P<qty>\d+(?:\.\d+)?)\s+nos\s+"
+            r"(?P<value>[\d,]+(?:\.\d+)?)",
+            re.IGNORECASE,
+        )
     total_re = re.compile(r"(?P<qty>\d+(?:\.\d+)?)\s+nos\s+(?P<value>[\d,]+(?:\.\d+)?)", re.IGNORECASE)
     entries = {}
     unmatched = 0
@@ -175,7 +184,9 @@ def _extract_tally_stock_group_summary(text, products):
     for line in lines:
         is_total = bool(re.match(r"\s*Grand\s+Total\b", line, re.IGNORECASE))
         matches = list((total_re if is_total else row_re).finditer(line))
-        outward = next((match for match in matches if boundaries[1] <= match.start() < boundaries[2]), None)
+        left = boundaries[outward_index - 1]
+        right = boundaries[outward_index] if outward_index < len(boundaries) else float("inf")
+        outward = next((match for match in matches if left <= match.start() < right), None)
         if not outward:
             continue
         if is_total:
@@ -183,7 +194,8 @@ def _extract_tally_stock_group_summary(text, products):
             continue
         report_name = line[:quantity_columns[0]].strip()
         quantity = float(outward.group("qty"))
-        rate = float(outward.group("rate").replace(",", ""))
+        value = float(outward.group("value").replace(",", ""))
+        rate = float(outward.group("rate").replace(",", "")) if has_rate_column else value / quantity
         product = _tally_product(products, report_name, rate)
         if not product:
             unmatched += 1
