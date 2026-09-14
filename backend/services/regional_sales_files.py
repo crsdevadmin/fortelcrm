@@ -39,10 +39,12 @@ def _find_header(rows):
 def _map_rows(rows, products):
     header_index, columns = _find_header(rows)
     if columns is None:
-        return {"entries": [], "unmatched_rows": 0, "source_total": None}
+        return {"entries": [], "unmatched_rows": 0, "unmatched_items": [], "source_total": None, "matched_total": 0.0}
     entries = {}
     unmatched = 0
+    unmatched_items = []
     source_total = 0.0
+    matched_total = 0.0
     for row in rows[header_index + 1:]:
         if columns["name"] >= len(row):
             continue
@@ -58,14 +60,23 @@ def _map_rows(rows, products):
             rate = value / quantity
         if rate <= 0:
             continue
-        source_total += value if value > 0 else quantity * rate
+        line_value = value if value > 0 else quantity * rate
+        source_total += line_value
         product = _tally_product(products, name, rate)
         if not product:
             unmatched += 1
+            unmatched_items.append({
+                "source_name": name,
+                "quantity": round(quantity, 3),
+                "price": round(rate, 2),
+                "value": round(line_value, 2),
+            })
             continue
+        matched_total += line_value
         current = entries.setdefault(product.id, {
             "product_id": product.id,
             "product_name": product.name,
+            "source_name": name,
             "quantity": 0.0,
             "price": rate,
         })
@@ -75,7 +86,14 @@ def _map_rows(rows, products):
     for row in result:
         row["quantity"] = round(row["quantity"], 3)
         row["price"] = round(row["price"], 2)
-    return {"entries": result, "unmatched_rows": unmatched, "source_total": round(source_total, 2)}
+        row["value"] = round(row["quantity"] * row["price"], 2)
+    return {
+        "entries": result,
+        "unmatched_rows": unmatched,
+        "unmatched_items": unmatched_items,
+        "source_total": round(source_total, 2),
+        "matched_total": round(matched_total, 2),
+    }
 
 
 def extract_excel_rows(raw, products, filename=""):

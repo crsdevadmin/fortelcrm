@@ -108,7 +108,13 @@ def extract_regional_sales_rows(text, products):
     for row in rows:
         row["quantity"] = round(row["quantity"], 3)
         row["price"] = round(row["price"], 2)
-    return {"entries": rows, "unmatched_rows": unmatched}
+        row["value"] = round(row["quantity"] * row["price"], 2)
+    return {
+        "entries": rows,
+        "unmatched_rows": unmatched,
+        "unmatched_items": [],
+        "matched_total": round(sum(row["value"] for row in rows), 2),
+    }
 
 
 def _tally_product(products, report_name, report_rate):
@@ -149,7 +155,7 @@ def _extract_tally_stock_group_summary(text, products):
             quantity_columns = starts[:4]
             break
     if not quantity_columns:
-        return {"entries": [], "unmatched_rows": 0, "pdf_total": None}
+        return {"entries": [], "unmatched_rows": 0, "unmatched_items": [], "pdf_total": None, "matched_total": 0.0}
 
     boundaries = [
         (quantity_columns[index] + quantity_columns[index + 1]) / 2
@@ -164,6 +170,7 @@ def _extract_tally_stock_group_summary(text, products):
     total_re = re.compile(r"(?P<qty>\d+(?:\.\d+)?)\s+nos\s+(?P<value>[\d,]+(?:\.\d+)?)", re.IGNORECASE)
     entries = {}
     unmatched = 0
+    unmatched_items = []
     pdf_total = None
     for line in lines:
         is_total = bool(re.match(r"\s*Grand\s+Total\b", line, re.IGNORECASE))
@@ -180,10 +187,17 @@ def _extract_tally_stock_group_summary(text, products):
         product = _tally_product(products, report_name, rate)
         if not product:
             unmatched += 1
+            unmatched_items.append({
+                "source_name": report_name,
+                "quantity": round(quantity, 3),
+                "price": round(rate, 2),
+                "value": round(quantity * rate, 2),
+            })
             continue
         current = entries.setdefault(product.id, {
             "product_id": product.id,
             "product_name": product.name,
+            "source_name": report_name,
             "quantity": 0.0,
             "price": rate,
         })
@@ -194,4 +208,11 @@ def _extract_tally_stock_group_summary(text, products):
     for row in result:
         row["quantity"] = round(row["quantity"], 3)
         row["price"] = round(row["price"], 2)
-    return {"entries": result, "unmatched_rows": unmatched, "pdf_total": pdf_total}
+        row["value"] = round(row["quantity"] * row["price"], 2)
+    return {
+        "entries": result,
+        "unmatched_rows": unmatched,
+        "unmatched_items": unmatched_items,
+        "pdf_total": pdf_total,
+        "matched_total": round(sum(row["value"] for row in result), 2),
+    }

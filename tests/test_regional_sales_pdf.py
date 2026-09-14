@@ -16,6 +16,7 @@ def test_extracts_quantity_and_rate_using_master_rate_anchor():
         "product_name": "Fortel 500 MG Tablet",
         "quantity": 10.0,
         "price": 82.5,
+        "value": 825.0,
     }]
 
 
@@ -53,7 +54,11 @@ Grand Total                            41 nos             27,129.56  20 nos     
     assert result["entries"] == [{
         "product_id": 9,
         "product_name": "NEUGARD CAPSULES 10's",
+        "source_name": "NEUGARD TAB",
         "quantity": 20.0,
         "price": 335.0,
+        "value": 6700.0,
     }]
     assert result["pdf_total"] == 6700
+    # EMWET SPRAY has no Outwards figures, so it is not reported as an unmatched sale.
+    assert result["unmatched_items"] == []

@@ -49,8 +49,9 @@ export const salesAPI = {
     headers: { 'Content-Type': 'multipart/form-data' },
   }),
   regionalWeekPdfs: (params) => client.get('/sales/regional/week-pdf/status', { params }),
+  // viewer is derived from the auth token server-side; viewerId kept for call-site compatibility
   downloadRegionalWeekPdf: (viewerId, pdfId) => client.get('/sales/regional/week-pdf/download', {
-    params: { viewer_id: viewerId, pdf_id: pdfId }, responseType: 'blob',
+    params: { pdf_id: pdfId }, responseType: 'blob',
   }),
 };
 

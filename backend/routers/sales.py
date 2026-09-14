@@ -6,6 +6,7 @@ from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime, date as date_type, timedelta
 import calendar
+import logging
 import re
 
 from ..database import get_db
@@ -16,6 +17,8 @@ from ..utils.regional_territories import TERRITORY_STATES, visible_territories
 from ..services.pdf_totals import validate_labeled_total
 from ..services.regional_sales_pdf import extract_regional_sales_rows
 from ..services.regional_sales_files import extract_excel_rows, extract_image_rows
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sales", tags=["Sales"])
 
@@ -403,6 +406,10 @@ async def upload_regional_week_pdf(
         else:
             parsed = extract_image_rows(raw, active_products)
     except Exception:
+        logger.exception(
+            "Regional sales report parse failed (file=%s, associate=%s, %s-%s week %s)",
+            filename, associate_id, year, month, week,
+        )
         raise HTTPException(status_code=400, detail="Unable to read the uploaded report. Check that it is a valid, clear PDF, spreadsheet, or image.")
 
     extracted_total = parsed.get("pdf_total", parsed.get("source_total"))
@@ -435,21 +442,27 @@ async def upload_regional_week_pdf(
     result["parsed_entries"] = parsed["entries"]
     result["parsed_count"] = len(parsed["entries"])
     result["unmatched_rows"] = parsed["unmatched_rows"]
+    # Products read from the file that are not in the Product Master — shown so the
+    # user can see every line the report contained, not just the ones we could map.
+    result["unmatched_items"] = parsed.get("unmatched_items", [])
+    result["matched_total"] = parsed.get("matched_total")
+    result["source_total"] = extracted_total
     result["message"] = "Matched" if validation["status"] == "matched" else "Report total does not match cumulative regional sales" if validation["status"] == "mismatch" else validation.get("reason", "Report saved but could not be verified")
     return result
 
 
 @router.get("/regional/week-pdf/status")
 def get_regional_week_pdf_status(
-    viewer_id: int,
     associate_id: int,
     state_code: str,
     city: str,
     year: int,
     month: int,
     week: int,
+    current_user = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    viewer_id = current_user.id
     visible_ids = get_subtree_ids(viewer_id, db)
     if visible_ids is not None and associate_id not in visible_ids:
         raise HTTPException(status_code=403, detail="You cannot view this representative's report")
@@ -461,10 +474,11 @@ def get_regional_week_pdf_status(
 
 @router.get("/regional/week-pdf/download")
 def download_regional_week_pdf(
-    viewer_id: int,
     pdf_id: int,
+    current_user = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    viewer_id = current_user.id
     record = db.query(RegionalSalesWeekPDF).filter(RegionalSalesWeekPDF.id == pdf_id).first()
     if not record:
         raise HTTPException(status_code=404, detail="Weekly report not found")

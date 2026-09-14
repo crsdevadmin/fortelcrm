@@ -16,10 +16,33 @@ def test_maps_excel_sales_and_derives_rate_from_sales_value():
     assert result["entries"] == [{
         "product_id": 4,
         "product_name": "EMWET SPRAY 100ML",
+        "source_name": "EMWET SPRAY",
         "quantity": 1.0,
         "price": 627.0,
+        "value": 627.0,
     }]
     assert result["source_total"] == 627
+    assert result["matched_total"] == 627
+    assert result["unmatched_items"] == []
+
+
+def test_returns_unmatched_products_with_quantity_and_price():
+    rows = [
+        ["ITEMNAME", "SALES", "SALES VAL"],
+        ["EMWET SPRAY", 1, 627],
+        ["BRAND NOT IN MASTER", 5, 500],
+    ]
+    result = _map_rows(rows, [product(4, "EMWET SPRAY 100ML", 617.14)])
+    assert result["unmatched_rows"] == 1
+    assert result["unmatched_items"] == [{
+        "source_name": "BRAND NOT IN MASTER",
+        "quantity": 5.0,
+        "price": 100.0,
+        "value": 500.0,
+    }]
+    # Report total covers every line; matched total covers only mapped products.
+    assert result["source_total"] == 1127
+    assert result["matched_total"] == 627
 
 
 def test_maps_screenshot_style_headers():

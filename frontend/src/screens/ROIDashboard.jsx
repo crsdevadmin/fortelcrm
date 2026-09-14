@@ -1007,6 +1007,9 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
   const [regionalPdfs, setRegionalPdfs] = useState([]);
   const [regionalPdfBusy, setRegionalPdfBusy] = useState(false);
   const [regionalPdfError, setRegionalPdfError] = useState('');
+  // Every product line read from the uploaded files, so the user can see the
+  // full contents of the report — including products not in the Product Master.
+  const [extractedReport, setExtractedReport] = useState(null);
   const [regionalDraftStatus, setRegionalDraftStatus] = useState('');
   const pendingRegionalDraftRestore = useRef('');
   const previousRegionalDraftKey = useRef('');
@@ -1390,6 +1393,10 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
     setRegionalPdfError('');
     try {
       const extractedByProduct = {};
+      const matchedLines = [];
+      const unmatchedLines = [];
+      let sourceTotalSum = 0;
+      let matchedTotalSum = 0;
       for (const file of selectedFiles) {
         const formData = new FormData();
         formData.append('associate_id', me.id);
@@ -1401,6 +1408,9 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
         formData.append('file', file);
         const response = await salesAPI.uploadRegionalWeekPdf(formData);
         const parsedEntries = Array.isArray(response.data?.parsed_entries) ? response.data.parsed_entries : [];
+        const unmatchedItems = Array.isArray(response.data?.unmatched_items) ? response.data.unmatched_items : [];
+        sourceTotalSum += Number(response.data?.source_total) || 0;
+        matchedTotalSum += Number(response.data?.matched_total) || 0;
         parsedEntries.forEach(entry => {
           const productId = Number(entry.product_id);
           const current = extractedByProduct[productId] || { quantity: 0, price: 0 };
@@ -1408,8 +1418,15 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
             quantity: current.quantity + (Number(entry.quantity) || 0),
             price: Number(entry.price) || current.price,
           };
+          matchedLines.push({ ...entry, file: file.name });
         });
+        unmatchedItems.forEach(item => unmatchedLines.push({ ...item, file: file.name }));
       }
+      setExtractedReport(
+        (matchedLines.length || unmatchedLines.length)
+          ? { matched: matchedLines, unmatched: unmatchedLines, sourceTotal: sourceTotalSum, matchedTotal: matchedTotalSum, files: selectedFiles.length }
+          : null
+      );
       const extractedEntries = Object.entries(extractedByProduct);
       if (extractedEntries.length) {
         setRows(prev => extractedEntries.reduce((next, [productId, entry]) => ({
@@ -1763,6 +1780,58 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
             </label>
           </div>
           {regionalPdfError && <div style={{ marginTop: 9, color: '#dc2626', fontSize: 11, fontWeight: 700 }}>{regionalPdfError}</div>}
+
+          {extractedReport && (
+            <div style={{ marginTop: 11, border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '9px 11px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+                <div style={{ fontSize: 12, fontWeight: 900, color: '#111827' }}>
+                  Products read from {extractedReport.files} file{extractedReport.files === 1 ? '' : 's'}
+                </div>
+                <div style={{ fontSize: 10, color: '#6b7280' }}>
+                  Report total {fmtInr(extractedReport.sourceTotal)} · Matched {fmtInr(extractedReport.matchedTotal)}
+                </div>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                  <thead>
+                    <tr style={{ background: '#fff' }}>
+                      <th style={{ textAlign: 'left', padding: '6px 9px', color: '#6b7280', fontWeight: 700, borderBottom: '1px solid #e5e7eb' }}>Product in file</th>
+                      <th style={{ textAlign: 'left', padding: '6px 9px', color: '#6b7280', fontWeight: 700, borderBottom: '1px solid #e5e7eb' }}>Mapped to</th>
+                      <th style={{ textAlign: 'right', padding: '6px 9px', color: '#6b7280', fontWeight: 700, borderBottom: '1px solid #e5e7eb' }}>Qty</th>
+                      <th style={{ textAlign: 'right', padding: '6px 9px', color: '#6b7280', fontWeight: 700, borderBottom: '1px solid #e5e7eb' }}>Price</th>
+                      <th style={{ textAlign: 'right', padding: '6px 9px', color: '#6b7280', fontWeight: 700, borderBottom: '1px solid #e5e7eb' }}>Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {extractedReport.matched.map((row, index) => (
+                      <tr key={`m-${index}`} style={{ background: '#fff' }}>
+                        <td style={{ padding: '6px 9px', color: '#111827', borderBottom: '1px solid #f3f4f6' }}>{row.source_name || row.product_name}</td>
+                        <td style={{ padding: '6px 9px', color: '#047857', borderBottom: '1px solid #f3f4f6' }}>{row.product_name}</td>
+                        <td style={{ padding: '6px 9px', textAlign: 'right', color: '#111827', borderBottom: '1px solid #f3f4f6' }}>{row.quantity}</td>
+                        <td style={{ padding: '6px 9px', textAlign: 'right', color: '#111827', borderBottom: '1px solid #f3f4f6' }}>{fmtInr(row.price)}</td>
+                        <td style={{ padding: '6px 9px', textAlign: 'right', color: '#111827', borderBottom: '1px solid #f3f4f6' }}>{fmtInr(row.value != null ? row.value : (Number(row.quantity) || 0) * (Number(row.price) || 0))}</td>
+                      </tr>
+                    ))}
+                    {extractedReport.unmatched.map((row, index) => (
+                      <tr key={`u-${index}`} style={{ background: '#fff7ed' }}>
+                        <td style={{ padding: '6px 9px', color: '#111827', borderBottom: '1px solid #f3f4f6' }}>{row.source_name}</td>
+                        <td style={{ padding: '6px 9px', color: '#c2410c', fontWeight: 700, borderBottom: '1px solid #f3f4f6' }}>Not in Product Master</td>
+                        <td style={{ padding: '6px 9px', textAlign: 'right', color: '#111827', borderBottom: '1px solid #f3f4f6' }}>{row.quantity}</td>
+                        <td style={{ padding: '6px 9px', textAlign: 'right', color: '#111827', borderBottom: '1px solid #f3f4f6' }}>{fmtInr(row.price)}</td>
+                        <td style={{ padding: '6px 9px', textAlign: 'right', color: '#111827', borderBottom: '1px solid #f3f4f6' }}>{fmtInr(row.value)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {extractedReport.unmatched.length > 0 && (
+                <div style={{ padding: '8px 11px', background: '#fff7ed', borderTop: '1px solid #fed7aa', fontSize: 10, color: '#9a3412' }}>
+                  {extractedReport.unmatched.length} product{extractedReport.unmatched.length === 1 ? '' : 's'} in the report {extractedReport.unmatched.length === 1 ? 'is' : 'are'} not in the Product Master, so {extractedReport.unmatched.length === 1 ? 'it is' : 'they are'} not saved. {fmtInr(extractedReport.sourceTotal - extractedReport.matchedTotal)} of the report total is excluded.
+                </div>
+              )}
+            </div>
+          )}
+
           {regionalPdfs.length > 0 && (
             <div style={{ display: 'grid', gap: 7, marginTop: 10 }}>
               {regionalPdfs.map(pdf => (
