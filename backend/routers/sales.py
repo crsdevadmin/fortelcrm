@@ -248,6 +248,34 @@ def submit_regional_sales(payload: RegionalSalesRequest, db: Session = Depends(g
         saved += 1
 
     db.commit()
+
+    # Keep uploaded report validation in sync after an import/save. The upload
+    # arrives before the sales rows, so its initial entered total is normally 0.
+    cumulative_total = float(db.query(func.sum(RegionalSalesEntry.value)).filter(
+        RegionalSalesEntry.associate_id == payload.associate_id,
+        RegionalSalesEntry.state_code.ilike(state_code),
+        RegionalSalesEntry.city.ilike(city),
+        RegionalSalesEntry.year == payload.year,
+        RegionalSalesEntry.month == payload.month,
+        RegionalSalesEntry.week >= 1,
+        RegionalSalesEntry.week <= payload.week,
+    ).scalar() or 0)
+    uploaded_reports = _regional_pdf_query(
+        db, payload.associate_id, state_code, city, payload.year, payload.month, payload.week
+    ).all()
+    for report in uploaded_reports:
+        report.entered_total = cumulative_total
+        if report.pdf_total is None:
+            report.difference = None
+            report.matches = False
+            report.validation_status = "unverified"
+            continue
+        difference = round(float(report.pdf_total) - cumulative_total, 2)
+        tolerance = max(1.0, round(abs(cumulative_total) * 0.001, 2))
+        report.difference = difference
+        report.matches = abs(difference) <= tolerance
+        report.validation_status = "matched" if report.matches else "mismatch"
+    db.commit()
     return {"status": "submitted", "entries_saved": saved}
 
 

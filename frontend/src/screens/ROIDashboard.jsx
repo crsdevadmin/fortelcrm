@@ -1093,7 +1093,7 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
     if (!me?.id) return;
     setLoading(true);
     setError('');
-    Promise.all([
+    return Promise.all([
       axios.get(`${API}/products/`),
       axios.get(`${API}/doctors/`, { params: { viewer_id: me.id, include_inactive: false } }),
       salesAPI.regional(me.id, salesYear, salesMonth, activeSalesWeek, regionalStateFilter, regionalCityFilter),
@@ -1279,15 +1279,15 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
     ? Array.from({ length: week - 1 }, (_, index) => index + 1)
     : [];
   const regionalGridTemplate = isCumulativeWeeklyMonth
-    ? `minmax(190px, 1.5fr) ${previousWeekNumbers.map(() => '125px').join(' ')} 120px 135px 110px 140px 86px`
+    ? 'minmax(220px, 1.6fr) 120px 135px 150px'
     : showPreviousWeekProductData
       ? `minmax(190px, 1.5fr) ${previousWeekNumbers.map(() => '125px').join(' ')} 120px 120px 130px 86px`
       : 'minmax(190px, 1.5fr) 120px 120px 130px 86px';
   const regionalGridMinWidth = isCumulativeWeeklyMonth
-    ? 780 + (previousWeekNumbers.length * 125)
+    ? 625
     : showPreviousWeekProductData ? 650 + (previousWeekNumbers.length * 125) : 650;
   const regionalHeaders = isCumulativeWeeklyMonth
-    ? ['Product', ...previousWeekNumbers.map(previousWeek => `Week ${previousWeek}`), 'Cumulative Qty', 'Rate', 'Cumulative Value', `Week ${week} Result`, 'Action']
+    ? ['Imported Product', `Week ${week} Quantity`, 'Rate', 'Sales Value']
     : isLegacyJulyWeeklyMonth
       ? ['Product', ...previousWeekNumbers.map(previousWeek => `Week ${previousWeek}`), `Week ${week} Qty`, 'Rate', `Week ${week} Total`, 'Action']
       : ['Product', 'Qty', 'Rate', 'Total', 'Action'];
@@ -1295,6 +1295,13 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
     const saved = rows[row.product.id] || {};
     return Boolean(dirtyRegionalRows[row.product.id]) || (!saved.existing && row.quantity > 0);
   });
+  const regionalDisplayProducts = isCumulativeWeeklyMonth
+    ? products.filter(product => {
+        const row = rows[product.id] || {};
+        const calculated = entryByProduct.get(product.id);
+        return Boolean(row.existing) && Boolean(calculated) && (Number(calculated.quantity) > 0 || Number(calculated.value) > 0);
+      })
+    : products;
   const allStateOptions = Object.values(locations.reduce((acc, loc) => {
     const name = loc.state_name || toStateName(loc.state_code);
     acc[name] = acc[name] || { state_code: loc.state_code, state_name: name, count: 0 };
@@ -1385,10 +1392,6 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
   const uploadRegionalWeekPdfs = async files => {
     const selectedFiles = Array.from(files || []);
     if (!selectedFiles.length || !me?.id) return;
-    if (pendingRows.length > 0) {
-      setRegionalPdfError('Save the current regional sales entries before uploading more reports.');
-      return;
-    }
     setRegionalPdfBusy(true);
     setRegionalPdfError('');
     try {
@@ -1429,22 +1432,35 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
       );
       const extractedEntries = Object.entries(extractedByProduct);
       if (extractedEntries.length) {
-        setRows(prev => extractedEntries.reduce((next, [productId, entry]) => ({
-          ...next,
-          [productId]: {
-            ...(next[productId] || {}),
-            quantity: entry.quantity,
-            price: entry.price || next[productId]?.price || '',
-          },
-        }), { ...prev }));
-        setDirtyRegionalRows(prev => extractedEntries.reduce((next, [productId]) => ({
-          ...next,
-          [productId]: true,
-        }), prev));
+        const payloadRows = extractedEntries.map(([productId, entry]) => {
+          const previousQuantity = Object.values(weekContext.weeksByProduct || {}).reduce(
+            (sum, weekProducts) => sum + (Number(weekProducts?.[productId]?.qty) || 0), 0
+          );
+          const importedQuantity = Number(entry.quantity) || 0;
+          return {
+            product_id: Number(productId),
+            quantity: isCumulativeWeeklyMonth ? Math.max(0, importedQuantity - previousQuantity) : importedQuantity,
+            price: Number(entry.price) || 0,
+          };
+        }).filter(entry => entry.quantity > 0 && entry.price > 0);
+        if (!payloadRows.length) throw new Error('No positive product quantities could be imported.');
+        await salesAPI.submitRegional({
+          associate_id: me.id,
+          state_code: stateCode,
+          city,
+          year: salesYear,
+          month: salesMonth,
+          week: activeSalesWeek,
+          entries: payloadRows,
+          remarks: `Imported from ${selectedFiles.map(file => file.name).join(', ')}`,
+        });
+        setEditingRegionalRows({});
+        setDirtyRegionalRows({});
       }
       setMessage(extractedEntries.length
-        ? `${selectedFiles.length} Week ${week} report${selectedFiles.length === 1 ? '' : 's'} uploaded. ${extractedEntries.length} product row${extractedEntries.length === 1 ? '' : 's'} filled from the report; review and save them.`
+        ? `${selectedFiles.length} Week ${week} report${selectedFiles.length === 1 ? '' : 's'} imported. ${extractedEntries.length} product row${extractedEntries.length === 1 ? '' : 's'} saved automatically.`
         : `${selectedFiles.length} report${selectedFiles.length === 1 ? '' : 's'} uploaded, but no product rows could be read. Check the report columns or use a clearer image.`);
+      await loadRegional();
       loadRegionalPdfs();
     } catch (error) {
       setRegionalPdfError(error?.response?.data?.detail || 'Unable to upload and validate the weekly report.');
@@ -1539,11 +1555,13 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
               style={{ padding: '9px 15px', borderRadius: 9, border: '1px solid rgba(255,255,255,0.28)', background: (saving || isAggregateRegionalView) ? 'rgba(255,255,255,0.12)' : 'rgba(248,113,113,0.22)', color: '#fff', cursor: (saving || isAggregateRegionalView) ? 'default' : 'pointer', fontWeight: 900 }}>
               Reset Month
             </button>
-            <button onClick={saveRegionalSales} disabled={saving || loading || isAggregateRegionalView || pendingRows.length === 0}
-              title={isAggregateRegionalView ? 'Select a specific state and city to save regional sales.' : pendingRows.length === 0 ? 'Click Edit on a saved row or enter a new row before saving.' : 'Save regional sales'}
-              style={{ padding: '9px 15px', borderRadius: 9, border: 'none', background: (saving || isAggregateRegionalView || pendingRows.length === 0) ? '#9ca3af' : '#0F6E56', color: '#fff', cursor: (saving || isAggregateRegionalView || pendingRows.length === 0) ? 'default' : 'pointer', fontWeight: 900 }}>
-              {saving ? 'Saving...' : 'Save Regional Sales'}
-            </button>
+            {!isCumulativeWeeklyMonth && (
+              <button onClick={saveRegionalSales} disabled={saving || loading || isAggregateRegionalView || pendingRows.length === 0}
+                title={isAggregateRegionalView ? 'Select a specific state and city to save regional sales.' : pendingRows.length === 0 ? 'Enter or edit a row before saving.' : 'Save regional sales'}
+                style={{ padding: '9px 15px', borderRadius: 9, border: 'none', background: (saving || isAggregateRegionalView || pendingRows.length === 0) ? '#9ca3af' : '#0F6E56', color: '#fff', cursor: (saving || isAggregateRegionalView || pendingRows.length === 0) ? 'default' : 'pointer', fontWeight: 900 }}>
+                {saving ? 'Saving...' : 'Save Regional Sales'}
+              </button>
+            )}
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', width: '100%' }}>
             <div style={{ display: 'flex', alignItems: 'center', background: 'rgba(255,255,255,0.12)', borderRadius: 10, border: '1px solid rgba(255,255,255,0.2)', overflow: 'hidden' }}>
@@ -1716,7 +1734,7 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
       {!loading && isWeeklyRegionalMonth && !isAggregateRegionalView && (
         <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534', borderRadius: 10, padding: 12, marginBottom: 12, fontSize: 13 }}>
           {isCumulativeWeeklyMonth ? (
-            <>Enter only the <strong>cumulative quantity</strong> shown in the Week {week} PDF. The Product Master rate fills automatically, the value is calculated for you, and earlier weeks are subtracted product-wise.</>
+            <>Upload the Week {week} distributor report below. Products, quantities, and rates are imported automatically; earlier weeks are subtracted product-wise.</>
           ) : (
             <>July data remains unchanged. Enter and edit the <strong>Week {week} quantity and rate</strong> directly; no cumulative subtraction is applied.</>
           )}
@@ -1767,11 +1785,11 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <div>
               <div style={{ fontSize: 13, fontWeight: 900, color: '#111827' }}>Week {week} Sales Reports</div>
-              <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>Upload PDF, Excel, JPG, PNG, or WebP reports. Extracted quantities and rates are filled below for review and saving.</div>
+              <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>Upload PDF, Excel, JPG, PNG, or WebP reports. Products, quantities, and rates are imported and saved automatically.</div>
             </div>
-            <label style={{ padding: '8px 13px', borderRadius: 9, background: regionalPdfBusy || pendingRows.length > 0 ? '#9ca3af' : '#1d4ed8', color: '#fff', fontSize: 11, fontWeight: 900, cursor: regionalPdfBusy || pendingRows.length > 0 ? 'default' : 'pointer' }}>
+            <label style={{ padding: '8px 13px', borderRadius: 9, background: regionalPdfBusy ? '#9ca3af' : '#1d4ed8', color: '#fff', fontSize: 11, fontWeight: 900, cursor: regionalPdfBusy ? 'default' : 'pointer' }}>
               {regionalPdfBusy ? 'Uploading…' : '+ Upload Files'}
-              <input type="file" accept="application/pdf,.pdf,.xlsx,.xls,image/png,image/jpeg,image/webp" multiple disabled={regionalPdfBusy || pendingRows.length > 0}
+              <input type="file" accept="application/pdf,.pdf,.xlsx,.xls,image/png,image/jpeg,image/webp" multiple disabled={regionalPdfBusy}
                 onChange={event => {
                   uploadRegionalWeekPdfs(event.target.files);
                   event.target.value = '';
@@ -1867,7 +1885,9 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
         </div>
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: '#6b7280' }}>Loading products...</div>
-        ) : products.map(product => {
+        ) : regionalDisplayProducts.length === 0 ? (
+          <div style={{ padding: 40, textAlign: 'center', color: '#6b7280' }}>No imported sales for this week. Upload a report to load product sales.</div>
+        ) : regionalDisplayProducts.map(product => {
           const row = rows[product.id] || {};
           const calculated = entryByProduct.get(product.id) || { quantity: 0, value: 0, price: 0, belowPrevious: false };
           const quantity = calculated.quantity;
@@ -1875,6 +1895,19 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
           const editing = Boolean(editingRegionalRows[product.id]);
           const isLockedSavedRow = Boolean(row.existing) && !editing;
           const inputDisabled = isAggregateRegionalView || isLockedSavedRow;
+          if (isCumulativeWeeklyMonth) {
+            return (
+              <div key={product.id} style={{ display: 'grid', gridTemplateColumns: regionalGridTemplate, minWidth: regionalGridMinWidth, alignItems: 'center', borderBottom: '1px solid #f3f4f6', background: '#fff' }}>
+                <div style={{ padding: '10px 12px', minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: '#111827' }}>{product.name}</div>
+                  {(product.pack || product.composition) && <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>{[product.pack, product.composition].filter(Boolean).join(' | ')}</div>}
+                </div>
+                <div style={{ padding: '10px 12px', fontSize: 13, fontWeight: 900 }}>{quantity.toLocaleString('en-IN')}</div>
+                <div style={{ padding: '10px 12px', fontSize: 13, fontWeight: 800 }}>{fmtInr(price)}</div>
+                <div style={{ padding: '10px 12px', fontSize: 13, fontWeight: 900, color: '#0F6E56' }}>{fmtInr(calculated.value)}</div>
+              </div>
+            );
+          }
           return (
             <div key={product.id} style={{ display: 'grid', gridTemplateColumns: regionalGridTemplate, minWidth: regionalGridMinWidth, alignItems: 'center', borderBottom: '1px solid #f3f4f6', background: isLockedSavedRow ? '#f9fafb' : '#fff' }}>
               <div style={{ padding: '10px 12px', minWidth: 0 }}>
