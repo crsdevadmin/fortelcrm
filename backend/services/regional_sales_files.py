@@ -21,16 +21,22 @@ def _number(value):
 
 def _find_header(rows):
     name_keys = {"itemname", "productname", "particulars", "product", "item"}
-    quantity_keys = {"sales", "salesqty", "saleqty", "sqty", "outwards", "outwardqty"}
-    value_keys = {"salesval", "salesvalue", "salevalue", "salvalue", "outwardsvalue", "outwardvalue"}
+    closing_quantity_keys = {"clstock", "clsqty", "closingqty", "closingquantity", "closingstock"}
+    sales_quantity_keys = {"sales", "salesqty", "saleqty", "sqty", "outwards", "outwardqty"}
+    closing_value_keys = {"stkval", "clsvalue", "closingvalue", "closingstockvalue"}
+    sales_value_keys = {"salesval", "salesvalue", "salevalue", "salvalue", "outwardsvalue", "outwardvalue"}
     rate_keys = {"rate", "purrate", "purchaserate", "salesrate", "salerate"}
     for index, row in enumerate(rows):
         keys = [_key(cell) for cell in row]
         name = next((i for i, item in enumerate(keys) if item in name_keys), None)
-        quantity = next((i for i, item in enumerate(keys) if item in quantity_keys), None)
+        quantity = next((i for i, item in enumerate(keys) if item in closing_quantity_keys), None)
+        if quantity is None:
+            quantity = next((i for i, item in enumerate(keys) if item in sales_quantity_keys), None)
         if name is None or quantity is None:
             continue
-        value = next((i for i, item in enumerate(keys) if item in value_keys), None)
+        value = next((i for i, item in enumerate(keys) if item in closing_value_keys), None)
+        if value is None:
+            value = next((i for i, item in enumerate(keys) if item in sales_value_keys), None)
         rate = next((i for i, item in enumerate(keys) if item in rate_keys), None)
         return index, {"name": name, "quantity": quantity, "value": value, "rate": rate}
     return None, None
@@ -56,8 +62,16 @@ def _map_rows(rows, products):
         rate = _number(row[columns["rate"]] if columns["rate"] is not None and columns["rate"] < len(row) else None)
         if quantity <= 0:
             continue
-        if rate <= 0 and value > 0:
+        reported_rate = rate
+        if value > 0:
             rate = value / quantity
+            # OCR occasionally confuses one digit in the value (for example
+            # 2,880 as 2,830). Use a clearly conflicting printed rate to repair
+            # the value while retaining small stock-valuation rate differences.
+            rate_gap = abs(rate - reported_rate) / reported_rate if reported_rate > 0 else 0
+            if reported_rate > 0 and 0.01 < rate_gap < 0.10:
+                rate = reported_rate
+                value = quantity * reported_rate
         if rate <= 0:
             continue
         line_value = value if value > 0 else quantity * rate
@@ -79,14 +93,16 @@ def _map_rows(rows, products):
             "source_name": name,
             "quantity": 0.0,
             "price": rate,
+            "value": 0.0,
         })
         current["quantity"] += quantity
-        current["price"] = rate
+        current["value"] += line_value
+        current["price"] = current["value"] / current["quantity"]
     result = list(entries.values())
     for row in result:
         row["quantity"] = round(row["quantity"], 3)
         row["price"] = round(row["price"], 2)
-        row["value"] = round(row["quantity"] * row["price"], 2)
+        row["value"] = round(row["value"], 2)
     return {
         "entries": result,
         "unmatched_rows": unmatched,
@@ -117,6 +133,9 @@ def extract_image_rows(raw, products):
     image = Image.open(io.BytesIO(raw)).convert("RGB")
     if image.width * image.height > 25_000_000:
         raise ValueError("Image dimensions are too large")
+    if image.width < 2000:
+        scale = min(3, max(2, round(2000 / image.width)))
+        image = image.resize((image.width * scale, image.height * scale))
     data = pytesseract.image_to_data(image, config="--psm 6", output_type=pytesseract.Output.DICT)
     lines = {}
     for index, text in enumerate(data["text"]):
@@ -132,7 +151,8 @@ def extract_image_rows(raw, products):
     ordered = [sorted(words, key=lambda word: word["x"]) for words in lines.values()]
     header_index = next((index for index, words in enumerate(ordered)
                          if "itemname" in _key("".join(word["text"] for word in words))
-                         and "sqty" in {_key(word["text"]) for word in words}), None)
+                         and ({"clsqty", "cisqty", "cisgty", "clstock", "sqty", "salesqty"}
+                              & {_key(word["text"]) for word in words})), None)
     if header_index is None:
         return {"entries": [], "unmatched_rows": 0, "source_total": None}
     header = ordered[header_index]
@@ -142,17 +162,29 @@ def extract_image_rows(raw, products):
         matches = [word for word in header if _key(word["text"]) in keys]
         return matches[-1]["x"] if matches else None
 
+    def header_center(*keys):
+        keys = set(keys)
+        matches = [word for word in header if _key(word["text"]) in keys]
+        return (matches[-1]["x"] + matches[-1]["right"]) / 2 if matches else None
+
     pack_x = header_x("pack")
-    quantity_x = header_x("sqty", "salesqty")
+    quantity_x = header_center("clsqty", "cisqty", "cisgty", "clstock") or header_center("sqty", "salesqty")
     rate_x = header_x("purrate", "rate")
-    sal_words = [word for word in header if _key(word["text"]) in {"salvalue", "sal", "salesvalue"}]
-    value_x = sal_words[-1]["x"] if sal_words else None
+    closing_value_words = [word for word in header if _key(word["text"]) in {"clsvalue", "closingvalue", "stkval"}]
+    sales_value_words = [word for word in header if _key(word["text"]) in {"salvalue", "sal", "salesvalue"}]
+    value_words = closing_value_words or sales_value_words
+    value_x = value_words[-1]["x"] if value_words else None
+    if quantity_x is not None and not closing_value_words:
+        split_closing_value = [word for word in header if _key(word["text"]) == "value" and word["x"] > quantity_x]
+        if split_closing_value:
+            value_x = split_closing_value[0]["x"]
     if None in (pack_x, quantity_x, value_x, rate_x):
         return {"entries": [], "unmatched_rows": 0, "source_total": None}
 
     def closest(words, x):
         numeric = [(abs(word["x"] - x), word["text"]) for word in words if re.fullmatch(r"-?[\d,.]+", word["text"])]
-        return min(numeric)[1] if numeric and min(numeric)[0] < 45 else None
+        tolerance = max(45, image.width * 0.04)
+        return min(numeric)[1] if numeric and min(numeric)[0] < tolerance else None
 
     rows = [["Item name", "SQty", "Sal Value", "Pur.Rate"]]
     for words in ordered[header_index + 1:]:

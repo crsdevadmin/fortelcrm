@@ -371,6 +371,126 @@ def _regional_pdf_metadata(record: RegionalSalesWeekPDF):
     }
 
 
+def _parse_regional_report(raw, filename, products):
+    """Parse any supported stored report and return its rows plus PDF text."""
+    lower_name = (filename or "").lower()
+    if raw.startswith(b"%PDF-"):
+        from pypdf import PdfReader
+        import io
+        reader = PdfReader(io.BytesIO(raw))
+        pages = []
+        for page in reader.pages:
+            try:
+                pages.append(page.extract_text(extraction_mode="layout") or "")
+            except (TypeError, ValueError):
+                pages.append(page.extract_text() or "")
+        text = "\n".join(pages)
+        return extract_regional_sales_rows(text, products), text
+    if lower_name.endswith((".xlsx", ".xls")):
+        return extract_excel_rows(raw, products, lower_name), ""
+    if lower_name.endswith((".png", ".jpg", ".jpeg", ".webp")):
+        return extract_image_rows(raw, products), ""
+    raise ValueError("Unsupported regional report type")
+
+
+def _rebuild_regional_week_from_reports(db, associate_id, state_code, city, year, month, week, products):
+    """Rebuild imported rows from every report currently retained for the week."""
+    reports = _regional_pdf_query(db, associate_id, state_code, city, year, month, week)\
+        .order_by(RegionalSalesWeekPDF.uploaded_at, RegionalSalesWeekPDF.id).all()
+    combined = {}
+    parsed_by_report = {}
+    for report in reports:
+        try:
+            parsed, _ = _parse_regional_report(report.file_data, report.filename, products)
+        except Exception:
+            logger.exception("Unable to rebuild regional report id=%s", report.id)
+            continue
+        parsed_by_report[report.id] = parsed
+        for row in parsed.get("entries", []):
+            product_id = int(row["product_id"])
+            quantity = float(row.get("quantity") or 0)
+            value = float(row.get("value") or (quantity * float(row.get("price") or 0)))
+            current = combined.setdefault(product_id, {"quantity": 0.0, "value": 0.0})
+            current["quantity"] += quantity
+            current["value"] += value
+
+    existing_rows = db.query(RegionalSalesEntry).filter(
+        RegionalSalesEntry.associate_id == associate_id,
+        RegionalSalesEntry.state_code.ilike(state_code),
+        RegionalSalesEntry.city.ilike(city),
+        RegionalSalesEntry.year == year,
+        RegionalSalesEntry.month == month,
+        RegionalSalesEntry.week == week,
+    ).all()
+    for row in existing_rows:
+        if (row.remarks or "").startswith("Imported from "):
+            db.delete(row)
+    db.flush()
+
+    earlier_rows = db.query(RegionalSalesEntry.product_id, func.sum(RegionalSalesEntry.qty)).filter(
+        RegionalSalesEntry.associate_id == associate_id,
+        RegionalSalesEntry.state_code.ilike(state_code),
+        RegionalSalesEntry.city.ilike(city),
+        RegionalSalesEntry.year == year,
+        RegionalSalesEntry.month == month,
+        RegionalSalesEntry.week >= 1,
+        RegionalSalesEntry.week < week,
+    ).group_by(RegionalSalesEntry.product_id).all()
+    earlier_qty = {product_id: float(quantity or 0) for product_id, quantity in earlier_rows}
+    source_names = ", ".join(report.filename for report in reports)
+    saved = 0
+    for product_id, totals in combined.items():
+        cumulative_qty = totals["quantity"]
+        quantity = max(0.0, cumulative_qty - earlier_qty.get(product_id, 0.0))
+        price = totals["value"] / cumulative_qty if cumulative_qty > 0 else 0.0
+        if quantity <= 0 or price <= 0:
+            continue
+        existing = db.query(RegionalSalesEntry).filter(
+            RegionalSalesEntry.associate_id == associate_id,
+            RegionalSalesEntry.state_code.ilike(state_code),
+            RegionalSalesEntry.city.ilike(city),
+            RegionalSalesEntry.product_id == product_id,
+            RegionalSalesEntry.year == year,
+            RegionalSalesEntry.month == month,
+            RegionalSalesEntry.week == week,
+        ).first()
+        values = {
+            "qty": round(quantity, 3),
+            "price": round(price, 2),
+            "value": round(quantity * price, 2),
+            "remarks": f"Imported from {source_names}",
+            "submitted_at": datetime.utcnow(),
+        }
+        if existing:
+            for field, value in values.items():
+                setattr(existing, field, value)
+        else:
+            db.add(RegionalSalesEntry(
+                associate_id=associate_id, state_code=state_code, city=city,
+                product_id=product_id, year=year, month=month, week=week, **values,
+            ))
+        saved += 1
+
+    for report in reports:
+        parsed = parsed_by_report.get(report.id, {})
+        source_total = parsed.get("pdf_total", parsed.get("source_total"))
+        matched_total = float(parsed.get("matched_total") or 0)
+        report.pdf_total = source_total
+        report.entered_total = matched_total
+        if source_total is None:
+            report.difference = None
+            report.matches = False
+            report.validation_status = "unverified"
+        else:
+            difference = round(float(source_total) - matched_total, 2)
+            tolerance = max(1.0, round(abs(float(source_total)) * 0.001, 2))
+            report.difference = difference
+            report.matches = abs(difference) <= tolerance
+            report.validation_status = "matched" if report.matches else "mismatch"
+    db.commit()
+    return saved
+
+
 @router.post("/regional/week-pdf")
 async def upload_regional_week_pdf(
     associate_id: int = Form(...),
@@ -415,24 +535,8 @@ async def upload_regional_week_pdf(
     ).scalar() or 0)
 
     active_products = db.query(Product).filter(Product.is_active == True).all()
-    text = ""
     try:
-        if is_pdf:
-            from pypdf import PdfReader
-            import io
-            reader = PdfReader(io.BytesIO(raw))
-            extracted_pages = []
-            for page in reader.pages:
-                try:
-                    extracted_pages.append(page.extract_text(extraction_mode="layout") or "")
-                except (TypeError, ValueError):
-                    extracted_pages.append(page.extract_text() or "")
-            text = "\n".join(extracted_pages)
-            parsed = extract_regional_sales_rows(text, active_products)
-        elif is_excel:
-            parsed = extract_excel_rows(raw, active_products, filename)
-        else:
-            parsed = extract_image_rows(raw, active_products)
+        parsed, text = _parse_regional_report(raw, filename, active_products)
     except Exception:
         logger.exception(
             "Regional sales report parse failed (file=%s, associate=%s, %s-%s week %s)",
@@ -465,6 +569,9 @@ async def upload_regional_week_pdf(
     db.add(record)
     db.commit()
     db.refresh(record)
+    saved_count = _rebuild_regional_week_from_reports(
+        db, associate_id, state_code, city, year, month, week, active_products
+    )
 
     result = _regional_pdf_metadata(record)
     result["parsed_entries"] = parsed["entries"]
@@ -475,6 +582,7 @@ async def upload_regional_week_pdf(
     result["unmatched_items"] = parsed.get("unmatched_items", [])
     result["matched_total"] = parsed.get("matched_total")
     result["source_total"] = extracted_total
+    result["saved_count"] = saved_count
     result["message"] = "Matched" if validation["status"] == "matched" else "Report total does not match cumulative regional sales" if validation["status"] == "mismatch" else validation.get("reason", "Report saved but could not be verified")
     return result
 
@@ -537,28 +645,12 @@ def delete_regional_week_pdf(
         raise HTTPException(status_code=403, detail="You cannot remove this representative's report")
     _enforce_regional_territory_access(viewer_id, record.city, db, record.state_code)
 
-    imported_entries = db.query(RegionalSalesEntry).filter(
-        RegionalSalesEntry.associate_id == record.associate_id,
-        RegionalSalesEntry.state_code.ilike(record.state_code),
-        RegionalSalesEntry.city.ilike(record.city),
-        RegionalSalesEntry.year == record.year,
-        RegionalSalesEntry.month == record.month,
-        RegionalSalesEntry.week == record.week,
-        RegionalSalesEntry.remarks.isnot(None),
-    ).all()
-    entries_deleted = 0
-    for entry in imported_entries:
-        remarks = (entry.remarks or "").strip()
-        if not remarks.startswith("Imported from "):
-            continue
-        source_files = [name.strip() for name in remarks.removeprefix("Imported from ").split(",")]
-        if record.filename in source_files:
-            db.delete(entry)
-            entries_deleted += 1
-
+    scope = (record.associate_id, record.state_code, record.city, record.year, record.month, record.week)
     db.delete(record)
-    db.commit()
-    return {"status": "deleted", "pdf_id": pdf_id, "entries_deleted": entries_deleted}
+    db.flush()
+    active_products = db.query(Product).filter(Product.is_active == True).all()
+    saved_count = _rebuild_regional_week_from_reports(db, *scope, active_products)
+    return {"status": "deleted", "pdf_id": pdf_id, "entries_rebuilt": saved_count}
 
 
 @router.get("/doctor/{doctor_id}/monthly")

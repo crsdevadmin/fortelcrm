@@ -1431,34 +1431,10 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
           : null
       );
       const extractedEntries = Object.entries(extractedByProduct);
-      if (extractedEntries.length) {
-        const payloadRows = extractedEntries.map(([productId, entry]) => {
-          const previousQuantity = Object.values(weekContext.weeksByProduct || {}).reduce(
-            (sum, weekProducts) => sum + (Number(weekProducts?.[productId]?.qty) || 0), 0
-          );
-          const importedQuantity = Number(entry.quantity) || 0;
-          return {
-            product_id: Number(productId),
-            quantity: isCumulativeWeeklyMonth ? Math.max(0, importedQuantity - previousQuantity) : importedQuantity,
-            price: Number(entry.price) || 0,
-          };
-        }).filter(entry => entry.quantity > 0 && entry.price > 0);
-        if (!payloadRows.length) throw new Error('No positive product quantities could be imported.');
-        await salesAPI.submitRegional({
-          associate_id: me.id,
-          state_code: stateCode,
-          city,
-          year: salesYear,
-          month: salesMonth,
-          week: activeSalesWeek,
-          entries: payloadRows,
-          remarks: `Imported from ${selectedFiles.map(file => file.name).join(', ')}`,
-        });
-        setEditingRegionalRows({});
-        setDirtyRegionalRows({});
-      }
+      setEditingRegionalRows({});
+      setDirtyRegionalRows({});
       setMessage(extractedEntries.length
-        ? `${selectedFiles.length} Week ${week} report${selectedFiles.length === 1 ? '' : 's'} imported. ${extractedEntries.length} product row${extractedEntries.length === 1 ? '' : 's'} saved automatically.`
+        ? `${selectedFiles.length} Week ${week} report${selectedFiles.length === 1 ? '' : 's'} imported. Totals rebuilt from every uploaded report for this week.`
         : `${selectedFiles.length} report${selectedFiles.length === 1 ? '' : 's'} uploaded, but no product rows could be read. Check the report columns or use a clearer image.`);
       await loadRegional();
       loadRegionalPdfs();
@@ -1852,8 +1828,8 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
 
           {regionalPdfs.length > 0 && (
             <div style={{ display: 'grid', gap: 7, marginTop: 10 }}>
-              <div style={{ fontSize: 10, color: '#6b7280' }}>Latest uploaded report</div>
-              {regionalPdfs.slice(0, 1).map(pdf => (
+              <div style={{ fontSize: 10, color: '#6b7280' }}>{regionalPdfs.length} uploaded report{regionalPdfs.length === 1 ? '' : 's'} · Remove any report to recalculate the totals</div>
+              {regionalPdfs.map(pdf => (
                 <div key={pdf.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '8px 10px', background: pdf.matches ? '#ecfdf5' : '#fff7ed', border: `1px solid ${pdf.matches ? '#a7f3d0' : '#fed7aa'}`, borderRadius: 9, flexWrap: 'wrap' }}>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 11, fontWeight: 900, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pdf.filename}</div>
@@ -1880,9 +1856,9 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
                       setRegionalPdfError('');
                       try {
                         const response = await salesAPI.deleteRegionalWeekPdf(pdf.id);
-                        const deletedRows = Number(response.data?.entries_deleted) || 0;
+                        const rebuiltRows = Number(response.data?.entries_rebuilt) || 0;
                         setExtractedReport(null);
-                        setMessage(`${pdf.filename} and ${deletedRows} imported product row${deletedRows === 1 ? '' : 's'} removed.`);
+                        setMessage(`${pdf.filename} removed. Week ${week} totals recalculated from the remaining reports (${rebuiltRows} product row${rebuiltRows === 1 ? '' : 's'}).`);
                         await loadRegional();
                         await loadRegionalPdfs();
                       } catch (removeError) {
