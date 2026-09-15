@@ -1755,16 +1755,17 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
           Some cumulative quantities are below the earlier-weeks total. Their current-week result has been set to zero.
         </div>
       )}
-      {!loading && isCumulativeWeeklyMonth && !isAggregateRegionalView && (
+      {!loading && isCumulativeWeeklyMonth && (
         <div style={{ marginBottom: 12, padding: 14, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <div>
               <div style={{ fontSize: 13, fontWeight: 900, color: '#111827' }}>Week {week} Sales Reports</div>
               <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>Upload PDF, Excel, JPG, PNG, or WebP reports. Products, quantities, and rates are imported and saved automatically.</div>
             </div>
-            <label style={{ padding: '8px 13px', borderRadius: 9, background: regionalPdfBusy ? '#9ca3af' : '#1d4ed8', color: '#fff', fontSize: 11, fontWeight: 900, cursor: regionalPdfBusy ? 'default' : 'pointer' }}>
-              {regionalPdfBusy ? 'Uploading…' : '+ Upload Files'}
-              <input type="file" accept="application/pdf,.pdf,.xlsx,.xls,image/png,image/jpeg,image/webp" multiple disabled={regionalPdfBusy}
+            <label title={isAggregateRegionalView ? 'Select a specific region and city before uploading.' : ''}
+              style={{ padding: '8px 13px', borderRadius: 9, background: (regionalPdfBusy || isAggregateRegionalView) ? '#9ca3af' : '#1d4ed8', color: '#fff', fontSize: 11, fontWeight: 900, cursor: (regionalPdfBusy || isAggregateRegionalView) ? 'default' : 'pointer' }}>
+              {regionalPdfBusy ? 'Uploading…' : isAggregateRegionalView ? 'Select City to Upload' : '+ Upload Files'}
+              <input type="file" accept="application/pdf,.pdf,.xlsx,.xls,image/png,image/jpeg,image/webp" multiple disabled={regionalPdfBusy || isAggregateRegionalView}
                 onChange={event => {
                   uploadRegionalWeekPdfs(event.target.files);
                   event.target.value = '';
@@ -1772,6 +1773,11 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
                 style={{ display: 'none' }} />
             </label>
           </div>
+          {isAggregateRegionalView && (
+            <div style={{ marginTop: 9, padding: '8px 10px', borderRadius: 8, background: '#fffbeb', border: '1px solid #fde68a', color: '#92400e', fontSize: 11, fontWeight: 700 }}>
+              Choose a specific region and city above. The upload will then be assigned to that city for Week {week}.
+            </div>
+          )}
           {regionalPdfError && <div style={{ marginTop: 9, color: '#dc2626', fontSize: 11, fontWeight: 700 }}>{regionalPdfError}</div>}
 
           {extractedReport && (
