@@ -1,5 +1,26 @@
 import client from './client';
 
+async function chunkedRegionalSalesUpload(file, fields) {
+  if (!window.crypto?.subtle) throw new Error('Secure file upload is not supported by this browser');
+  const buffer = await file.arrayBuffer();
+  const digest = await window.crypto.subtle.digest('SHA-256', buffer);
+  const checksum = Array.from(new Uint8Array(digest)).map(value => value.toString(16).padStart(2, '0')).join('');
+  const basePath = '/sales/regional/week-pdf/upload-session';
+  const start = await client.post(`${basePath}/start`, {
+    filename: file.name,
+    file_size: file.size,
+    file_checksum: checksum,
+    ...fields,
+  });
+  const { session_id: sessionId, chunk_size: chunkSize, chunk_count: chunkCount } = start.data;
+  for (let index = 0; index < chunkCount; index += 1) {
+    const bytes = new Uint8Array(buffer, index * chunkSize, Math.min(chunkSize, buffer.byteLength - (index * chunkSize)));
+    const data = window.btoa(String.fromCharCode(...bytes));
+    await client.post(`${basePath}/${sessionId}/chunk`, { index, data });
+  }
+  return client.post(`${basePath}/${sessionId}/complete`, { file_checksum: checksum });
+}
+
 // ── AUTH ──────────────────────────────────────
 export const authAPI = {
   me: () => client.get('/auth/me'),
@@ -48,6 +69,7 @@ export const salesAPI = {
   uploadRegionalWeekPdf: (formData) => client.post('/sales/regional/week-pdf', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   }),
+  uploadRegionalWeekFile: (file, fields) => chunkedRegionalSalesUpload(file, fields),
   regionalWeekPdfs: (params) => client.get('/sales/regional/week-pdf/status', { params }),
   // viewer is derived from the auth token server-side; viewerId kept for call-site compatibility
   downloadRegionalWeekPdf: (viewerId, pdfId) => client.get('/sales/regional/week-pdf/download', {

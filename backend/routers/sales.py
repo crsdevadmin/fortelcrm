@@ -5,8 +5,16 @@ from sqlalchemy import func, or_
 from typing import List, Optional
 from pydantic import BaseModel
 from datetime import datetime, date as date_type, timedelta
+from pathlib import Path
+from uuid import uuid4
+import base64
+import binascii
 import calendar
+import hashlib
+import io
+import json
 import logging
+import math
 import re
 
 from ..database import get_db
@@ -21,6 +29,9 @@ from ..services.regional_sales_files import extract_excel_rows, extract_image_ro
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sales", tags=["Sales"])
+REGIONAL_UPLOAD_SESSION_ROOT = Path("/tmp/fortel-regional-upload-sessions")
+REGIONAL_UPLOAD_CHUNK_BYTES = 4 * 1024
+REGIONAL_MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 
 def _state_keys(value: Optional[str]):
@@ -97,6 +108,49 @@ class RegionalSalesRequest(BaseModel):
     week: int
     entries: List[RegionalSalesItem]
     remarks: Optional[str] = None
+
+
+class RegionalUploadStartRequest(BaseModel):
+    filename: str
+    file_size: int
+    file_checksum: str
+    associate_id: int
+    state_code: str
+    city: str
+    year: int
+    month: int
+    week: int
+
+
+class RegionalUploadChunkRequest(BaseModel):
+    index: int
+    data: str
+
+
+class RegionalUploadCompleteRequest(BaseModel):
+    file_checksum: str
+
+
+def _regional_upload_session(session_id, current_user):
+    if not re.fullmatch(r"[0-9a-f]{32}", session_id or ""):
+        raise HTTPException(status_code=404, detail="Upload session not found")
+    session_path = REGIONAL_UPLOAD_SESSION_ROOT / session_id
+    try:
+        metadata = json.loads((session_path / "metadata.json").read_text(encoding="utf-8"))
+    except (FileNotFoundError, ValueError):
+        raise HTTPException(status_code=404, detail="Upload session not found")
+    if int(metadata.get("user_id") or 0) != current_user.id:
+        raise HTTPException(status_code=403, detail="This upload session belongs to another user")
+    return session_path, metadata
+
+
+def _remove_regional_upload_session(session_path):
+    if session_path.parent != REGIONAL_UPLOAD_SESSION_ROOT or not session_path.exists():
+        return
+    for item in session_path.iterdir():
+        if item.is_file():
+            item.unlink()
+    session_path.rmdir()
 
 
 @router.post("/submit")
@@ -489,6 +543,109 @@ def _rebuild_regional_week_from_reports(db, associate_id, state_code, city, year
             report.validation_status = "matched" if report.matches else "mismatch"
     db.commit()
     return saved
+
+
+@router.post("/regional/week-pdf/upload-session/start")
+def start_regional_upload_session(
+    payload: RegionalUploadStartRequest,
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    visible_ids = get_subtree_ids(current_user.id, db)
+    if visible_ids is not None and payload.associate_id not in visible_ids:
+        raise HTTPException(status_code=403, detail="User is outside your reporting hierarchy")
+    state_code = payload.state_code.strip()
+    city = payload.city.strip()
+    _enforce_regional_territory_access(payload.associate_id, city, db, state_code)
+    filename = Path(payload.filename or "").name[:255]
+    if Path(filename).suffix.lower() not in {".pdf", ".xlsx", ".xls", ".png", ".jpg", ".jpeg", ".webp"}:
+        raise HTTPException(status_code=400, detail="Upload a PDF, Excel workbook, JPG, PNG, or WebP image")
+    if payload.file_size <= 0 or payload.file_size > REGIONAL_MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="Report file must be between 1 byte and 10 MB")
+    checksum = payload.file_checksum.lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", checksum):
+        raise HTTPException(status_code=400, detail="Invalid file checksum")
+    if payload.month < 1 or payload.month > 12 or payload.week < 1 or payload.week > 4:
+        raise HTTPException(status_code=400, detail="Invalid month or week")
+
+    session_id = uuid4().hex
+    REGIONAL_UPLOAD_SESSION_ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
+    session_path = REGIONAL_UPLOAD_SESSION_ROOT / session_id
+    session_path.mkdir(mode=0o700)
+    chunk_count = math.ceil(payload.file_size / REGIONAL_UPLOAD_CHUNK_BYTES)
+    metadata = {
+        "user_id": current_user.id,
+        "filename": filename,
+        "file_size": payload.file_size,
+        "file_checksum": checksum,
+        "chunk_count": chunk_count,
+        "associate_id": payload.associate_id,
+        "state_code": state_code,
+        "city": city,
+        "year": payload.year,
+        "month": payload.month,
+        "week": payload.week,
+    }
+    (session_path / "metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+    return {"session_id": session_id, "chunk_size": REGIONAL_UPLOAD_CHUNK_BYTES, "chunk_count": chunk_count}
+
+
+@router.post("/regional/week-pdf/upload-session/{session_id}/chunk")
+def regional_upload_session_chunk(
+    session_id: str,
+    payload: RegionalUploadChunkRequest,
+    current_user = Depends(get_current_user),
+):
+    session_path, metadata = _regional_upload_session(session_id, current_user)
+    chunk_count = int(metadata["chunk_count"])
+    if payload.index < 0 or payload.index >= chunk_count:
+        raise HTTPException(status_code=400, detail="Invalid upload chunk index")
+    try:
+        chunk = base64.b64decode(payload.data, validate=True)
+    except (ValueError, TypeError, binascii.Error):
+        raise HTTPException(status_code=400, detail="Invalid upload chunk")
+    expected_size = REGIONAL_UPLOAD_CHUNK_BYTES
+    if payload.index == chunk_count - 1:
+        expected_size = int(metadata["file_size"]) - (payload.index * REGIONAL_UPLOAD_CHUNK_BYTES)
+    if len(chunk) != expected_size:
+        raise HTTPException(status_code=400, detail="Upload chunk has the wrong size")
+    temp_path = session_path / f"{payload.index:06d}.tmp"
+    chunk_path = session_path / f"{payload.index:06d}.part"
+    temp_path.write_bytes(chunk)
+    temp_path.replace(chunk_path)
+    return {"received": payload.index, "chunk_count": chunk_count}
+
+
+@router.post("/regional/week-pdf/upload-session/{session_id}/complete")
+async def complete_regional_upload_session(
+    session_id: str,
+    payload: RegionalUploadCompleteRequest,
+    current_user = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    session_path, metadata = _regional_upload_session(session_id, current_user)
+    if payload.file_checksum.lower() != metadata["file_checksum"]:
+        raise HTTPException(status_code=400, detail="File checksum changed during upload")
+    try:
+        parts = []
+        for index in range(int(metadata["chunk_count"])):
+            chunk_path = session_path / f"{index:06d}.part"
+            if not chunk_path.exists():
+                raise HTTPException(status_code=400, detail=f"Upload chunk {index + 1} is missing")
+            parts.append(chunk_path.read_bytes())
+        content = b"".join(parts)
+        if len(content) != int(metadata["file_size"]):
+            raise HTTPException(status_code=400, detail="Uploaded file size does not match")
+        if hashlib.sha256(content).hexdigest() != metadata["file_checksum"]:
+            raise HTTPException(status_code=400, detail="Uploaded file checksum does not match")
+        upload = UploadFile(filename=metadata["filename"], file=io.BytesIO(content))
+        return await upload_regional_week_pdf(
+            associate_id=int(metadata["associate_id"]), state_code=metadata["state_code"],
+            city=metadata["city"], year=int(metadata["year"]), month=int(metadata["month"]),
+            week=int(metadata["week"]), file=upload, current_user=current_user, db=db,
+        )
+    finally:
+        _remove_regional_upload_session(session_path)
 
 
 @router.post("/regional/week-pdf")

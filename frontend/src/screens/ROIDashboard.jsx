@@ -1401,15 +1401,14 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
       let sourceTotalSum = 0;
       let matchedTotalSum = 0;
       for (const file of selectedFiles) {
-        const formData = new FormData();
-        formData.append('associate_id', me.id);
-        formData.append('state_code', stateCode);
-        formData.append('city', city);
-        formData.append('year', salesYear);
-        formData.append('month', salesMonth);
-        formData.append('week', week);
-        formData.append('file', file);
-        const response = await salesAPI.uploadRegionalWeekPdf(formData);
+        const response = await salesAPI.uploadRegionalWeekFile(file, {
+          associate_id: me.id,
+          state_code: stateCode,
+          city,
+          year: salesYear,
+          month: salesMonth,
+          week,
+        });
         const parsedEntries = Array.isArray(response.data?.parsed_entries) ? response.data.parsed_entries : [];
         const unmatchedItems = Array.isArray(response.data?.unmatched_items) ? response.data.unmatched_items : [];
         sourceTotalSum += Number(response.data?.source_total) || 0;
