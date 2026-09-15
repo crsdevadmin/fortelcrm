@@ -1988,6 +1988,22 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
             </div>
           );
         })}
+        {!loading && isCumulativeWeeklyMonth && regionalDisplayProducts.length > 0 && (
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: regionalGridTemplate,
+            minWidth: regionalGridMinWidth,
+            alignItems: 'center',
+            background: '#ecfdf5',
+            borderTop: '2px solid #10b981',
+            color: '#065f46',
+          }}>
+            <div style={{ padding: '11px 12px', fontSize: 13, fontWeight: 900 }}>TOTAL</div>
+            <div style={{ padding: '11px 12px', fontSize: 14, fontWeight: 900 }}>{totalQty.toLocaleString('en-IN')}</div>
+            <div style={{ padding: '11px 12px', fontSize: 13, fontWeight: 700, color: '#6b7280' }}>-</div>
+            <div style={{ padding: '11px 12px', fontSize: 14, fontWeight: 900 }}>{fmtInr(totalValue)}</div>
+          </div>
+        )}
       </div>
 
       {history.length > 0 && (
