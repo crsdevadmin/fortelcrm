@@ -121,6 +121,7 @@ def _tally_product(products, report_name, report_rate):
     """Match a Tally stock name to the closest Product Master row."""
     report_tokens = _normalise(report_name).split()
     report_compact = _compact(report_name)
+    report_numbers = set(re.findall(r"\d+(?:\.\d+)?", report_name or ""))
     if not report_tokens:
         return None
     brand = report_tokens[0]
@@ -131,21 +132,24 @@ def _tally_product(products, report_name, report_rate):
         if not tokens or tokens[0] != brand:
             continue
         compact = _compact(name)
+        product_numbers = set(re.findall(r"\d+(?:\.\d+)?", name))
+        number_mismatch = 1 if report_numbers and product_numbers and not (report_numbers & product_numbers) else 0
         shared = len(set(report_tokens) & set(tokens))
         containment = compact in report_compact or report_compact in compact
         expected_rate = float(getattr(product, "price", None) or getattr(product, "rate", None) or 0)
         rate_gap = abs(expected_rate - report_rate) if expected_rate else 10 ** 9
-        candidates.append((0 if containment else 1, -shared, rate_gap, -len(compact), product))
+        candidates.append((number_mismatch, 0 if containment else 1, -shared, rate_gap, -len(compact), product))
     if not candidates:
         return None
     return min(candidates, key=lambda item: item[:-1])[-1]
 
 
 def _extract_tally_stock_group_summary(text, products):
-    """Extract the Outwards column from a Tally Stock Group Summary.
+    """Extract the Closing Balance column from a Tally Stock Group Summary.
 
     Tally reports opening/inwards/outwards/closing figures on the same row.
-    Regional secondary sales are the Outwards quantity, rate and value.
+    Regional stock reporting uses the closing quantity and value. When Tally
+    omits a rate column, derive the rate from closing value / closing quantity.
     """
     lines = (text or "").splitlines()
     quantity_columns = None
@@ -162,7 +166,7 @@ def _extract_tally_stock_group_summary(text, products):
         for index in range(len(quantity_columns) - 1)
     ]
     has_rate_column = len(quantity_columns) >= 4
-    outward_index = 2 if has_rate_column else 1
+    closing_index = len(quantity_columns) - 1
     if has_rate_column:
         row_re = re.compile(
             r"(?P<qty>\d+(?:\.\d+)?)\s+nos\s+"
@@ -184,18 +188,18 @@ def _extract_tally_stock_group_summary(text, products):
     for line in lines:
         is_total = bool(re.match(r"\s*Grand\s+Total\b", line, re.IGNORECASE))
         matches = list((total_re if is_total else row_re).finditer(line))
-        left = boundaries[outward_index - 1]
-        right = boundaries[outward_index] if outward_index < len(boundaries) else float("inf")
-        outward = next((match for match in matches if left <= match.start() < right), None)
-        if not outward:
+        left = boundaries[closing_index - 1]
+        right = boundaries[closing_index] if closing_index < len(boundaries) else float("inf")
+        closing = next((match for match in matches if left <= match.start() < right), None)
+        if not closing:
             continue
         if is_total:
-            pdf_total = float(outward.group("value").replace(",", ""))
+            pdf_total = float(closing.group("value").replace(",", ""))
             continue
         report_name = line[:quantity_columns[0]].strip()
-        quantity = float(outward.group("qty"))
-        value = float(outward.group("value").replace(",", ""))
-        rate = float(outward.group("rate").replace(",", "")) if has_rate_column else value / quantity
+        quantity = float(closing.group("qty"))
+        value = float(closing.group("value").replace(",", ""))
+        rate = float(closing.group("rate").replace(",", "")) if has_rate_column else value / quantity
         product = _tally_product(products, report_name, rate)
         if not product:
             unmatched += 1

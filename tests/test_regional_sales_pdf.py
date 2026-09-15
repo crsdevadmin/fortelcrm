@@ -41,7 +41,7 @@ def test_reads_a_product_row_wrapped_across_two_lines():
     assert result["entries"][0]["price"] == 45
 
 
-def test_tally_stock_group_summary_uses_outwards_not_opening_or_closing():
+def test_tally_stock_group_summary_uses_closing_balance():
     products = [product(9, "NEUGARD CAPSULES 10's", 299.66)]
     text = """Stock Group Summary
 Particulars                               Opening Balance                      Inwards                      Outwards                  Closing Balance
@@ -56,13 +56,13 @@ Grand Total                            41 nos             27,129.56  20 nos     
         "product_name": "NEUGARD CAPSULES 10's",
         "source_name": "NEUGARD TAB",
         "quantity": 20.0,
-        "price": 335.0,
-        "value": 6700.0,
+        "price": 374.29,
+        "value": 7485.8,
     }]
-    assert result["pdf_total"] == 6700
+    assert result["pdf_total"] == 27129.56
 
 
-def test_tally_summary_without_rate_column_derives_outward_rate():
+def test_tally_summary_without_rate_column_derives_closing_rate():
     products = [product(9, "NEUGARD CAPSULES 10's", 299.66)]
     text = """Stock Group Summary
   Particulars                                  Inwards                           Outwards                       Closing Balance
@@ -71,8 +71,27 @@ NEUGARD                                   21 nos          7,350.00           20 
   Grand Total                             41 nos         35,590.78           70 nos        41,260.90          287 nos        76,735.07
 """
     result = extract_regional_sales_rows(text, products)
-    assert result["entries"][0]["quantity"] == 20
-    assert result["entries"][0]["price"] == 374.29
-    assert result["pdf_total"] == 41260.90
-    # EMWET SPRAY has no Outwards figures, so it is not reported as an unmatched sale.
+    assert result["entries"][0]["quantity"] == 28
+    assert result["entries"][0]["price"] == 350
+    assert result["pdf_total"] == 76735.07
+    # Products without Closing Balance figures are not reported as unmatched.
     assert result["unmatched_items"] == []
+
+
+def test_tally_closing_balance_keeps_strength_variants_separate():
+    products = [
+        product(36, "ONCODOL 100TAB", 226.29),
+        product(10, "Oncodol 50 Tab", 124.8),
+    ]
+    text = """Stock Group Summary
+  Particulars                                  Inwards                           Outwards                       Closing Balance
+                                      Quantity           Value           Quantity           Value          Quantity           Value
+ONCODOL 50 MG TAB                                                                                              18 nos         2,259.00
+ONCODOL ER 100MG TAB                                                                                           29 nos         5,104.00
+  Grand Total                                                                                                  47 nos         7,363.00
+"""
+    result = extract_regional_sales_rows(text, products)
+    assert [(row["product_id"], row["quantity"], row["price"]) for row in result["entries"]] == [
+        (10, 18.0, 125.5),
+        (36, 29.0, 176.0),
+    ]
