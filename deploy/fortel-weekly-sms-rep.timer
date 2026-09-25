@@ -1,10 +1,10 @@
 [Unit]
-Description=Remind reps about pending weekly sales updates
+Description=Remind users, managers, and MD about pending weekly sales updates every 15 minutes
 
 [Timer]
-OnCalendar=Mon *-*-* 10:00:00 Asia/Kolkata
+OnCalendar=*-*-* *:00/15:00 Asia/Kolkata
 Persistent=true
-Unit=fortel-weekly-sms@rep.service
+Unit=fortel-weekly-sms@all.service
 
 [Install]
 WantedBy=timers.target

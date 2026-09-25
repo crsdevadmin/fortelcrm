@@ -222,12 +222,15 @@ def _delivery_result(
     period: dict,
     template_id: str,
     message: str,
+    delivery_slot: str,
     client,
     is_in_sandbox: Optional[bool],
 ) -> SmsResult:
     year, month, week = int(period["year"]), int(period["month"]), int(period["week"])
     relation_key = related_user_id if related_user_id is not None else recipient.id
-    key = f"{notification_type}:{recipient.id}:{relation_key}:{year}:{month}:{week}"
+    # Allow a fresh reminder every 15 minutes while preventing duplicate sends
+    # when the same timer invocation is retried within a delivery window.
+    key = f"{notification_type}:{recipient.id}:{relation_key}:{year}:{month}:{week}:{delivery_slot}"
     phone = normalize_phone(recipient.phone)
     if _terminal_delivery_exists(db, key):
         return SmsResult(notification_type, recipient.id, related_user_id, recipient.name, phone, "skipped", "already_sent")
@@ -271,6 +274,8 @@ def send_weekly_sales_sms_reminders(
     if normalized_stage not in VALID_STAGES:
         raise ValueError("stage must be rep, manager, or all")
     ref_date = datetime.strptime(today, "%Y-%m-%d").date() if today else date_type.today()
+    now = datetime.now()
+    delivery_slot = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0).strftime("%Y%m%d%H%M")
     period, pending_rows = _pending_weekly_rows(db, ref_date)
     if not period:
         raise ValueError("Unable to determine the previous regional sales week")
@@ -311,6 +316,7 @@ def send_weekly_sales_sms_reminders(
                 period=period,
                 template_id=settings.SMS_REP_TEMPLATE_ID,
                 message=build_rep_message(recipient.name, int(period["week"])),
+                delivery_slot=delivery_slot,
                 client=client,
                 is_in_sandbox=is_in_sandbox,
             ))
@@ -329,6 +335,7 @@ def send_weekly_sales_sms_reminders(
                     int(period["week"]),
                     len(pending_rows),
                 ),
+                delivery_slot=delivery_slot,
                 client=client,
                 is_in_sandbox=is_in_sandbox,
             ))
@@ -345,6 +352,7 @@ def send_weekly_sales_sms_reminders(
                 period=period,
                 template_id=settings.SMS_MANAGER_TEMPLATE_ID,
                 message=build_manager_message(manager.name, row["name"], int(period["week"])),
+                delivery_slot=delivery_slot,
                 client=client,
                 is_in_sandbox=is_in_sandbox,
             ))

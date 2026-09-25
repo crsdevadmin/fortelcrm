@@ -32,7 +32,12 @@ ssh -i "$KEY_FILE" "$EC2_HOST" "
 
 echo "=== Restarting service ==="
 ssh -i "$KEY_FILE" "$EC2_HOST" "
+  sudo cp $APP_DIR/deploy/fortel-weekly-sms@.service /etc/systemd/system/fortel-weekly-sms@.service
+  sudo cp $APP_DIR/deploy/fortel-weekly-sms-rep.timer /etc/systemd/system/fortel-weekly-sms-rep.timer
   sudo systemctl daemon-reload
+  sudo systemctl disable --now fortel-weekly-sms-manager.timer 2>/dev/null || true
+  sudo systemctl enable --now fortel-weekly-sms-rep.timer
+  sudo systemctl restart fortel-weekly-sms-rep.timer
   sudo systemctl enable fortel
   sudo systemctl restart fortel
   sudo systemctl status fortel --no-pager
