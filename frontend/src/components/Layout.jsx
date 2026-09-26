@@ -120,6 +120,13 @@ const NAV = {
   ],
 };
 
+Object.keys(NAV).forEach(role => {
+  if (role === 'back_office') return;
+  const workSection = NAV[role].find(section => section.label === 'My Work');
+  const targetSection = workSection || NAV[role].find(section => section.label === 'Administration') || NAV[role][0];
+  targetSection.items.push({ to: '/expenses', icon: '₹', label: 'Expenses' });
+});
+
 const PAGE_TITLES = {
   '/':              'Dashboard',
   '/investment-roi':           'Investment & ROI',
@@ -136,6 +143,7 @@ const PAGE_TITLES = {
   '/weekly-reports': 'Weekly Reports',
   '/users':         'User Management',
   '/admin-doctors': 'Customer Master',
+  '/expenses':      'Expenses',
 };
 
 function initials(name) {

@@ -2,15 +2,36 @@
 
 from sqlalchemy import text
 
-from ..database import engine
+from ..database import Base, engine
+from ..models import models  # noqa: F401 - register all tables before create_all
 
 
 def run():
+    Base.metadata.create_all(bind=engine)
     if engine.dialect.name != "postgresql":
         print("Security migration skipped: PostgreSQL-only schema change")
         return
     with engine.begin() as connection:
         connection.execute(text("ALTER TABLE users DROP COLUMN IF EXISTS plain_password"))
+        connection.execute(text(
+            "ALTER TABLE expense_lines ADD COLUMN IF NOT EXISTS "
+            "bill_validation_status VARCHAR(30) NOT NULL DEFAULT 'review_required'"
+        ))
+        connection.execute(text(
+            "ALTER TABLE expense_lines ADD COLUMN IF NOT EXISTS bill_validation_reason VARCHAR(500)"
+        ))
+        connection.execute(text(
+            "ALTER TABLE expense_lines ADD COLUMN IF NOT EXISTS bill_detected_amount DOUBLE PRECISION"
+        ))
+        connection.execute(text(
+            "ALTER TABLE expense_lines ADD COLUMN IF NOT EXISTS bill_reviewed_by_id INTEGER REFERENCES users(id)"
+        ))
+        connection.execute(text(
+            "ALTER TABLE expense_lines ADD COLUMN IF NOT EXISTS bill_reviewed_at TIMESTAMP"
+        ))
+        connection.execute(text(
+            "ALTER TABLE expense_lines ADD COLUMN IF NOT EXISTS bill_review_notes VARCHAR(500)"
+        ))
         connection.execute(text(
             "ALTER TABLE regional_sales_week_pdfs "
             "ADD COLUMN IF NOT EXISTS validation_status VARCHAR(20) NOT NULL DEFAULT 'unverified'"

@@ -23,6 +23,7 @@ import TargetSetting from './screens/TargetSetting';
 import DailyTasks from './screens/DailyTasks';
 import WeeklyReports from './screens/WeeklyReports';
 import RegionalSalesHub from './screens/RegionalSalesHub';
+import Expenses from './screens/Expenses';
 
 // Route guard — redirects to / if role not allowed
 function RoleGuard({ children, allowedRoles }) {
@@ -75,6 +76,7 @@ function PrivateRoutes() {
         } />
         <Route path="/tasks"            element={<DailyTasks />} />
         <Route path="/weekly-reports"   element={<WeeklyReports />} />
+        <Route path="/expenses"         element={<Expenses />} />
 
         {/* Admin + MD only */}
         <Route path="/users"            element={

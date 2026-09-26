@@ -186,6 +186,19 @@ export const tasksAPI = {
   complete: (taskId, userId, comments) => client.patch(`/tasks/${taskId}/complete`, { user_id: userId, comments }),
 };
 
+export const expensesAPI = {
+  list: (year, month, expenseType) => client.get('/expenses/', {
+    params: { year, month, expense_type: expenseType },
+  }),
+  create: (formData) => client.post('/expenses/', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }),
+  downloadBill: (id) => client.get(`/expenses/${id}/bill`, { responseType: 'blob' }),
+  delete: (id) => client.delete(`/expenses/${id}`),
+  reviewQueue: () => client.get('/expenses/manager/review-queue'),
+  reviewBill: (id, decision, notes = '') => client.patch(`/expenses/${id}/bill-review`, { decision, notes }),
+};
+
 export const dashboardAPI = {
   actionCenter: (viewerId, scope = 'overall', params = {}) =>
     client.get('/targets/action-center', { params: { viewer_id: viewerId, scope, ...params } }),

@@ -619,3 +619,40 @@ class SmsNotificationLog(Base):
 
     recipient = relationship("User", foreign_keys=[recipient_user_id])
     related_user = relationship("User", foreign_keys=[related_user_id])
+
+
+# EMPLOYEE AND COMPANY EXPENSES
+
+class ExpenseLine(Base):
+    __tablename__ = "expense_lines"
+
+    id                = Column(Integer, primary_key=True, index=True)
+    employee_id       = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    expense_type      = Column(String(20), nullable=False, index=True)  # employee | company
+    expense_date      = Column(String(10), nullable=False, index=True)
+    year              = Column(Integer, nullable=False, index=True)
+    month             = Column(Integer, nullable=False, index=True)
+    category          = Column(String(60), nullable=False)
+    description       = Column(String(300), nullable=False)
+    location          = Column(String(150), nullable=True)
+    travel_from       = Column(String(150), nullable=True)
+    travel_to         = Column(String(150), nullable=True)
+    distance_km       = Column(Float, nullable=True)
+    travel_mode       = Column(String(60), nullable=True)
+    amount            = Column(Float, nullable=False)
+    remarks           = Column(String(500), nullable=True)
+    status            = Column(String(20), nullable=False, default="saved", index=True)
+    bill_filename     = Column(String(255), nullable=False)
+    bill_content_type = Column(String(100), nullable=False)
+    bill_data         = Column(LargeBinary, nullable=False)
+    bill_validation_status = Column(String(30), nullable=False, default="review_required", index=True)
+    bill_validation_reason = Column(String(500), nullable=True)
+    bill_detected_amount   = Column(Float, nullable=True)
+    bill_reviewed_by_id    = Column(Integer, ForeignKey("users.id"), nullable=True)
+    bill_reviewed_at       = Column(DateTime, nullable=True)
+    bill_review_notes      = Column(String(500), nullable=True)
+    created_at        = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at        = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    employee = relationship("User", foreign_keys=[employee_id])
+    bill_reviewed_by = relationship("User", foreign_keys=[bill_reviewed_by_id])
