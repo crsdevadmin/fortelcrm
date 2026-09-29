@@ -12,13 +12,12 @@ from ..services.collections_import import parse_collection_report
 
 
 router = APIRouter(prefix="/collections", tags=["Receipts and outstanding"])
-STAFF_EMAILS = {"staff1@fortel.in", "staff2@fortel.in"}
 MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 
 
 def _require_staff(user):
-    if user.role != "back_office" or (user.email or "").lower() not in STAFF_EMAILS:
-        raise HTTPException(status_code=403, detail="Only Staff 1 and Staff 2 can upload these reports")
+    if user.role not in {"back_office", "md"}:
+        raise HTTPException(status_code=403, detail="Only back-office staff or the MD can upload these reports")
 
 
 def _require_md(user):

@@ -35,7 +35,11 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.FRONTEND_URL],
+    allow_origins=list(dict.fromkeys([
+        settings.FRONTEND_URL,
+        "https://dzetmt39mvlql.cloudfront.net",
+        "http://13.206.119.130",
+    ])),
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
