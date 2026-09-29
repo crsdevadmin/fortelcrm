@@ -102,6 +102,7 @@ const NAV = {
   back_office: [
     { label: 'Sales Operations', items: [
       { to: '/regional-sales', icon: 'R', label: 'Regional Sales' },
+      { to: '/collections-upload', icon: '₹', label: 'Receipts & Outstanding' },
     ]},
   ],
   custom: [
@@ -144,6 +145,7 @@ const PAGE_TITLES = {
   '/users':         'User Management',
   '/admin-doctors': 'Customer Master',
   '/expenses':      'Expenses',
+  '/collections-upload': 'Receipts & Outstanding',
 };
 
 function initials(name) {

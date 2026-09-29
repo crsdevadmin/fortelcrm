@@ -656,3 +656,73 @@ class ExpenseLine(Base):
 
     employee = relationship("User", foreign_keys=[employee_id])
     bill_reviewed_by = relationship("User", foreign_keys=[bill_reviewed_by_id])
+
+
+# RECEIPTS AND OUTSTANDING REPORT SNAPSHOTS
+
+class CollectionUpload(Base):
+    __tablename__ = "collection_uploads"
+
+    id               = Column(Integer, primary_key=True, index=True)
+    uploaded_by_id   = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    report_type      = Column(String(20), nullable=False, index=True)  # receipt | outstanding
+    filename         = Column(String(255), nullable=False)
+    file_checksum    = Column(String(64), nullable=False, index=True)
+    period_start     = Column(String(10), nullable=True)
+    period_end       = Column(String(10), nullable=True, index=True)
+    source_row_count = Column(Integer, nullable=False, default=0)
+    total_amount     = Column(Float, nullable=False, default=0)
+    uploaded_at      = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    uploaded_by = relationship("User", foreign_keys=[uploaded_by_id])
+    receipt_entries = relationship(
+        "ReceiptEntry", back_populates="upload", cascade="all, delete-orphan"
+    )
+    outstanding_entries = relationship(
+        "OutstandingEntry", back_populates="upload", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        UniqueConstraint("report_type", "file_checksum", name="uq_collection_upload_type_checksum"),
+    )
+
+
+class ReceiptEntry(Base):
+    __tablename__ = "receipt_entries"
+
+    id                  = Column(Integer, primary_key=True, index=True)
+    upload_id           = Column(Integer, ForeignKey("collection_uploads.id", ondelete="CASCADE"), nullable=False, index=True)
+    receipt_date        = Column(String(10), nullable=False, index=True)
+    receipt_no          = Column(String(80), nullable=False)
+    mode                = Column(String(40), nullable=True)
+    bank_abbreviation   = Column(String(100), nullable=True)
+    cheque_no           = Column(String(100), nullable=True)
+    cheque_date         = Column(String(10), nullable=True)
+    temp_receipt_no     = Column(String(100), nullable=True)
+    customer_name       = Column(String(255), nullable=False, index=True)
+    customer_code       = Column(String(80), nullable=True, index=True)
+    source_user         = Column(String(120), nullable=True)
+    excess              = Column(Float, nullable=False, default=0)
+    discount_percentage = Column(Float, nullable=False, default=0)
+    salesman_name       = Column(String(150), nullable=True)
+    discount            = Column(Float, nullable=False, default=0)
+    amount              = Column(Float, nullable=False, default=0)
+
+    upload = relationship("CollectionUpload", back_populates="receipt_entries")
+
+
+class OutstandingEntry(Base):
+    __tablename__ = "outstanding_entries"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    upload_id     = Column(Integer, ForeignKey("collection_uploads.id", ondelete="CASCADE"), nullable=False, index=True)
+    customer_code = Column(String(80), nullable=True, index=True)
+    customer_name = Column(String(255), nullable=False, index=True)
+    address1      = Column(String(300), nullable=True)
+    area_name     = Column(String(150), nullable=True)
+    address2      = Column(String(300), nullable=True)
+    city_name     = Column(String(150), nullable=True, index=True)
+    pincode       = Column(String(30), nullable=True)
+    balance       = Column(Float, nullable=False, default=0)
+
+    upload = relationship("CollectionUpload", back_populates="outstanding_entries")

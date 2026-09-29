@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { dashboardAPI, roiAPI, salesAPI, targetsAPI } from '../api';
+import { collectionsAPI, dashboardAPI, roiAPI, salesAPI, targetsAPI } from '../api';
 import DrilldownPanel from '../components/DrilldownPanel';
 import DashboardCharts from '../components/DashboardCharts';
 
@@ -1289,6 +1289,8 @@ export default function Dashboard() {
   const [repScorecardLoading, setRepScorecardLoading] = useState(false);
   const [loading,     setLoading]     = useState(true);
   const [dashboardScope, setDashboardScope] = useState('overall');
+  const [collectionsSummary, setCollectionsSummary] = useState(null);
+  const [collectionsLoading, setCollectionsLoading] = useState(false);
 
   const [selRegion,     setSelRegion]     = useState(null);
   const [selCity,       setSelCity]       = useState(null);
@@ -1332,6 +1334,17 @@ export default function Dashboard() {
       setLoading(false);
     }).catch(() => setLoading(false));
   }, [me?.id, startDate, endDate, year, month]);
+
+  useEffect(() => {
+    if (me?.role !== 'md') return;
+    let cancelled = false;
+    setCollectionsLoading(true);
+    collectionsAPI.mdSummary()
+      .then(response => { if (!cancelled) setCollectionsSummary(response.data || null); })
+      .catch(() => { if (!cancelled) setCollectionsSummary(null); })
+      .finally(() => { if (!cancelled) setCollectionsLoading(false); });
+    return () => { cancelled = true; };
+  }, [me?.role]);
 
   useEffect(() => {
     if (!me?.id) return;
@@ -2186,6 +2199,35 @@ export default function Dashboard() {
 
       {/* MAIN BODY */}
       <div style={{ padding: '16px 28px 28px' }}>
+
+        {me?.role === 'md' && (
+          <div style={{ background: '#fff', border: '1px solid #dbe3ed', borderRadius: 16, marginBottom: 18, overflow: 'hidden', boxShadow: '0 5px 18px rgba(15,23,42,.06)' }}>
+            <div style={{ padding: '16px 18px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div><div style={{ fontSize: 16, fontWeight: 900, color: '#172033' }}>Collections & Outstanding</div><div style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>Latest reports uploaded by Staff 1 or Staff 2 · visible only to MD</div></div>
+              {collectionsLoading && <span style={{ fontSize: 12, color: '#64748b' }}>Loading reports…</span>}
+            </div>
+            {!collectionsLoading && !collectionsSummary?.receipt_upload && !collectionsSummary?.outstanding_upload ? (
+              <div style={{ padding: 22, color: '#64748b', fontSize: 13 }}>No receipt or outstanding report has been uploaded yet.</div>
+            ) : (
+              <div style={{ padding: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 12, marginBottom: 16 }}>
+                  {[
+                    { label: 'Amount received', upload: collectionsSummary?.receipt_upload, color: '#047857' },
+                    { label: 'Pending amount', upload: collectionsSummary?.outstanding_upload, color: '#b45309' },
+                  ].map(card => <div key={card.label} style={{ border: '1px solid #e5e7eb', borderLeft: `5px solid ${card.color}`, borderRadius: 11, padding: '13px 15px' }}>
+                    <div style={{ fontSize: 11, color: '#64748b', fontWeight: 700 }}>{card.label}</div>
+                    <div style={{ fontSize: 23, color: card.color, fontWeight: 900, marginTop: 4 }}>{fmtInr(card.upload?.total_amount || 0)}</div>
+                    <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 4 }}>{card.upload ? `${card.upload.row_count} rows · ${card.upload.period_start || '—'} to ${card.upload.period_end || '—'}` : 'Report not uploaded'}</div>
+                  </div>)}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: 14 }}>
+                  <div style={{ overflowX: 'auto' }}><div style={{ fontSize: 12, fontWeight: 850, marginBottom: 7 }}>Latest receipts</div><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}><thead><tr style={{ background: '#f8fafc', textAlign: 'left', color: '#64748b' }}><th style={{ padding: 8 }}>Date / Receipt</th><th style={{ padding: 8 }}>Customer</th><th style={{ padding: 8, textAlign: 'right' }}>Amount</th></tr></thead><tbody>{(collectionsSummary?.receipts || []).slice(0, 10).map(row => <tr key={row.id} style={{ borderTop: '1px solid #eef2f7' }}><td style={{ padding: 8 }}>{row.receipt_date}<br/><span style={{ color: '#94a3b8' }}>{row.receipt_no} · {row.mode || '—'}</span></td><td style={{ padding: 8 }}>{row.customer_name}</td><td style={{ padding: 8, textAlign: 'right', fontWeight: 800 }}>{fmtInr(row.amount)}</td></tr>)}</tbody></table>{!(collectionsSummary?.receipts || []).length && <div style={{ padding: 12, color: '#94a3b8', fontSize: 11 }}>No receipt rows</div>}</div>
+                  <div style={{ overflowX: 'auto' }}><div style={{ fontSize: 12, fontWeight: 850, marginBottom: 7 }}>Highest outstanding customers</div><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}><thead><tr style={{ background: '#f8fafc', textAlign: 'left', color: '#64748b' }}><th style={{ padding: 8 }}>Customer</th><th style={{ padding: 8 }}>City</th><th style={{ padding: 8, textAlign: 'right' }}>Balance</th></tr></thead><tbody>{(collectionsSummary?.outstanding || []).slice(0, 10).map(row => <tr key={row.id} style={{ borderTop: '1px solid #eef2f7' }}><td style={{ padding: 8 }}>{row.customer_name}<br/><span style={{ color: '#94a3b8' }}>{row.customer_code || ''}</span></td><td style={{ padding: 8 }}>{row.city_name || row.area_name || '—'}</td><td style={{ padding: 8, textAlign: 'right', fontWeight: 800 }}>{fmtInr(row.balance)}</td></tr>)}</tbody></table>{!(collectionsSummary?.outstanding || []).length && <div style={{ padding: 12, color: '#94a3b8', fontSize: 11 }}>No outstanding rows</div>}</div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {drilldownType && drilldownConfig && (
           <DrilldownPanel

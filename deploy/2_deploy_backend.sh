@@ -9,12 +9,21 @@ set -e
 EC2_HOST="ubuntu@13.206.119.130"
 KEY_FILE="$HOME/.ssh/fortel-key.pem"
 APP_DIR="/opt/fortel-crm"
+STAGE_DIR="/tmp/fortel-crm-deploy"
 
 echo "=== Syncing code to EC2 ==="
-rsync -avz --exclude 'node_modules' --exclude '__pycache__' --exclude '*.pyc' \
-  --exclude '.git' --exclude 'frontend/build' --exclude 'venv' \
+ssh -i "$KEY_FILE" "$EC2_HOST" "rm -rf $STAGE_DIR && mkdir -p $STAGE_DIR"
+rsync -avz --delete --exclude 'node_modules' --exclude '__pycache__' --exclude '*.pyc' \
+  --exclude '.git' --exclude '.agents' --exclude '.pytest_cache' --exclude '.DS_Store' \
+  --exclude '.env' --exclude 'backend/.env' --exclude 'frontend/build' --exclude 'venv' \
+  --exclude 'backups' --exclude 'tmp' \
   -e "ssh -i $KEY_FILE" \
-  . "$EC2_HOST:$APP_DIR/"
+  . "$EC2_HOST:$STAGE_DIR/"
+ssh -i "$KEY_FILE" "$EC2_HOST" "
+  sudo rsync -a --exclude '.env' --exclude 'backend/.env' $STAGE_DIR/ $APP_DIR/
+  sudo chown -R fortel:fortel $APP_DIR
+  rm -rf $STAGE_DIR
+"
 
 echo "=== Installing Python dependencies ==="
 ssh -i "$KEY_FILE" "$EC2_HOST" "
@@ -22,12 +31,14 @@ ssh -i "$KEY_FILE" "$EC2_HOST" "
     sudo apt-get update
     sudo apt-get install -y tesseract-ocr
   fi
-  source $APP_DIR/venv/bin/activate
-  pip install --upgrade pip
-  pip install -r $APP_DIR/backend/requirements.txt
-  pip install openpyxl gunicorn
-  cd $APP_DIR
-  python -m backend.scripts.security_migration
+  sudo -u fortel bash -lc '
+    source $APP_DIR/venv/bin/activate
+    pip install --upgrade pip
+    pip install -r $APP_DIR/backend/requirements.txt
+    pip install openpyxl gunicorn
+    cd $APP_DIR
+    python -m backend.scripts.security_migration
+  '
 "
 
 echo "=== Restarting service ==="

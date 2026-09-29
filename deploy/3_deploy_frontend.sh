@@ -1,40 +1,34 @@
 #!/bin/bash
-# Fortel CRM - build React frontend and deploy to S3.
-# Run from Git Bash on your local machine:
-#   chmod +x deploy/3_deploy_frontend.sh
-#   ./deploy/3_deploy_frontend.sh
+# Fortel CRM - build React frontend and deploy to the EC2 Nginx web root.
 
 set -e
 
-EC2_PUBLIC_IP="13.206.119.130"
-S3_BUCKET="fortel-crm-frontend"
-CLOUDFRONT_DIST_ID="YOUR_CF_DIST_ID"
+EC2_HOST="ubuntu@13.206.119.130"
+KEY_FILE="$HOME/.ssh/fortel-key.pem"
+WEB_ROOT="/var/www/fortel-crm"
+STAGE_DIR="/tmp/fortel-frontend-deploy"
 
 echo "=== Building React frontend ==="
 cd frontend
-
-cat > .env.production <<EOF
-REACT_APP_API_URL=http://${EC2_PUBLIC_IP}
-EOF
-
-npm install
+npm ci
 npm run build
-
-echo "=== Uploading to S3 ==="
-aws s3 sync build/ "s3://${S3_BUCKET}/" \
-  --delete \
-  --cache-control "public,max-age=31536000,immutable" \
-  --exclude "index.html"
-
-aws s3 cp build/index.html "s3://${S3_BUCKET}/index.html" \
-  --cache-control "no-cache,no-store,must-revalidate"
-
-if [ "$CLOUDFRONT_DIST_ID" != "YOUR_CF_DIST_ID" ]; then
-  echo "=== Invalidating CloudFront cache ==="
-  aws cloudfront create-invalidation \
-    --distribution-id "$CLOUDFRONT_DIST_ID" \
-    --paths "/*"
-fi
-
 cd ..
-echo "=== Frontend deployed to s3://${S3_BUCKET}/ ==="
+
+echo "=== Uploading frontend to EC2 ==="
+ssh -i "$KEY_FILE" "$EC2_HOST" "rm -rf $STAGE_DIR && mkdir -p $STAGE_DIR"
+rsync -avz --delete -e "ssh -i $KEY_FILE" frontend/build/ "$EC2_HOST:$STAGE_DIR/"
+scp -i "$KEY_FILE" deploy/nginx.conf "$EC2_HOST:/tmp/fortel-nginx.conf"
+
+echo "=== Publishing frontend and reloading Nginx ==="
+ssh -i "$KEY_FILE" "$EC2_HOST" "
+  sudo mkdir -p $WEB_ROOT
+  sudo rsync -a --delete $STAGE_DIR/ $WEB_ROOT/
+  sudo chown -R www-data:www-data $WEB_ROOT
+  sudo cp /tmp/fortel-nginx.conf /etc/nginx/sites-available/fortel
+  sudo nginx -t
+  sudo systemctl reload nginx
+  rm -rf $STAGE_DIR
+  rm -f /tmp/fortel-nginx.conf
+"
+
+echo "=== Frontend deployed to $WEB_ROOT ==="

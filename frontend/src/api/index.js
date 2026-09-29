@@ -1,5 +1,18 @@
 import client from './client';
 
+export const collectionsAPI = {
+  upload: (file, reportType) => {
+    const data = new FormData();
+    data.append('report_type', reportType);
+    data.append('file', file);
+    return client.post('/collections/upload', data, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  uploads: () => client.get('/collections/uploads'),
+  mdSummary: () => client.get('/collections/md-summary'),
+};
+
 async function chunkedRegionalSalesUpload(file, fields) {
   if (!window.crypto?.subtle) throw new Error('Secure file upload is not supported by this browser');
   const buffer = await file.arrayBuffer();

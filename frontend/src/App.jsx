@@ -24,6 +24,7 @@ import DailyTasks from './screens/DailyTasks';
 import WeeklyReports from './screens/WeeklyReports';
 import RegionalSalesHub from './screens/RegionalSalesHub';
 import Expenses from './screens/Expenses';
+import CollectionsUpload from './screens/CollectionsUpload';
 
 // Route guard — redirects to / if role not allowed
 function RoleGuard({ children, allowedRoles }) {
@@ -42,6 +43,7 @@ function PrivateRoutes() {
       <Layout>
         <Routes>
           <Route path="/regional-sales" element={<RegionalSalesHub />} />
+          <Route path="/collections-upload" element={<CollectionsUpload />} />
           <Route path="*" element={<Navigate to="/regional-sales" replace />} />
         </Routes>
       </Layout>
