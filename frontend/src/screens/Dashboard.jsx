@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { collectionsAPI, dashboardAPI, roiAPI, salesAPI, targetsAPI } from '../api';
+import { collectionsAPI, dashboardAPI, primarySalesAPI, roiAPI, salesAPI, targetsAPI } from '../api';
 import DrilldownPanel from '../components/DrilldownPanel';
 import DashboardCharts from '../components/DashboardCharts';
 
@@ -215,6 +215,7 @@ function CABar({ pct }) {
 
 function DecisionMetricCard({
   title, period, icon, accent, value, status, statusTone = 'neutral',
+  valueLabel, secondaryLabel, secondaryValue,
   targetLabel, achievementPct, trend, detail, completeness, actionLabel, onOpen,
 }) {
   // Light-tinted colourful card: pale wash of the accent, dark text, accent highlights
@@ -254,7 +255,10 @@ function DecisionMetricCard({
           <span style={{ fontSize: 18, lineHeight: 1, color: accent }}>{icon}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 9, marginTop: 11 }}>
-          <div style={{ fontSize: 25, lineHeight: 1, fontWeight: 700, color: '#1A1A1A', letterSpacing: '-0.4px' }}>{value}</div>
+          <div style={{ display: 'flex', gap: 18, alignItems: 'flex-end', minWidth: 0 }}>
+            <div>{valueLabel && <div style={{ fontSize: 9, color: '#777468', marginBottom: 4 }}>{valueLabel}</div>}<div style={{ fontSize: 25, lineHeight: 1, fontWeight: 700, color: '#1A1A1A', letterSpacing: '-0.4px' }}>{value}</div></div>
+            {secondaryValue != null && <div><div style={{ fontSize: 9, color: '#777468', marginBottom: 4 }}>{secondaryLabel}</div><div style={{ fontSize: 19, lineHeight: 1, fontWeight: 700, color: accentDark }}>{secondaryValue}</div></div>}
+          </div>
           <span style={{ fontSize: 10, fontWeight: 600, color: tone.color, background: tone.bg, borderRadius: 20, padding: '3px 9px', whiteSpace: 'nowrap' }}>{status}</span>
         </div>
         {(targetLabel || pct != null) && (
@@ -1277,6 +1281,7 @@ export default function Dashboard() {
   const [allUsers,    setAllUsers]    = useState([]);
   const [topProducts, setTopProducts] = useState([]);
   const [regionalSalesRows, setRegionalSalesRows] = useState([]);
+  const [primarySalesSummary, setPrimarySalesSummary] = useState(null);
   const [targetAchievement, setTargetAchievement] = useState(null);
   const [previousTargetAchievement, setPreviousTargetAchievement] = useState(null);
   const [targetLoading, setTargetLoading] = useState(false);
@@ -1352,6 +1357,22 @@ export default function Dashboard() {
       .then(response => setRegionalSalesRows(Array.isArray(response.data) ? response.data : []))
       .catch(() => setRegionalSalesRows([]));
   }, [me?.id, year, month]);
+
+  useEffect(() => {
+    if (!me?.id) return;
+    let cancelled = false;
+    primarySalesAPI.summary({
+      year,
+      month,
+      ...(selRegion ? { region: selRegion } : {}),
+      ...(selCity ? { territory: selCity } : {}),
+    }).then(response => {
+      if (!cancelled) setPrimarySalesSummary(response.data || null);
+    }).catch(() => {
+      if (!cancelled) setPrimarySalesSummary(null);
+    });
+    return () => { cancelled = true; };
+  }, [me?.id, year, month, selRegion, selCity]);
 
   const activeVisibleUsers = useMemo(
     () => allUsers.filter(user => user.is_active !== false),
@@ -1710,6 +1731,20 @@ export default function Dashboard() {
       }, 0);
       return { ...doctor, actual_sales: rollingSales, total_sales: rollingSales };
     });
+  }, [displayDoctors, year, month]);
+  const sixMonthInvestmentTotals = useMemo(() => {
+    const selectedIndex = (year * 12) + (month - 1);
+    return displayDoctors.reduce((totals, doctor) => {
+      totals.invested += (doctor.investment_months || []).reduce((sum, row) => {
+        const rowIndex = (Number(row.year) * 12) + (Number(row.month) - 1);
+        return rowIndex >= selectedIndex - 5 && rowIndex <= selectedIndex ? sum + (Number(row.amount) || 0) : sum;
+      }, 0);
+      totals.recovered += (doctor.sales_months || []).reduce((sum, row) => {
+        const rowIndex = (Number(row.year) * 12) + (Number(row.month) - 1);
+        return rowIndex >= selectedIndex - 5 && rowIndex <= selectedIndex ? sum + (Number(row.amount) || 0) : sum;
+      }, 0);
+      return totals;
+    }, { invested: 0, recovered: 0 });
   }, [displayDoctors, year, month]);
   const prior = previousMonth(year, month);
   const priorLabel = `${MONTH_NAMES[prior.month]} ${prior.year}`;
@@ -2128,23 +2163,36 @@ export default function Dashboard() {
           </button>
         </div>
 
-        {/* Four decision cards — value, context, completeness and one clear drill-down. */}
+        {/* Commercial decision cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(225px, 1fr))', gap: 12, marginTop: 12, position: 'relative', zIndex: 2 }}>
           <DecisionMetricCard
-            title="Regional Sales"
-            period={`${MONTH_NAMES[month]} ${year} · cumulative weekly submissions`}
+            title="Primary Sales"
+            period={`${MONTH_NAMES[month]} ${year} · all uploaded weeks`}
+            icon="▦"
+            accent="#7c3aed"
+            value={fmtInr(primarySalesSummary?.total_sales_amount || 0)}
+            status={`${primarySalesSummary?.bill_count || 0} bills`}
+            statusTone={(primarySalesSummary?.line_count || 0) > 0 ? 'positive' : 'neutral'}
+            detail={`${primarySalesSummary?.stockist_count || 0} stockists · ${primarySalesSummary?.line_count || 0} uploaded lines`}
+            completeness="Company → stockist sales"
+            actionLabel="View uploaded primary sales"
+            onOpen={() => navigate('/regional-sales?tab=primary')}
+          />
+          <DecisionMetricCard
+            title="Secondary Sales"
+            period={`${MONTH_NAMES[month]} ${year} · all uploaded weeks`}
             icon="▦"
             accent="#2a78d6"
             value={fmtInr(totalRegionalSales)}
-            status={regionalTarget?.has_target ? regionalTarget.status : 'Target not set'}
-            statusTone={!regionalTarget?.has_target ? 'neutral' : Number(regionalTarget.achievement_pct) >= 100 ? 'positive' : Number(regionalTarget.achievement_pct) >= 80 ? 'warning' : 'negative'}
-            targetLabel={regionalTarget?.has_target ? `${MONTH_NAMES[month]} target ${fmtInr(regionalTarget.target_value)}` : `${MONTH_NAMES[month]} target not set`}
+            status={regionalTarget?.has_target ? regionalTarget.status : `${filteredRegionalSalesRows.length} rows`}
+            statusTone={!regionalTarget?.has_target ? (filteredRegionalSalesRows.length ? 'positive' : 'neutral') : Number(regionalTarget.achievement_pct) >= 100 ? 'positive' : Number(regionalTarget.achievement_pct) >= 80 ? 'warning' : 'negative'}
+            targetLabel={regionalTarget?.has_target ? `${MONTH_NAMES[month]} target ${fmtInr(regionalTarget.target_value)}` : null}
             achievementPct={regionalTarget?.has_target ? regionalTarget.achievement_pct : null}
             trend={regionalTrend}
-            detail={executionSummary.weeklyExpected > 0 ? `${executionSummary.weeklySubmitted} of ${executionSummary.weeklyExpected} territory updates submitted` : 'No weekly submission requirement for this selection'}
-            completeness={executionSummary.weeklyExpected > 0 ? `${executionSummary.pdfMatched} of ${executionSummary.weeklyExpected} PDFs validated` : 'Completeness: not applicable'}
-            actionLabel="Open regional sales"
-            onOpen={() => setDrilldownType('regional')}
+            detail={`${filteredRegionalSalesRows.length} imported product rows across all weeks`}
+            completeness="Stockist → market sales"
+            actionLabel="View uploaded secondary sales"
+            onOpen={() => navigate('/regional-sales?tab=secondary')}
           />
           <DecisionMetricCard
             title="Doctor Sales"
@@ -2164,33 +2212,19 @@ export default function Dashboard() {
           />
           <DecisionMetricCard
             title="Investment Recovery"
-            period={`Six-month commitment tracking · as of ${fmtPeriodDate(endDate)}`}
+            period={`Rolling six months · ${sixMonthPeriodLabel}`}
             icon="◈"
             accent="#D4A017"
-            value={fmtInr(investmentRecovery.invested)}
+            valueLabel="Invested"
+            value={fmtInr(sixMonthInvestmentTotals.invested)}
+            secondaryLabel="Recovered"
+            secondaryValue={fmtInr(sixMonthInvestmentTotals.recovered)}
             status={investmentRecovery.doctors === 0 ? 'No commitments' : investmentRecovery.breached > 0 ? `${investmentRecovery.breached} breached` : investmentRecovery.atRisk > 0 ? `${investmentRecovery.atRisk} at risk` : 'On track'}
             statusTone={investmentRecovery.doctors === 0 ? 'neutral' : investmentRecovery.breached > 0 ? 'negative' : investmentRecovery.atRisk > 0 ? 'warning' : 'positive'}
-            targetLabel={investmentRecovery.doctors > 0 ? `Recovered ${fmtInr(investmentRecovery.sales)} of ${fmtInr(investmentRecovery.expected)}` : 'No recovery target due'}
-            achievementPct={investmentRecovery.doctors > 0 ? investmentRecovery.achievementPct : null}
-            detail={investmentRecovery.doctors > 0 ? `${fmtInr(investmentRecovery.shortfall)} recovery shortfall across ${investmentRecovery.doctors} doctors` : 'No active six-month investment commitments in this selection'}
-            completeness="Investment and recovery use a rolling six-month window"
+            detail={`Investment and recovered doctor sales calculated for ${sixMonthPeriodLabel}`}
+            completeness={investmentRecovery.doctors > 0 ? `${fmtInr(investmentRecovery.shortfall)} commitment shortfall across ${investmentRecovery.doctors} doctors` : 'No active six-month investment commitments'}
             actionLabel="Open investment & ROI"
             onOpen={() => setDrilldownType('investment')}
-          />
-          <DecisionMetricCard
-            title="Execution"
-            period={`Visits: last 30 days · Tasks: ${MONTH_NAMES[month]} ${year}`}
-            icon="✓"
-            accent="#0891B2"
-            value={executionSummary.visitPct == null ? 'No visit data' : `${executionSummary.visitPct}% visits`}
-            status={executionSummary.overdue > 0 ? `${executionSummary.overdue} overdue` : executionSummary.tasks > 0 ? 'No overdue tasks' : 'No tasks assigned'}
-            statusTone={executionSummary.overdue > 0 ? 'negative' : executionSummary.tasks > 0 ? 'positive' : 'neutral'}
-            targetLabel={executionSummary.tasks > 0 ? `${executionSummary.completed} of ${executionSummary.tasks} tasks completed` : 'No tasks assigned in this month'}
-            achievementPct={executionSummary.taskPct}
-            detail={executionSummary.doctors > 0 ? `${executionSummary.visited} of ${executionSummary.doctors} active doctors visited in 30 days` : 'No assigned doctors in this selection'}
-            completeness={executionSummary.weeklyExpected > 0 ? `Weekly updates ${executionSummary.weeklySubmitted}/${executionSummary.weeklyExpected} · PDFs validated ${executionSummary.pdfMatched}/${executionSummary.weeklyExpected}` : 'Weekly regional compliance: not applicable'}
-            actionLabel="Open execution details"
-            onOpen={() => setDrilldownType('execution')}
           />
         </div>
 

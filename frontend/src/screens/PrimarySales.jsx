@@ -50,7 +50,7 @@ export default function PrimarySales() {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
-  const [week, setWeek] = useState(weekForDate(now));
+  const [week, setWeek] = useState(0);
   const [region, setRegion] = useState('ALL');
   const [territory, setTerritory] = useState('ALL');
   const [stockistId, setStockistId] = useState('');

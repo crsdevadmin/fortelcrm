@@ -422,6 +422,10 @@ function DrillPanel({ doctorId, year, month, viewerId, onClose, onAddInvestment,
         <div style={{ background: '#f5f5f5', borderRadius: 8, padding: '10px 12px', textAlign: 'center' }}>
           <div style={{ fontSize: 10, color: '#888' }}>Invested</div>
           <div style={{ fontSize: 16, fontWeight: 700 }}>{fmtInr(data.total_invested)}</div>
+          {data.investment_period_start && <div style={{ fontSize: 8, color: '#888', marginTop: 3 }}>
+            Calculated from {new Date(`${data.investment_period_start}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+            {data.investment_period_end && data.investment_period_end !== data.investment_period_start ? ` to ${new Date(`${data.investment_period_end}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}
+          </div>}
           {drillInvestmentCategories.length > 0 && (
             <div style={{ display: 'flex', justifyContent: 'center', gap: 4, flexWrap: 'wrap', marginTop: 3 }}>
               {drillInvestmentCategories.map(([category]) => (
@@ -983,7 +987,7 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
   const { user: me } = useAuth();
   const [salesYear, setSalesYear] = useState(year);
   const [salesMonth, setSalesMonth] = useState(month);
-  const [week, setWeek] = useState(1);
+  const [week, setWeek] = useState(0);
   const [products, setProducts] = useState([]);
   const [locations, setLocations] = useState([]);
   const [stateCode, setStateCode] = useState(initialStateCode || 'ALL');
@@ -1022,7 +1026,8 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
   const isLegacyJulyWeeklyMonth = salesYear === 2026 && salesMonth === 7;
   const isCumulativeWeeklyMonth = salesYear > 2026 || (salesYear === 2026 && salesMonth >= 8);
   const isWeeklyRegionalMonth = isLegacyJulyWeeklyMonth || isCumulativeWeeklyMonth;
-  const activeSalesWeek = isWeeklyRegionalMonth ? week : 0;
+  const activeSalesWeek = isWeeklyRegionalMonth ? (week || null) : 0;
+  const isAllWeeksView = isWeeklyRegionalMonth && week === 0;
   const regionalStateFilter = stateCode === 'ALL' ? '' : stateCode;
   const regionalCityFilter = city === 'ALL' ? '' : city;
   const isAggregateRegionalView = stateCode === 'ALL' || city === 'ALL';
@@ -1210,7 +1215,7 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
   useEffect(() => { loadRegional(); }, [loadRegional]);
 
   const loadRegionalPdfs = useCallback(() => {
-    if (!me?.id || !isCumulativeWeeklyMonth || stateCode === 'ALL' || city === 'ALL') {
+    if (!me?.id || !isCumulativeWeeklyMonth || isAllWeeksView || stateCode === 'ALL' || city === 'ALL') {
       setRegionalPdfs([]);
       return;
     }
@@ -1229,7 +1234,7 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
       setRegionalPdfs([]);
       setRegionalPdfError(error?.response?.data?.detail || 'Unable to load weekly PDFs.');
     });
-  }, [me?.id, isCumulativeWeeklyMonth, stateCode, city, salesYear, salesMonth, week]);
+  }, [me?.id, isCumulativeWeeklyMonth, isAllWeeksView, stateCode, city, salesYear, salesMonth, week]);
 
   useEffect(() => { loadRegionalPdfs(); }, [loadRegionalPdfs]);
 
@@ -1287,7 +1292,7 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
     ? 625
     : showPreviousWeekProductData ? 650 + (previousWeekNumbers.length * 125) : 650;
   const regionalHeaders = isCumulativeWeeklyMonth
-    ? ['Imported Product', `Week ${week} Quantity`, 'Rate', 'Sales Value']
+    ? ['Imported Product', isAllWeeksView ? 'All Weeks Quantity' : `Week ${week} Quantity`, 'Rate', 'Sales Value']
     : isLegacyJulyWeeklyMonth
       ? ['Product', ...previousWeekNumbers.map(previousWeek => `Week ${previousWeek}`), `Week ${week} Qty`, 'Rate', `Week ${week} Total`, 'Action']
       : ['Product', 'Qty', 'Rate', 'Total', 'Action'];
@@ -1352,6 +1357,10 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
 
   const saveRegionalSales = async () => {
     if (!me?.id) return;
+    if (isAllWeeksView) {
+      setError('Select Week 1, 2, 3, or 4 before saving sales.');
+      return;
+    }
     if (stateCode === 'ALL' || city === 'ALL' || !stateCode || !city) {
       setError('Select state and city before saving regional sales.');
       return;
@@ -1531,7 +1540,7 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
               Reset Month
             </button>
             {!isCumulativeWeeklyMonth && (
-              <button onClick={saveRegionalSales} disabled={saving || loading || isAggregateRegionalView || pendingRows.length === 0}
+              <button onClick={saveRegionalSales} disabled={saving || loading || isAggregateRegionalView || isAllWeeksView || pendingRows.length === 0}
                 title={isAggregateRegionalView ? 'Select a specific state and city to save regional sales.' : pendingRows.length === 0 ? 'Enter or edit a row before saving.' : 'Save regional sales'}
                 style={{ padding: '9px 15px', borderRadius: 9, border: 'none', background: (saving || isAggregateRegionalView || pendingRows.length === 0) ? '#9ca3af' : '#0F6E56', color: '#fff', cursor: (saving || isAggregateRegionalView || pendingRows.length === 0) ? 'default' : 'pointer', fontWeight: 900 }}>
                 {saving ? 'Saving...' : 'Save Regional Sales'}
@@ -1652,10 +1661,10 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
             {isWeeklyRegionalMonth ? (
               <>
                 <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', fontWeight: 900, letterSpacing: 1.5, textTransform: 'uppercase', marginRight: 2 }}>Week</span>
-                {[1, 2, 3, 4].map(w => (
+                {[0, 1, 2, 3, 4].map(w => (
                   <button key={w} onClick={() => setWeek(w)}
                     style={{ padding: '5px 14px', borderRadius: 20, fontSize: 11, border: week === w ? '2px solid #F5B800' : '2px solid rgba(255,255,255,0.12)', background: week === w ? '#F5B800' : 'rgba(255,255,255,0.07)', cursor: 'pointer', fontWeight: 800, color: week === w ? '#0B1E10' : 'rgba(255,255,255,0.72)', boxShadow: week === w ? '0 2px 12px rgba(245,184,0,0.3)' : 'none' }}>
-                    Week {w}
+                    {w === 0 ? 'All Weeks' : `Week ${w}`}
                   </button>
                 ))}
               </>
@@ -1706,13 +1715,18 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
           Consolidated view is read-only. Select a specific region and city to enter sales.
         </div>
       )}
-      {!loading && isWeeklyRegionalMonth && !isAggregateRegionalView && (
+      {!loading && isWeeklyRegionalMonth && !isAggregateRegionalView && !isAllWeeksView && (
         <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534', borderRadius: 10, padding: 12, marginBottom: 12, fontSize: 13 }}>
           {isCumulativeWeeklyMonth ? (
             <>Upload the Week {week} distributor report below. Products, quantities, and rates are imported automatically; earlier weeks are subtracted product-wise.</>
           ) : (
             <>July data remains unchanged. Enter and edit the <strong>Week {week} quantity and rate</strong> directly; no cumulative subtraction is applied.</>
           )}
+        </div>
+      )}
+      {!loading && isAllWeeksView && (
+        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1e3a8a', borderRadius: 10, padding: 12, marginBottom: 12, fontSize: 13, fontWeight: 700 }}>
+          All Weeks is a read-only monthly view. Select Week 1, 2, 3, or 4 to upload or change a weekly report.
         </div>
       )}
       {!loading && isWeeklyRegionalMonth && week > 1 && !isAggregateRegionalView && (
@@ -1755,7 +1769,7 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
           Some cumulative quantities are below the earlier-weeks total. Their current-week result has been set to zero.
         </div>
       )}
-      {!loading && isCumulativeWeeklyMonth && (
+      {!loading && isCumulativeWeeklyMonth && !isAllWeeksView && (
         <div style={{ marginBottom: 12, padding: 14, background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <div>
@@ -1890,7 +1904,7 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: '#6b7280' }}>Loading products...</div>
         ) : regionalDisplayProducts.length === 0 ? (
-          <div style={{ padding: 40, textAlign: 'center', color: '#6b7280' }}>No imported sales for this week. Upload a report to load product sales.</div>
+          <div style={{ padding: 40, textAlign: 'center', color: '#6b7280' }}>{isAllWeeksView ? 'No imported sales for this month.' : 'No imported sales for this week. Upload a report to load product sales.'}</div>
         ) : regionalDisplayProducts.map(product => {
           const row = rows[product.id] || {};
           const calculated = entryByProduct.get(product.id) || { quantity: 0, value: 0, price: 0, belowPrevious: false };
@@ -1898,7 +1912,7 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
           const price = calculated.price;
           const editing = Boolean(editingRegionalRows[product.id]);
           const isLockedSavedRow = Boolean(row.existing) && !editing;
-          const inputDisabled = isAggregateRegionalView || isLockedSavedRow;
+          const inputDisabled = isAggregateRegionalView || isAllWeeksView || isLockedSavedRow;
           if (isCumulativeWeeklyMonth) {
             return (
               <div key={product.id} style={{ display: 'grid', gridTemplateColumns: regionalGridTemplate, minWidth: regionalGridMinWidth, alignItems: 'center', borderBottom: '1px solid #f3f4f6', background: '#fff' }}>

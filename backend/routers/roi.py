@@ -197,6 +197,7 @@ def get_doctor_roi(doctor_id: int, year: int, month: int, current_user: User = D
     ca_percent = compute_ca_percent(actual, expected_sales)
 
     cm = _str_val(doctor.commercial_model)
+    investment_dates = sorted(_safe_date(item.year, item.month, item.week) for item in inv_list)
     return {
         "doctor_id": doctor_id,
         "doctor_name": doctor.name,
@@ -212,6 +213,8 @@ def get_doctor_roi(doctor_id: int, year: int, month: int, current_user: User = D
         "year": year, "month": month,
         "actual_sales": round(actual, 2),
         "total_invested": round(total_invested, 2),
+        "investment_period_start": investment_dates[0].isoformat() if investment_dates else None,
+        "investment_period_end": investment_dates[-1].isoformat() if investment_dates else None,
         "expected_sales": round(expected_sales, 2),
         "roi_multiple": roi_multiple,
         "roi_grade": grade.value,
