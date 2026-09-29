@@ -1,14 +1,27 @@
 import client from './client';
 
+async function chunkedCollectionsUpload(file, reportType) {
+  if (!window.crypto?.subtle) throw new Error('Secure file upload is not supported by this browser');
+  const buffer = await file.arrayBuffer();
+  const digest = await window.crypto.subtle.digest('SHA-256', buffer);
+  const checksum = Array.from(new Uint8Array(digest)).map(value => value.toString(16).padStart(2, '0')).join('');
+  const start = await client.post('/collections/upload-session/start', {
+    filename: file.name,
+    file_size: file.size,
+    file_checksum: checksum,
+    report_type: reportType,
+  });
+  const { session_id: sessionId, chunk_size: chunkSize, chunk_count: chunkCount } = start.data;
+  for (let index = 0; index < chunkCount; index += 1) {
+    const bytes = new Uint8Array(buffer, index * chunkSize, Math.min(chunkSize, buffer.byteLength - (index * chunkSize)));
+    const data = window.btoa(String.fromCharCode(...bytes));
+    await client.post(`/collections/upload-session/${sessionId}/chunk`, { index, data });
+  }
+  return client.post(`/collections/upload-session/${sessionId}/complete`, { file_checksum: checksum });
+}
+
 export const collectionsAPI = {
-  upload: (file, reportType) => {
-    const data = new FormData();
-    data.append('report_type', reportType);
-    data.append('file', file);
-    return client.post('/collections/upload', data, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
-  },
+  upload: (file, reportType) => chunkedCollectionsUpload(file, reportType),
   uploads: () => client.get('/collections/uploads'),
   mdSummary: () => client.get('/collections/md-summary'),
 };
