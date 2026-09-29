@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -213,20 +213,34 @@ def complete_upload_session(
 
 @router.get("/uploads")
 def list_uploads(
+    response: Response,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     _require_staff(current_user)
+    response.headers["Cache-Control"] = "no-store"
     uploads = db.query(CollectionUpload).order_by(CollectionUpload.uploaded_at.desc()).limit(30).all()
-    return [_upload_dict(upload) for upload in uploads]
+    result = []
+    for upload in uploads:
+        model = ReceiptEntry if upload.report_type == "receipt" else OutstandingEntry
+        customer_rows = db.query(model.customer_name).filter(model.upload_id == upload.id).distinct().limit(8).all()
+        item = _upload_dict(upload)
+        item["customer_names"] = [row[0] for row in customer_rows if row[0]]
+        item["customer_count"] = db.query(model.customer_name).filter(
+            model.upload_id == upload.id
+        ).distinct().count()
+        result.append(item)
+    return result
 
 
 @router.get("/md-summary")
 def md_summary(
+    response: Response,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     _require_md(current_user)
+    response.headers["Cache-Control"] = "no-store"
     latest = {}
     for report_type in ("receipt", "outstanding"):
         latest[report_type] = db.query(CollectionUpload).filter(
