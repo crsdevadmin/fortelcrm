@@ -45,6 +45,48 @@ function UploadCard({ type, title, description, color, onComplete }) {
   );
 }
 
+function ReportHistoryCard({ row, initiallyOpen }) {
+  const customers = row.customer_amounts || [];
+  const period = row.period_start || row.period_end
+    ? `${row.period_start || '—'} to ${row.period_end || '—'}`
+    : '—';
+
+  return (
+    <details open={initiallyOpen} style={{ borderBottom: '1px solid #e5e7eb' }}>
+      <summary style={{ padding: '15px 18px', cursor: 'pointer', listStylePosition: 'inside' }}>
+        <span style={{ marginLeft: 8, fontWeight: 850, color: '#172033', textTransform: 'capitalize' }}>{row.report_type}</span>
+        <span style={{ marginLeft: 8, color: '#64748b', fontSize: 12 }}>{row.filename}</span>
+        <span style={{ float: 'right', color: '#0f766e', fontWeight: 900 }}>{money(row.total_amount)}</span>
+      </summary>
+      <div style={{ padding: '0 18px 18px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: 10, padding: '12px', marginBottom: 12, borderRadius: 10, background: '#f8fafc', fontSize: 12 }}>
+          <div><div style={{ color: '#64748b' }}>Period</div><strong>{period}</strong></div>
+          <div><div style={{ color: '#64748b' }}>Rows</div><strong>{row.row_count}</strong></div>
+          <div><div style={{ color: '#64748b' }}>Uploaded by</div><strong>{row.uploaded_by || '—'}</strong></div>
+          <div><div style={{ color: '#64748b' }}>Uploaded</div><strong>{dateTime(row.uploaded_at)}</strong></div>
+        </div>
+        {customers.length ? (
+          <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 16, padding: '9px 12px', background: '#f1f5f9', color: '#64748b', fontSize: 11, fontWeight: 850, textTransform: 'uppercase' }}>
+              <span>Customer name</span><span>Amount</span>
+            </div>
+            {customers.map((customer, index) => (
+              <div key={`${customer.customer_name}-${index}`} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 16, alignItems: 'center', padding: '9px 12px', borderTop: '1px solid #eef2f7', fontSize: 12 }}>
+                <span style={{ color: '#334155', fontWeight: 700, overflowWrap: 'anywhere' }}>{customer.customer_name}</span>
+                <span style={{ color: '#0f766e', fontWeight: 850, whiteSpace: 'nowrap' }}>{money(customer.amount)}</span>
+              </div>
+            ))}
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 16, padding: '10px 12px', borderTop: '2px solid #cbd5e1', background: '#f8fafc', fontWeight: 900 }}>
+              <span>Total · {row.customer_count} customers</span>
+              <span style={{ whiteSpace: 'nowrap' }}>{money(row.total_amount)}</span>
+            </div>
+          </div>
+        ) : <div style={{ color: '#64748b', fontSize: 12 }}>No customer entries were found in this report.</div>}
+      </div>
+    </details>
+  );
+}
+
 export default function CollectionsUpload() {
   const [uploads, setUploads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -64,16 +106,7 @@ export default function CollectionsUpload() {
       <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 16, marginTop: 22, overflow: 'hidden' }}>
         <div style={{ padding: '16px 18px', borderBottom: '1px solid #e5e7eb', fontWeight: 850, color: '#172033' }}>Upload history</div>
         {loading ? <div style={{ padding: 24, color: '#64748b' }}>Loading…</div> : uploads.length === 0 ? <div style={{ padding: 24, color: '#64748b' }}>No reports uploaded yet.</div> : (
-          <div style={{ overflowX: 'auto' }}><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}><thead><tr style={{ background: '#f8fafc', textAlign: 'left', color: '#64748b' }}>
-            {['Report', 'File', 'Customers', 'Period', 'Rows', 'Total', 'Uploaded by', 'Uploaded'].map(label => <th key={label} style={{ padding: '11px 14px' }}>{label}</th>)}
-          </tr></thead><tbody>{uploads.map(row => <tr key={row.id} style={{ borderTop: '1px solid #eef2f7' }}>
-            <td style={{ padding: '12px 14px', fontWeight: 800, textTransform: 'capitalize', verticalAlign: 'top' }}>{row.report_type}</td><td style={{ padding: '12px 14px', verticalAlign: 'top' }}>{row.filename}</td><td style={{ padding: '12px 14px', minWidth: 340 }}>
-              {(row.customer_amounts || []).length ? <div style={{ border: '1px solid #e2e8f0', borderRadius: 9, overflow: 'hidden' }}>
-                {(row.customer_amounts || []).map(customer => <div key={customer.customer_name} style={{ display: 'flex', justifyContent: 'space-between', gap: 14, padding: '7px 9px', borderBottom: '1px solid #f1f5f9', background: '#fff' }}><span style={{ color: '#334155', fontWeight: 700 }}>{customer.customer_name}</span><span style={{ color: '#0f766e', fontWeight: 850, whiteSpace: 'nowrap' }}>{money(customer.amount)}</span></div>)}
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 14, padding: '8px 9px', background: '#f8fafc', borderTop: '2px solid #cbd5e1', fontWeight: 900 }}><span>Total · {row.customer_count} customers</span><span style={{ color: '#172033', whiteSpace: 'nowrap' }}>{money(row.total_amount)}</span></div>
-              </div> : '—'}
-            </td><td style={{ padding: '12px 14px', verticalAlign: 'top' }}>{row.period_start || '—'} to {row.period_end || '—'}</td><td style={{ padding: '12px 14px', verticalAlign: 'top' }}>{row.row_count}</td><td style={{ padding: '12px 14px', fontWeight: 800, verticalAlign: 'top' }}>{money(row.total_amount)}</td><td style={{ padding: '12px 14px', verticalAlign: 'top' }}>{row.uploaded_by || '—'}</td><td style={{ padding: '12px 14px', verticalAlign: 'top' }}>{dateTime(row.uploaded_at)}</td>
-          </tr>)}</tbody></table></div>
+          <div>{uploads.map((row, index) => <ReportHistoryCard key={row.id} row={row} initiallyOpen={index < 2} />)}</div>
         )}
       </div>
     </div>
