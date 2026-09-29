@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..auth.auth import get_current_user
@@ -223,12 +224,18 @@ def list_uploads(
     result = []
     for upload in uploads:
         model = ReceiptEntry if upload.report_type == "receipt" else OutstandingEntry
-        customer_rows = db.query(model.customer_name).filter(model.upload_id == upload.id).distinct().limit(8).all()
+        amount_column = ReceiptEntry.amount if upload.report_type == "receipt" else OutstandingEntry.balance
+        customer_rows = db.query(
+            model.customer_name,
+            func.sum(amount_column).label("amount"),
+        ).filter(model.upload_id == upload.id).group_by(model.customer_name).order_by(model.customer_name).all()
         item = _upload_dict(upload)
-        item["customer_names"] = [row[0] for row in customer_rows if row[0]]
-        item["customer_count"] = db.query(model.customer_name).filter(
-            model.upload_id == upload.id
-        ).distinct().count()
+        item["customer_amounts"] = [
+            {"customer_name": row.customer_name, "amount": round(float(row.amount or 0), 2)}
+            for row in customer_rows if row.customer_name
+        ]
+        item["customer_names"] = [row["customer_name"] for row in item["customer_amounts"]]
+        item["customer_count"] = len(item["customer_amounts"])
         result.append(item)
     return result
 
