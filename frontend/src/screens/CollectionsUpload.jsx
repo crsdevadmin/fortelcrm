@@ -45,45 +45,103 @@ function UploadCard({ type, title, description, color, onComplete }) {
   );
 }
 
-function ReportHistoryCard({ row, initiallyOpen }) {
-  const customers = row.customer_amounts || [];
+function ReportHistoryCard({ row }) {
   const period = row.period_start || row.period_end
     ? `${row.period_start || '—'} to ${row.period_end || '—'}`
     : '—';
 
   return (
-    <details open={initiallyOpen} style={{ borderBottom: '1px solid #e5e7eb' }}>
-      <summary style={{ padding: '15px 18px', cursor: 'pointer', listStylePosition: 'inside' }}>
-        <span style={{ marginLeft: 8, fontWeight: 850, color: '#172033', textTransform: 'capitalize' }}>{row.report_type}</span>
-        <span style={{ marginLeft: 8, color: '#64748b', fontSize: 12 }}>{row.filename}</span>
-        <span style={{ float: 'right', color: '#0f766e', fontWeight: 900 }}>{money(row.total_amount)}</span>
-      </summary>
-      <div style={{ padding: '0 18px 18px' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: 10, padding: '12px', marginBottom: 12, borderRadius: 10, background: '#f8fafc', fontSize: 12 }}>
-          <div><div style={{ color: '#64748b' }}>Period</div><strong>{period}</strong></div>
-          <div><div style={{ color: '#64748b' }}>Rows</div><strong>{row.row_count}</strong></div>
-          <div><div style={{ color: '#64748b' }}>Uploaded by</div><strong>{row.uploaded_by || '—'}</strong></div>
-          <div><div style={{ color: '#64748b' }}>Uploaded</div><strong>{dateTime(row.uploaded_at)}</strong></div>
+    <div style={{ padding: '14px 18px', borderBottom: '1px solid #e5e7eb' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <div>
+          <div style={{ fontWeight: 850, color: '#172033', textTransform: 'capitalize' }}>{row.report_type} report</div>
+          <div style={{ color: '#64748b', fontSize: 12, marginTop: 3 }}>{row.filename}</div>
         </div>
-        {customers.length ? (
-          <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 16, padding: '9px 12px', background: '#f1f5f9', color: '#64748b', fontSize: 11, fontWeight: 850, textTransform: 'uppercase' }}>
-              <span>Customer name</span><span>Amount</span>
-            </div>
-            {customers.map((customer, index) => (
-              <div key={`${customer.customer_name}-${index}`} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 16, alignItems: 'center', padding: '9px 12px', borderTop: '1px solid #eef2f7', fontSize: 12 }}>
-                <span style={{ color: '#334155', fontWeight: 700, overflowWrap: 'anywhere' }}>{customer.customer_name}</span>
-                <span style={{ color: '#0f766e', fontWeight: 850, whiteSpace: 'nowrap' }}>{money(customer.amount)}</span>
-              </div>
-            ))}
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) auto', gap: 16, padding: '10px 12px', borderTop: '2px solid #cbd5e1', background: '#f8fafc', fontWeight: 900 }}>
-              <span>Total · {row.customer_count} customers</span>
-              <span style={{ whiteSpace: 'nowrap' }}>{money(row.total_amount)}</span>
-            </div>
-          </div>
-        ) : <div style={{ color: '#64748b', fontSize: 12 }}>No customer entries were found in this report.</div>}
+        <div style={{ color: row.report_type === 'receipt' ? '#047857' : '#b45309', fontWeight: 900, fontSize: 16 }}>{money(row.total_amount)}</div>
       </div>
-    </details>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px 18px', marginTop: 9, color: '#64748b', fontSize: 11 }}>
+        <span>{period}</span><span>{row.customer_count} customers</span><span>{row.row_count} rows</span><span>{row.uploaded_by || '—'}</span><span>{dateTime(row.uploaded_at)}</span>
+      </div>
+    </div>
+  );
+}
+
+const customerKey = value => String(value || '').trim().replace(/\s+/g, ' ').toUpperCase();
+
+function CollectionsReconciliation({ uploads }) {
+  const receipt = uploads.find(row => row.report_type === 'receipt');
+  const outstanding = uploads.find(row => row.report_type === 'outstanding');
+  if (!receipt && !outstanding) return null;
+
+  const customers = new Map();
+  const addCustomers = (items, field) => (items || []).forEach(item => {
+    const key = customerKey(item.customer_name);
+    if (!key) return;
+    const current = customers.get(key) || { name: item.customer_name, received: 0, pending: 0 };
+    current[field] += Number(item.amount || 0);
+    if (field === 'received' || !current.name) current.name = item.customer_name;
+    customers.set(key, current);
+  });
+  addCustomers(receipt?.customer_amounts, 'received');
+  addCustomers(outstanding?.customer_amounts, 'pending');
+
+  const rows = Array.from(customers.values())
+    .map(row => ({ ...row, total: row.received + row.pending }))
+    .sort((a, b) => b.total - a.total || a.name.localeCompare(b.name));
+  const receivedTotal = rows.reduce((sum, row) => sum + row.received, 0);
+  const pendingTotal = rows.reduce((sum, row) => sum + row.pending, 0);
+  const combinedTotal = receivedTotal + pendingTotal;
+  const recovery = combinedTotal ? (receivedTotal / combinedTotal) * 100 : 0;
+  const summary = [
+    { label: 'Received', value: money(receivedTotal), color: '#047857', background: '#ecfdf5' },
+    { label: 'Pending', value: money(pendingTotal), color: '#b45309', background: '#fff7ed' },
+    { label: 'Total value', value: money(combinedTotal), color: '#1d4ed8', background: '#eff6ff' },
+    { label: 'Recovery', value: `${recovery.toFixed(1)}%`, color: '#7c3aed', background: '#f5f3ff' },
+  ];
+
+  return (
+    <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 16, marginTop: 22, overflow: 'hidden', boxShadow: '0 5px 18px rgba(15,23,42,.05)' }}>
+      <div style={{ padding: '17px 18px', borderBottom: '1px solid #e5e7eb' }}>
+        <div style={{ fontWeight: 900, color: '#172033', fontSize: 17 }}>Customer collection position</div>
+        <div style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>Latest receipt and outstanding reports combined customer-wise.</div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: 12, padding: 16 }}>
+        {summary.map(item => <div key={item.label} style={{ padding: '14px 15px', borderRadius: 12, background: item.background }}>
+          <div style={{ color: '#64748b', fontSize: 11, fontWeight: 750, textTransform: 'uppercase' }}>{item.label}</div>
+          <div style={{ color: item.color, fontSize: 20, fontWeight: 950, marginTop: 4 }}>{item.value}</div>
+        </div>)}
+      </div>
+      <div style={{ overflowX: 'auto', borderTop: '1px solid #e5e7eb' }}>
+        <table style={{ width: '100%', minWidth: 700, borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead><tr style={{ background: '#f8fafc', color: '#64748b', textAlign: 'left' }}>
+            <th style={{ padding: '11px 14px' }}>Customer</th>
+            <th style={{ padding: '11px 14px', textAlign: 'right' }}>Received</th>
+            <th style={{ padding: '11px 14px', textAlign: 'right' }}>Pending</th>
+            <th style={{ padding: '11px 14px', textAlign: 'right' }}>Total</th>
+            <th style={{ padding: '11px 14px', textAlign: 'right' }}>Recovered</th>
+          </tr></thead>
+          <tbody>
+            {rows.map(row => {
+              const recovered = row.total ? (row.received / row.total) * 100 : 0;
+              return <tr key={customerKey(row.name)} style={{ borderTop: '1px solid #eef2f7' }}>
+                <td style={{ padding: '11px 14px', color: '#334155', fontWeight: 750 }}>{row.name}</td>
+                <td style={{ padding: '11px 14px', textAlign: 'right', color: '#047857', fontWeight: 850, whiteSpace: 'nowrap' }}>{money(row.received)}</td>
+                <td style={{ padding: '11px 14px', textAlign: 'right', color: row.pending ? '#b45309' : '#94a3b8', fontWeight: 850, whiteSpace: 'nowrap' }}>{money(row.pending)}</td>
+                <td style={{ padding: '11px 14px', textAlign: 'right', color: '#172033', fontWeight: 900, whiteSpace: 'nowrap' }}>{money(row.total)}</td>
+                <td style={{ padding: '11px 14px', textAlign: 'right', color: recovered >= 75 ? '#047857' : recovered >= 40 ? '#b45309' : '#b91c1c', fontWeight: 850, whiteSpace: 'nowrap' }}>{recovered.toFixed(1)}%</td>
+              </tr>;
+            })}
+            <tr style={{ borderTop: '2px solid #cbd5e1', background: '#f8fafc' }}>
+              <td style={{ padding: '12px 14px', fontWeight: 950 }}>Total · {rows.length} customers</td>
+              <td style={{ padding: '12px 14px', textAlign: 'right', color: '#047857', fontWeight: 950 }}>{money(receivedTotal)}</td>
+              <td style={{ padding: '12px 14px', textAlign: 'right', color: '#b45309', fontWeight: 950 }}>{money(pendingTotal)}</td>
+              <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 950 }}>{money(combinedTotal)}</td>
+              <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 950 }}>{recovery.toFixed(1)}%</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 
@@ -103,10 +161,11 @@ export default function CollectionsUpload() {
         <UploadCard type="receipt" title="Receipt Report" description="Amounts received by Fortel" color="#047857" onComplete={load} />
         <UploadCard type="outstanding" title="Outstanding Report" description="Amounts still pending from customers" color="#b45309" onComplete={load} />
       </div>
+      {!loading && <CollectionsReconciliation uploads={uploads} />}
       <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 16, marginTop: 22, overflow: 'hidden' }}>
         <div style={{ padding: '16px 18px', borderBottom: '1px solid #e5e7eb', fontWeight: 850, color: '#172033' }}>Upload history</div>
         {loading ? <div style={{ padding: 24, color: '#64748b' }}>Loading…</div> : uploads.length === 0 ? <div style={{ padding: 24, color: '#64748b' }}>No reports uploaded yet.</div> : (
-          <div>{uploads.map((row, index) => <ReportHistoryCard key={row.id} row={row} initiallyOpen={index < 2} />)}</div>
+          <div>{uploads.map(row => <ReportHistoryCard key={row.id} row={row} />)}</div>
         )}
       </div>
     </div>
