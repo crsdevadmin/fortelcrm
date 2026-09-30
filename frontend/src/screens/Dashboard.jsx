@@ -2207,22 +2207,24 @@ export default function Dashboard() {
             actionLabel="View uploaded secondary sales"
             onOpen={() => navigate('/regional-sales?tab=secondary')}
           />
-          <DecisionMetricCard
-            title="Doctor Sales"
-            period={selectedPeriodLabel}
-            icon="◆"
-            accent="#3D8C40"
-            value={fmtInr(totalSales)}
-            status={doctorTarget?.has_target ? doctorTarget.status : 'Target not set'}
-            statusTone={!doctorTarget?.has_target ? 'neutral' : Number(doctorTarget.achievement_pct) >= 100 ? 'positive' : Number(doctorTarget.achievement_pct) >= 80 ? 'warning' : 'negative'}
-            targetLabel={doctorTarget?.has_target ? `${MONTH_NAMES[month]} target ${fmtInr(doctorTarget.target_value)}` : `${MONTH_NAMES[month]} target not set`}
-            achievementPct={doctorTarget?.has_target ? doctorTarget.achievement_pct : null}
-            trend={doctorTrend}
-            detail={`${clientStats.prescribed} of ${totalDocs} active doctors have sales in this period`}
-            completeness={`${clientStats.not_prescribed} doctors have no doctor-wise sales entry`}
-            actionLabel="Open doctor sales"
-            onOpen={() => setDrilldownType('doctor')}
-          />
+          {me?.role !== 'md' && (
+            <DecisionMetricCard
+              title="Doctor Sales"
+              period={selectedPeriodLabel}
+              icon="◆"
+              accent="#3D8C40"
+              value={fmtInr(totalSales)}
+              status={doctorTarget?.has_target ? doctorTarget.status : 'Target not set'}
+              statusTone={!doctorTarget?.has_target ? 'neutral' : Number(doctorTarget.achievement_pct) >= 100 ? 'positive' : Number(doctorTarget.achievement_pct) >= 80 ? 'warning' : 'negative'}
+              targetLabel={doctorTarget?.has_target ? `${MONTH_NAMES[month]} target ${fmtInr(doctorTarget.target_value)}` : `${MONTH_NAMES[month]} target not set`}
+              achievementPct={doctorTarget?.has_target ? doctorTarget.achievement_pct : null}
+              trend={doctorTrend}
+              detail={`${clientStats.prescribed} of ${totalDocs} active doctors have sales in this period`}
+              completeness={`${clientStats.not_prescribed} doctors have no doctor-wise sales entry`}
+              actionLabel="Open doctor sales"
+              onOpen={() => setDrilldownType('doctor')}
+            />
+          )}
           <DecisionMetricCard
             title="Investment Recovery"
             period={`Rolling six months · ${sixMonthPeriodLabel}`}
