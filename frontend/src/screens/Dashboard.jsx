@@ -1351,6 +1351,19 @@ export default function Dashboard() {
     return () => { cancelled = true; };
   }, [me?.role]);
 
+  const collectionMetrics = useMemo(() => {
+    const received = Number(collectionsSummary?.receipt_upload?.total_amount) || 0;
+    const pending = Number(collectionsSummary?.outstanding_upload?.total_amount) || 0;
+    const total = received + pending;
+    return {
+      received,
+      pending,
+      total,
+      recoveryPct: total > 0 ? Math.round((received / total) * 1000) / 10 : 0,
+      hasReports: Boolean(collectionsSummary?.receipt_upload || collectionsSummary?.outstanding_upload),
+    };
+  }, [collectionsSummary]);
+
   useEffect(() => {
     if (!me?.id) return;
     salesAPI.regional(me.id, year, month, null)
@@ -2226,6 +2239,24 @@ export default function Dashboard() {
             actionLabel="Open investment & ROI"
             onOpen={() => setDrilldownType('investment')}
           />
+          {me?.role === 'md' && (
+            <DecisionMetricCard
+              title="Collection Data"
+              period="Latest receipt and outstanding reports"
+              icon="₹"
+              accent="#0f766e"
+              valueLabel="Received"
+              value={collectionsLoading ? '…' : fmtInr(collectionMetrics.received)}
+              secondaryLabel="Pending"
+              secondaryValue={collectionsLoading ? '…' : fmtInr(collectionMetrics.pending)}
+              status={collectionsLoading ? 'Loading' : collectionMetrics.hasReports ? `${collectionMetrics.recoveryPct}% recovered` : 'No reports'}
+              statusTone={collectionsLoading || !collectionMetrics.hasReports ? 'neutral' : collectionMetrics.recoveryPct >= 75 ? 'positive' : collectionMetrics.recoveryPct >= 40 ? 'warning' : 'negative'}
+              detail={collectionMetrics.hasReports ? `Total collection value ${fmtInr(collectionMetrics.total)}` : 'Receipt and outstanding reports have not been uploaded'}
+              completeness="Visible only to MD"
+              actionLabel="View collection details"
+              onOpen={() => document.getElementById('md-collections')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+            />
+          )}
         </div>
 
         <div style={{ height: 24 }} />
@@ -2235,7 +2266,7 @@ export default function Dashboard() {
       <div style={{ padding: '16px 28px 28px' }}>
 
         {me?.role === 'md' && (
-          <div style={{ background: '#fff', border: '1px solid #dbe3ed', borderRadius: 16, marginBottom: 18, overflow: 'hidden', boxShadow: '0 5px 18px rgba(15,23,42,.06)' }}>
+          <div id="md-collections" style={{ background: '#fff', border: '1px solid #dbe3ed', borderRadius: 16, marginBottom: 18, overflow: 'hidden', boxShadow: '0 5px 18px rgba(15,23,42,.06)', scrollMarginTop: 16 }}>
             <div style={{ padding: '16px 18px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
               <div><div style={{ fontSize: 16, fontWeight: 900, color: '#172033' }}>Collections & Outstanding</div><div style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>Latest reports uploaded by Staff 1 or Staff 2 · visible only to MD</div></div>
               {collectionsLoading && <span style={{ fontSize: 12, color: '#64748b' }}>Loading reports…</span>}
