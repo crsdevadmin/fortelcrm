@@ -1,5 +1,6 @@
 import base64
 import binascii
+import calendar
 import hashlib
 import json
 import math
@@ -7,6 +8,7 @@ import re
 import shutil
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
@@ -16,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from ..auth.auth import get_current_user
 from ..database import get_db
-from ..models.models import CollectionUpload, OutstandingEntry, ReceiptEntry, User
+from ..models.models import CollectionUpload, OutstandingEntry, ReceiptEntry, Stockist, User
 from ..services.collections_import import parse_collection_report
 
 
@@ -31,6 +33,7 @@ class UploadStartRequest(BaseModel):
     file_size: int
     file_checksum: str
     report_type: str
+    stockist_id: int
 
 
 class UploadChunkRequest(BaseModel):
@@ -53,6 +56,7 @@ def _require_md(user):
 
 
 def _upload_dict(upload):
+    stockist = upload.stockist if upload else None
     return {
         "id": upload.id,
         "report_type": upload.report_type,
@@ -63,10 +67,14 @@ def _upload_dict(upload):
         "total_amount": upload.total_amount,
         "uploaded_at": upload.uploaded_at.isoformat() if upload.uploaded_at else None,
         "uploaded_by": upload.uploaded_by.name if upload.uploaded_by else None,
+        "stockist_id": upload.stockist_id,
+        "stockist_name": stockist.name if stockist else "Unassigned distributor",
+        "region": stockist.region if stockist else "Unassigned",
+        "territory": stockist.territory if stockist else "Unassigned",
     }
 
 
-def _persist_report(content, filename, report_type, current_user, db):
+def _persist_report(content, filename, report_type, stockist_id, current_user, db):
     report_type = (report_type or "").strip().lower()
     if report_type not in {"receipt", "outstanding"}:
         raise HTTPException(status_code=400, detail="Report type must be receipt or outstanding")
@@ -77,11 +85,15 @@ def _persist_report(content, filename, report_type, current_user, db):
         raise HTTPException(status_code=400, detail="The selected file is empty")
     if len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="The file exceeds the 15 MB limit")
+    stockist = db.query(Stockist).filter(Stockist.id == stockist_id, Stockist.is_active == True).first()
+    if not stockist:
+        raise HTTPException(status_code=400, detail="Select a valid distributor before uploading")
 
     checksum = hashlib.sha256(content).hexdigest()
     duplicate = db.query(CollectionUpload).filter(
         CollectionUpload.report_type == report_type,
         CollectionUpload.file_checksum == checksum,
+        CollectionUpload.stockist_id == stockist.id,
     ).first()
     if duplicate:
         result = _upload_dict(duplicate)
@@ -95,6 +107,7 @@ def _persist_report(content, filename, report_type, current_user, db):
 
     upload = CollectionUpload(
         uploaded_by_id=current_user.id,
+        stockist_id=stockist.id,
         report_type=report_type,
         filename=filename,
         file_checksum=checksum,
@@ -134,17 +147,22 @@ def _load_session(session_id, current_user):
 @router.post("/upload")
 async def upload_report(
     report_type: str = Form(...),
+    stockist_id: int = Form(...),
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     _require_staff(current_user)
     content = await file.read(MAX_UPLOAD_BYTES + 1)
-    return _persist_report(content, file.filename, report_type, current_user, db)
+    return _persist_report(content, file.filename, report_type, stockist_id, current_user, db)
 
 
 @router.post("/upload-session/start")
-def start_upload_session(payload: UploadStartRequest, current_user: User = Depends(get_current_user)):
+def start_upload_session(
+    payload: UploadStartRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     _require_staff(current_user)
     filename = Path(payload.filename or "").name[:255]
     report_type = (payload.report_type or "").strip().lower()
@@ -157,6 +175,8 @@ def start_upload_session(payload: UploadStartRequest, current_user: User = Depen
         raise HTTPException(status_code=413, detail="Excel file must be between 1 byte and 15 MB")
     if not re.fullmatch(r"[0-9a-f]{64}", checksum):
         raise HTTPException(status_code=400, detail="Invalid file checksum")
+    if not db.query(Stockist.id).filter(Stockist.id == payload.stockist_id, Stockist.is_active == True).first():
+        raise HTTPException(status_code=400, detail="Select a valid distributor before uploading")
     session_id = uuid4().hex
     UPLOAD_SESSION_ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
     session_path = UPLOAD_SESSION_ROOT / session_id
@@ -164,7 +184,8 @@ def start_upload_session(payload: UploadStartRequest, current_user: User = Depen
     chunk_count = math.ceil(payload.file_size / UPLOAD_CHUNK_BYTES)
     metadata = {
         "user_id": current_user.id, "filename": filename, "report_type": report_type,
-        "file_size": payload.file_size, "file_checksum": checksum, "chunk_count": chunk_count,
+        "stockist_id": payload.stockist_id, "file_size": payload.file_size,
+        "file_checksum": checksum, "chunk_count": chunk_count,
     }
     (session_path / "metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
     return {"session_id": session_id, "chunk_size": UPLOAD_CHUNK_BYTES, "chunk_count": chunk_count}
@@ -207,7 +228,10 @@ def complete_upload_session(
         content = b"".join(parts)
         if len(content) != int(metadata["file_size"]) or hashlib.sha256(content).hexdigest() != metadata["file_checksum"]:
             raise HTTPException(status_code=400, detail="Uploaded file verification failed")
-        return _persist_report(content, metadata["filename"], metadata["report_type"], current_user, db)
+        return _persist_report(
+            content, metadata["filename"], metadata["report_type"],
+            int(metadata["stockist_id"]), current_user, db,
+        )
     finally:
         shutil.rmtree(session_path, ignore_errors=True)
 
@@ -243,30 +267,105 @@ def list_uploads(
 @router.get("/md-summary")
 def md_summary(
     response: Response,
+    year: Optional[int] = None,
+    month: Optional[int] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     _require_md(current_user)
     response.headers["Cache-Control"] = "no-store"
-    latest = {}
-    for report_type in ("receipt", "outstanding"):
-        latest[report_type] = db.query(CollectionUpload).filter(
-            CollectionUpload.report_type == report_type
-        ).order_by(CollectionUpload.uploaded_at.desc()).first()
+    if (year is None) != (month is None):
+        raise HTTPException(status_code=400, detail="Year and month must be supplied together")
+    if year is not None and (year < 2000 or year > 2100 or month < 1 or month > 12):
+        raise HTTPException(status_code=400, detail="Invalid collection period")
+    period_start = None
+    period_end = None
+    if year is not None:
+        period_start = f"{year:04d}-{month:02d}-01"
+        period_end = f"{year:04d}-{month:02d}-{calendar.monthrange(year, month)[1]:02d}"
 
-    receipt_upload = latest["receipt"]
-    outstanding_upload = latest["outstanding"]
-    receipts = [] if not receipt_upload else db.query(ReceiptEntry).filter(
-        ReceiptEntry.upload_id == receipt_upload.id
+    def uploads_for_period():
+        query = db.query(CollectionUpload)
+        if period_start and period_end:
+            query = query.filter(
+                CollectionUpload.period_start <= period_end,
+                CollectionUpload.period_end >= period_start,
+            )
+        return query
+
+    period_uploads = uploads_for_period().order_by(CollectionUpload.uploaded_at.desc()).all()
+    latest_by_distributor = {}
+    for upload in period_uploads:
+        key = (upload.stockist_id or 0, upload.report_type)
+        if key not in latest_by_distributor:
+            latest_by_distributor[key] = upload
+
+    selected_uploads = list(latest_by_distributor.values())
+    receipt_uploads = [row for row in selected_uploads if row.report_type == "receipt"]
+    outstanding_uploads = [row for row in selected_uploads if row.report_type == "outstanding"]
+    receipt_ids = [row.id for row in receipt_uploads]
+    outstanding_ids = [row.id for row in outstanding_uploads]
+    receipt_sources = {row.id: row for row in receipt_uploads}
+    outstanding_sources = {row.id: row for row in outstanding_uploads}
+
+    receipts = [] if not receipt_ids else db.query(ReceiptEntry).filter(
+        ReceiptEntry.upload_id.in_(receipt_ids)
     ).order_by(ReceiptEntry.receipt_date.desc(), ReceiptEntry.id.desc()).all()
-    outstanding = [] if not outstanding_upload else db.query(OutstandingEntry).filter(
-        OutstandingEntry.upload_id == outstanding_upload.id
+    outstanding = [] if not outstanding_ids else db.query(OutstandingEntry).filter(
+        OutstandingEntry.upload_id.in_(outstanding_ids)
     ).order_by(OutstandingEntry.balance.desc()).all()
-    history = db.query(CollectionUpload).order_by(CollectionUpload.uploaded_at.desc()).limit(10).all()
+
+    def aggregate_uploads(rows, report_type):
+        if not rows:
+            return None
+        starts = [row.period_start for row in rows if row.period_start]
+        ends = [row.period_end for row in rows if row.period_end]
+        newest = max(rows, key=lambda row: row.uploaded_at)
+        return {
+            "id": None,
+            "report_type": report_type,
+            "filename": f"{len(rows)} distributor report{'s' if len(rows) != 1 else ''}",
+            "period_start": min(starts) if starts else None,
+            "period_end": max(ends) if ends else None,
+            "row_count": sum(row.source_row_count or 0 for row in rows),
+            "total_amount": round(sum(float(row.total_amount or 0) for row in rows), 2),
+            "uploaded_at": newest.uploaded_at.isoformat() if newest.uploaded_at else None,
+            "uploaded_by": newest.uploaded_by.name if len(rows) == 1 and newest.uploaded_by else "Multiple uploads",
+            "distributor_count": len(rows),
+        }
+
+    distributor_ids = sorted({key[0] for key in latest_by_distributor})
+    by_distributor = []
+    for stockist_id in distributor_ids:
+        receipt_upload = latest_by_distributor.get((stockist_id, "receipt"))
+        outstanding_upload = latest_by_distributor.get((stockist_id, "outstanding"))
+        source = receipt_upload or outstanding_upload
+        received = float(receipt_upload.total_amount or 0) if receipt_upload else 0
+        pending = float(outstanding_upload.total_amount or 0) if outstanding_upload else 0
+        total = received + pending
+        by_distributor.append({
+            "stockist_id": source.stockist_id,
+            "stockist_name": source.stockist.name if source.stockist else "Unassigned distributor",
+            "region": source.stockist.region if source.stockist else "Unassigned",
+            "territory": source.stockist.territory if source.stockist else "Unassigned",
+            "received_amount": round(received, 2),
+            "pending_amount": round(pending, 2),
+            "total_amount": round(total, 2),
+            "recovery_pct": round((received / total) * 100, 1) if total else 0,
+            "receipt_upload": _upload_dict(receipt_upload) if receipt_upload else None,
+            "outstanding_upload": _upload_dict(outstanding_upload) if outstanding_upload else None,
+        })
+    by_distributor.sort(key=lambda row: (-row["total_amount"], row["stockist_name"]))
+    history = period_uploads[:30]
 
     return {
-        "receipt_upload": _upload_dict(receipt_upload) if receipt_upload else None,
-        "outstanding_upload": _upload_dict(outstanding_upload) if outstanding_upload else None,
+        "year": year,
+        "month": month,
+        "period_start": period_start,
+        "period_end": period_end,
+        "receipt_upload": aggregate_uploads(receipt_uploads, "receipt"),
+        "outstanding_upload": aggregate_uploads(outstanding_uploads, "outstanding"),
+        "by_distributor": by_distributor,
         "receipts": [{
             "id": row.id,
             "receipt_date": row.receipt_date,
@@ -276,6 +375,9 @@ def md_summary(
             "customer_code": row.customer_code,
             "salesman_name": row.salesman_name,
             "amount": row.amount,
+            "stockist_id": receipt_sources[row.upload_id].stockist_id,
+            "stockist_name": receipt_sources[row.upload_id].stockist.name if receipt_sources[row.upload_id].stockist else "Unassigned distributor",
+            "region": receipt_sources[row.upload_id].stockist.region if receipt_sources[row.upload_id].stockist else "Unassigned",
         } for row in receipts],
         "outstanding": [{
             "id": row.id,
@@ -284,6 +386,9 @@ def md_summary(
             "area_name": row.area_name,
             "city_name": row.city_name,
             "balance": row.balance,
+            "stockist_id": outstanding_sources[row.upload_id].stockist_id,
+            "stockist_name": outstanding_sources[row.upload_id].stockist.name if outstanding_sources[row.upload_id].stockist else "Unassigned distributor",
+            "region": outstanding_sources[row.upload_id].stockist.region if outstanding_sources[row.upload_id].stockist else "Unassigned",
         } for row in outstanding],
         "recent_uploads": [_upload_dict(upload) for upload in history],
     }

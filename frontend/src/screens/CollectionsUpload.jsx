@@ -1,10 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { collectionsAPI } from '../api';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { collectionsAPI, primarySalesAPI } from '../api';
 
 const money = value => `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 const dateTime = value => value ? new Date(value).toLocaleString('en-IN') : '—';
 
-function UploadCard({ type, title, description, color, onComplete }) {
+function UploadCard({ type, title, description, color, stockistId, stockistName, onComplete }) {
   const inputRef = useRef(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState(null);
@@ -13,14 +13,18 @@ function UploadCard({ type, title, description, color, onComplete }) {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
+    if (!stockistId) {
+      setMessage({ ok: false, text: 'Select the source distributor before uploading.' });
+      return;
+    }
     setBusy(true);
     setMessage(null);
     try {
-      const response = await collectionsAPI.upload(file, type);
+      const response = await collectionsAPI.upload(file, type, stockistId);
       const row = response.data;
       setMessage({ ok: true, text: row.duplicate
         ? `${file.name} was already uploaded. The existing report is shown below.`
-        : `${row.row_count} rows imported · ${money(row.total_amount)}` });
+        : `${row.row_count} rows imported for ${row.stockist_name} · ${money(row.total_amount)}` });
       onComplete();
     } catch (error) {
       setMessage({ ok: false, text: error.response?.data?.detail || 'Upload failed. Check the report and try again.' });
@@ -36,10 +40,10 @@ function UploadCard({ type, title, description, color, onComplete }) {
         <div><div style={{ fontSize: 17, fontWeight: 850, color: '#172033' }}>{title}</div><div style={{ fontSize: 12, color: '#6b7280', marginTop: 3 }}>{description}</div></div>
       </div>
       <input ref={inputRef} type="file" accept=".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={upload} style={{ display: 'none' }} />
-      <button disabled={busy} onClick={() => inputRef.current?.click()} style={{ width: '100%', border: 0, borderRadius: 10, padding: '11px 14px', color: '#fff', background: busy ? '#9ca3af' : color, cursor: busy ? 'wait' : 'pointer', fontWeight: 800 }}>
+      <button disabled={busy || !stockistId} onClick={() => inputRef.current?.click()} style={{ width: '100%', border: 0, borderRadius: 10, padding: '11px 14px', color: '#fff', background: busy || !stockistId ? '#9ca3af' : color, cursor: busy ? 'wait' : !stockistId ? 'not-allowed' : 'pointer', fontWeight: 800 }}>
         {busy ? 'Reading report…' : `Upload ${title}`}
       </button>
-      <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>Excel .xls or .xlsx · maximum 15 MB</div>
+      <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>{stockistName ? `${stockistName} · ` : ''}Excel .xls or .xlsx · maximum 15 MB</div>
       {message && <div style={{ marginTop: 12, padding: '9px 11px', borderRadius: 8, fontSize: 12, color: message.ok ? '#166534' : '#b91c1c', background: message.ok ? '#dcfce7' : '#fee2e2' }}>{message.text}</div>}
     </div>
   );
@@ -55,7 +59,8 @@ function ReportHistoryCard({ row }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <div>
           <div style={{ fontWeight: 850, color: '#172033', textTransform: 'capitalize' }}>{row.report_type} report</div>
-          <div style={{ color: '#64748b', fontSize: 12, marginTop: 3 }}>{row.filename}</div>
+          <div style={{ color: '#334155', fontSize: 12, fontWeight: 750, marginTop: 3 }}>{row.stockist_name}</div>
+          <div style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>{row.region} · {row.territory} · {row.filename}</div>
         </div>
         <div style={{ color: row.report_type === 'receipt' ? '#047857' : '#b45309', fontWeight: 900, fontSize: 16 }}>{money(row.total_amount)}</div>
       </div>
@@ -68,7 +73,7 @@ function ReportHistoryCard({ row }) {
 
 const customerKey = value => String(value || '').trim().replace(/\s+/g, ' ').toUpperCase();
 
-function CollectionsReconciliation({ uploads }) {
+function CollectionsReconciliation({ uploads, stockist }) {
   const receipt = uploads.find(row => row.report_type === 'receipt');
   const outstanding = uploads.find(row => row.report_type === 'outstanding');
   if (!receipt && !outstanding) return null;
@@ -102,8 +107,8 @@ function CollectionsReconciliation({ uploads }) {
   return (
     <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 16, marginTop: 22, overflow: 'hidden', boxShadow: '0 5px 18px rgba(15,23,42,.05)' }}>
       <div style={{ padding: '17px 18px', borderBottom: '1px solid #e5e7eb' }}>
-        <div style={{ fontWeight: 900, color: '#172033', fontSize: 17 }}>Customer collection position</div>
-        <div style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>Latest receipt and outstanding reports combined customer-wise.</div>
+        <div style={{ fontWeight: 900, color: '#172033', fontSize: 17 }}>{stockist?.name || 'Distributor'} collection position</div>
+        <div style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>{stockist?.region} · latest receipt and outstanding reports combined customer-wise.</div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: 12, padding: 16 }}>
         {summary.map(item => <div key={item.label} style={{ padding: '14px 15px', borderRadius: 12, background: item.background }}>
@@ -147,25 +152,69 @@ function CollectionsReconciliation({ uploads }) {
 
 export default function CollectionsUpload() {
   const [uploads, setUploads] = useState([]);
+  const [stockists, setStockists] = useState([]);
+  const [region, setRegion] = useState('');
+  const [stockistId, setStockistId] = useState('');
   const [loading, setLoading] = useState(true);
   const load = () => collectionsAPI.uploads().then(response => setUploads(response.data || [])).catch(() => setUploads([])).finally(() => setLoading(false));
   useEffect(load, []);
+  useEffect(() => {
+    primarySalesAPI.stockists().then(response => {
+      const rows = response.data || [];
+      setStockists(rows);
+      const nexus = rows.find(row => String(row.name || '').toUpperCase().includes('NEXUS'));
+      const initial = nexus || rows[0];
+      if (initial) {
+        setRegion(initial.region);
+        setStockistId(String(initial.id));
+      }
+    }).catch(() => setStockists([]));
+  }, []);
+
+  const regions = useMemo(() => [...new Set(stockists.map(row => row.region))].sort(), [stockists]);
+  const regionStockists = useMemo(() => stockists.filter(row => row.region === region), [stockists, region]);
+  const selectedStockist = stockists.find(row => String(row.id) === String(stockistId));
+  const selectedUploads = uploads.filter(row => String(row.stockist_id) === String(stockistId));
+
+  const changeRegion = value => {
+    setRegion(value);
+    const options = stockists.filter(row => row.region === value);
+    const nexus = options.find(row => String(row.name || '').toUpperCase().includes('NEXUS'));
+    setStockistId(String((nexus || options[0])?.id || ''));
+  };
 
   return (
     <div style={{ padding: '24px', maxWidth: 1120, margin: '0 auto' }}>
       <div style={{ marginBottom: 20 }}>
         <h1 style={{ margin: 0, fontSize: 25, color: '#172033' }}>Receipts & Outstanding</h1>
-        <p style={{ margin: '7px 0 0', color: '#64748b', fontSize: 13 }}>Upload the amount received report and pending collection report. The latest reports are shown only on the MD dashboard.</p>
+        <p style={{ margin: '7px 0 0', color: '#64748b', fontSize: 13 }}>Choose the source distributor, then upload its received and pending collection reports. The MD dashboard combines every distributor month-wise.</p>
+      </div>
+      <div style={{ background: '#fff', border: '1px solid #dbe3ed', borderRadius: 16, padding: 18, marginBottom: 18, boxShadow: '0 5px 18px rgba(15,23,42,.05)' }}>
+        <div style={{ fontSize: 14, fontWeight: 900, color: '#172033' }}>Report source</div>
+        <div style={{ color: '#64748b', fontSize: 11, marginTop: 3 }}>Select who supplied these Receipt and Outstanding sheets.</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 12, marginTop: 13 }}>
+          <label style={{ fontSize: 11, color: '#64748b', fontWeight: 750 }}>Region
+            <select value={region} onChange={event => changeRegion(event.target.value)} style={{ display: 'block', width: '100%', marginTop: 5, border: '1px solid #cbd5e1', borderRadius: 9, padding: '10px 11px', background: '#fff', color: '#172033', fontSize: 12 }}>
+              {regions.map(value => <option key={value} value={value}>{value}</option>)}
+            </select>
+          </label>
+          <label style={{ fontSize: 11, color: '#64748b', fontWeight: 750 }}>Distributor / stockist
+            <select value={stockistId} onChange={event => setStockistId(event.target.value)} style={{ display: 'block', width: '100%', marginTop: 5, border: '1px solid #cbd5e1', borderRadius: 9, padding: '10px 11px', background: '#fff', color: '#172033', fontSize: 12 }}>
+              <option value="">Select distributor</option>
+              {regionStockists.map(row => <option key={row.id} value={row.id}>{row.name}{row.territory && row.territory !== 'Unassigned' ? ` · ${row.territory}` : ''}</option>)}
+            </select>
+          </label>
+        </div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))', gap: 18 }}>
-        <UploadCard type="receipt" title="Receipt Report" description="Amounts received by Fortel" color="#047857" onComplete={load} />
-        <UploadCard type="outstanding" title="Outstanding Report" description="Amounts still pending from customers" color="#b45309" onComplete={load} />
+        <UploadCard type="receipt" title="Receipt Report" description="Amounts received by the selected distributor" color="#047857" stockistId={stockistId} stockistName={selectedStockist?.name} onComplete={load} />
+        <UploadCard type="outstanding" title="Outstanding Report" description="Amounts still pending with the selected distributor" color="#b45309" stockistId={stockistId} stockistName={selectedStockist?.name} onComplete={load} />
       </div>
-      {!loading && <CollectionsReconciliation uploads={uploads} />}
+      {!loading && <CollectionsReconciliation uploads={selectedUploads} stockist={selectedStockist} />}
       <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 16, marginTop: 22, overflow: 'hidden' }}>
-        <div style={{ padding: '16px 18px', borderBottom: '1px solid #e5e7eb', fontWeight: 850, color: '#172033' }}>Upload history</div>
-        {loading ? <div style={{ padding: 24, color: '#64748b' }}>Loading…</div> : uploads.length === 0 ? <div style={{ padding: 24, color: '#64748b' }}>No reports uploaded yet.</div> : (
-          <div>{uploads.map(row => <ReportHistoryCard key={row.id} row={row} />)}</div>
+        <div style={{ padding: '16px 18px', borderBottom: '1px solid #e5e7eb', fontWeight: 850, color: '#172033' }}>Upload history{selectedStockist ? ` · ${selectedStockist.name}` : ''}</div>
+        {loading ? <div style={{ padding: 24, color: '#64748b' }}>Loading…</div> : selectedUploads.length === 0 ? <div style={{ padding: 24, color: '#64748b' }}>No reports uploaded for this distributor yet.</div> : (
+          <div>{selectedUploads.map(row => <ReportHistoryCard key={row.id} row={row} />)}</div>
         )}
       </div>
     </div>

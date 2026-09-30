@@ -1344,12 +1344,12 @@ export default function Dashboard() {
     if (me?.role !== 'md') return;
     let cancelled = false;
     setCollectionsLoading(true);
-    collectionsAPI.mdSummary()
+    collectionsAPI.mdSummary({ year, month })
       .then(response => { if (!cancelled) setCollectionsSummary(response.data || null); })
       .catch(() => { if (!cancelled) setCollectionsSummary(null); })
       .finally(() => { if (!cancelled) setCollectionsLoading(false); });
     return () => { cancelled = true; };
-  }, [me?.role]);
+  }, [me?.role, year, month]);
 
   const collectionMetrics = useMemo(() => {
     const received = Number(collectionsSummary?.receipt_upload?.total_amount) || 0;
@@ -2244,7 +2244,7 @@ export default function Dashboard() {
           {me?.role === 'md' && (
             <DecisionMetricCard
               title="Collection Data"
-              period="Latest receipt and outstanding reports"
+              period={`${MONTH_NAMES[month]} ${year} · receipt and outstanding reports`}
               icon="₹"
               accent="#0f766e"
               valueLabel="Received"
@@ -2253,7 +2253,7 @@ export default function Dashboard() {
               secondaryValue={collectionsLoading ? '…' : fmtInr(collectionMetrics.pending)}
               status={collectionsLoading ? 'Loading' : collectionMetrics.hasReports ? `${collectionMetrics.recoveryPct}% recovered` : 'No reports'}
               statusTone={collectionsLoading || !collectionMetrics.hasReports ? 'neutral' : collectionMetrics.recoveryPct >= 75 ? 'positive' : collectionMetrics.recoveryPct >= 40 ? 'warning' : 'negative'}
-              detail={collectionMetrics.hasReports ? `Total collection value ${fmtInr(collectionMetrics.total)}` : 'Receipt and outstanding reports have not been uploaded'}
+              detail={collectionMetrics.hasReports ? `Total collection value ${fmtInr(collectionMetrics.total)} for ${MONTH_NAMES[month]} ${year}` : `No collection reports found for ${MONTH_NAMES[month]} ${year}`}
               completeness="Visible only to MD"
               actionLabel="View collection details"
               onOpen={() => document.getElementById('md-collections')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
@@ -2270,11 +2270,16 @@ export default function Dashboard() {
         {me?.role === 'md' && (
           <div id="md-collections" style={{ background: '#fff', border: '1px solid #dbe3ed', borderRadius: 16, marginBottom: 18, overflow: 'hidden', boxShadow: '0 5px 18px rgba(15,23,42,.06)', scrollMarginTop: 16 }}>
             <div style={{ padding: '16px 18px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-              <div><div style={{ fontSize: 16, fontWeight: 900, color: '#172033' }}>Collections & Outstanding</div><div style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>Latest reports uploaded by Staff 1 or Staff 2 · visible only to MD</div></div>
-              {collectionsLoading && <span style={{ fontSize: 12, color: '#64748b' }}>Loading reports…</span>}
+              <div><div style={{ fontSize: 16, fontWeight: 900, color: '#172033' }}>Collections & Outstanding</div><div style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>{MONTH_NAMES[month]} {year} reports uploaded by Staff 1 or Staff 2 · visible only to MD</div></div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                <button onClick={() => goMonth(-1)} aria-label="Previous collection month" style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', color: '#334155', cursor: 'pointer', fontSize: 17 }}>‹</button>
+                <div style={{ minWidth: 92, textAlign: 'center', fontSize: 12, fontWeight: 850, color: '#172033' }}>{MONTH_NAMES[month]} {year}</div>
+                <button disabled={year === CUR_YEAR && month === CUR_MONTH} onClick={() => goMonth(1)} aria-label="Next collection month" style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid #cbd5e1', background: '#fff', color: '#334155', cursor: year === CUR_YEAR && month === CUR_MONTH ? 'not-allowed' : 'pointer', opacity: year === CUR_YEAR && month === CUR_MONTH ? 0.4 : 1, fontSize: 17 }}>›</button>
+                {collectionsLoading && <span style={{ fontSize: 12, color: '#64748b', marginLeft: 4 }}>Loading…</span>}
+              </div>
             </div>
             {!collectionsLoading && !collectionsSummary?.receipt_upload && !collectionsSummary?.outstanding_upload ? (
-              <div style={{ padding: 22, color: '#64748b', fontSize: 13 }}>No receipt or outstanding report has been uploaded yet.</div>
+              <div style={{ padding: 22, color: '#64748b', fontSize: 13 }}>No receipt or outstanding report was uploaded for {MONTH_NAMES[month]} {year}.</div>
             ) : (
               <div style={{ padding: 16 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 12, marginBottom: 16 }}>
@@ -2287,9 +2292,27 @@ export default function Dashboard() {
                     <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 4 }}>{card.upload ? `${card.upload.row_count} rows · ${card.upload.period_start || '—'} to ${card.upload.period_end || '—'}` : 'Report not uploaded'}</div>
                   </div>)}
                 </div>
+                {(collectionsSummary?.by_distributor || []).length > 0 && (
+                  <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: 11, marginBottom: 16 }}>
+                    <div style={{ padding: '11px 13px', fontSize: 12, fontWeight: 900, color: '#172033', background: '#f8fafc' }}>Collections by distributor</div>
+                    <table style={{ width: '100%', minWidth: 650, borderCollapse: 'collapse', fontSize: 10 }}>
+                      <thead><tr style={{ background: '#f8fafc', textAlign: 'left', color: '#64748b', borderTop: '1px solid #e2e8f0' }}>
+                        <th style={{ padding: 9 }}>Distributor</th><th style={{ padding: 9 }}>Region</th><th style={{ padding: 9, textAlign: 'right' }}>Received</th><th style={{ padding: 9, textAlign: 'right' }}>Pending</th><th style={{ padding: 9, textAlign: 'right' }}>Total</th><th style={{ padding: 9, textAlign: 'right' }}>Recovered</th>
+                      </tr></thead>
+                      <tbody>{collectionsSummary.by_distributor.map(row => <tr key={row.stockist_id || row.stockist_name} style={{ borderTop: '1px solid #eef2f7' }}>
+                        <td style={{ padding: 9, fontWeight: 850, color: '#172033' }}>{row.stockist_name}<div style={{ color: '#94a3b8', fontSize: 9, marginTop: 2 }}>{row.territory || '—'}</div></td>
+                        <td style={{ padding: 9 }}>{row.region}</td>
+                        <td style={{ padding: 9, textAlign: 'right', color: '#047857', fontWeight: 850 }}>{fmtInr(row.received_amount)}</td>
+                        <td style={{ padding: 9, textAlign: 'right', color: '#b45309', fontWeight: 850 }}>{fmtInr(row.pending_amount)}</td>
+                        <td style={{ padding: 9, textAlign: 'right', fontWeight: 900 }}>{fmtInr(row.total_amount)}</td>
+                        <td style={{ padding: 9, textAlign: 'right', fontWeight: 850 }}>{row.recovery_pct}%</td>
+                      </tr>)}</tbody>
+                    </table>
+                  </div>
+                )}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: 14 }}>
-                  <div style={{ overflowX: 'auto' }}><div style={{ fontSize: 12, fontWeight: 850, marginBottom: 7 }}>Latest receipts</div><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}><thead><tr style={{ background: '#f8fafc', textAlign: 'left', color: '#64748b' }}><th style={{ padding: 8 }}>Date / Receipt</th><th style={{ padding: 8 }}>Customer</th><th style={{ padding: 8, textAlign: 'right' }}>Amount</th></tr></thead><tbody>{(collectionsSummary?.receipts || []).slice(0, 10).map(row => <tr key={row.id} style={{ borderTop: '1px solid #eef2f7' }}><td style={{ padding: 8 }}>{row.receipt_date}<br/><span style={{ color: '#94a3b8' }}>{row.receipt_no} · {row.mode || '—'}</span></td><td style={{ padding: 8 }}>{row.customer_name}</td><td style={{ padding: 8, textAlign: 'right', fontWeight: 800 }}>{fmtInr(row.amount)}</td></tr>)}</tbody></table>{!(collectionsSummary?.receipts || []).length && <div style={{ padding: 12, color: '#94a3b8', fontSize: 11 }}>No receipt rows</div>}</div>
-                  <div style={{ overflowX: 'auto' }}><div style={{ fontSize: 12, fontWeight: 850, marginBottom: 7 }}>Highest outstanding customers</div><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}><thead><tr style={{ background: '#f8fafc', textAlign: 'left', color: '#64748b' }}><th style={{ padding: 8 }}>Customer</th><th style={{ padding: 8 }}>City</th><th style={{ padding: 8, textAlign: 'right' }}>Balance</th></tr></thead><tbody>{(collectionsSummary?.outstanding || []).slice(0, 10).map(row => <tr key={row.id} style={{ borderTop: '1px solid #eef2f7' }}><td style={{ padding: 8 }}>{row.customer_name}<br/><span style={{ color: '#94a3b8' }}>{row.customer_code || ''}</span></td><td style={{ padding: 8 }}>{row.city_name || row.area_name || '—'}</td><td style={{ padding: 8, textAlign: 'right', fontWeight: 800 }}>{fmtInr(row.balance)}</td></tr>)}</tbody></table>{!(collectionsSummary?.outstanding || []).length && <div style={{ padding: 12, color: '#94a3b8', fontSize: 11 }}>No outstanding rows</div>}</div>
+                  <div style={{ overflowX: 'auto' }}><div style={{ fontSize: 12, fontWeight: 850, marginBottom: 7 }}>Latest receipts</div><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}><thead><tr style={{ background: '#f8fafc', textAlign: 'left', color: '#64748b' }}><th style={{ padding: 8 }}>Date / Receipt</th><th style={{ padding: 8 }}>Customer</th><th style={{ padding: 8, textAlign: 'right' }}>Amount</th></tr></thead><tbody>{(collectionsSummary?.receipts || []).slice(0, 10).map(row => <tr key={row.id} style={{ borderTop: '1px solid #eef2f7' }}><td style={{ padding: 8 }}>{row.receipt_date}<br/><span style={{ color: '#94a3b8' }}>{row.receipt_no} · {row.mode || '—'}</span></td><td style={{ padding: 8 }}>{row.customer_name}<br/><span style={{ color: '#64748b' }}>{row.stockist_name} · {row.region}</span></td><td style={{ padding: 8, textAlign: 'right', fontWeight: 800 }}>{fmtInr(row.amount)}</td></tr>)}</tbody></table>{!(collectionsSummary?.receipts || []).length && <div style={{ padding: 12, color: '#94a3b8', fontSize: 11 }}>No receipt rows</div>}</div>
+                  <div style={{ overflowX: 'auto' }}><div style={{ fontSize: 12, fontWeight: 850, marginBottom: 7 }}>Highest outstanding customers</div><table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}><thead><tr style={{ background: '#f8fafc', textAlign: 'left', color: '#64748b' }}><th style={{ padding: 8 }}>Customer</th><th style={{ padding: 8 }}>City</th><th style={{ padding: 8, textAlign: 'right' }}>Balance</th></tr></thead><tbody>{(collectionsSummary?.outstanding || []).slice(0, 10).map(row => <tr key={row.id} style={{ borderTop: '1px solid #eef2f7' }}><td style={{ padding: 8 }}>{row.customer_name}<br/><span style={{ color: '#64748b' }}>{row.stockist_name} · {row.region}</span></td><td style={{ padding: 8 }}>{row.city_name || row.area_name || '—'}</td><td style={{ padding: 8, textAlign: 'right', fontWeight: 800 }}>{fmtInr(row.balance)}</td></tr>)}</tbody></table>{!(collectionsSummary?.outstanding || []).length && <div style={{ padding: 12, color: '#94a3b8', fontSize: 11 }}>No outstanding rows</div>}</div>
                 </div>
               </div>
             )}

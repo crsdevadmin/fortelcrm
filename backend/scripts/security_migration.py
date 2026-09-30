@@ -53,6 +53,36 @@ def run():
             "ALTER TABLE weekly_management_reports "
             "DROP CONSTRAINT IF EXISTS uq_weekly_management_report_viewer_scope_period"
         ))
+        connection.execute(text(
+            "ALTER TABLE collection_uploads ADD COLUMN IF NOT EXISTS "
+            "stockist_id INTEGER REFERENCES stockists(id)"
+        ))
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_collection_uploads_stockist_id "
+            "ON collection_uploads (stockist_id)"
+        ))
+        connection.execute(text(
+            "UPDATE collection_uploads SET stockist_id = ("
+            "SELECT id FROM stockists WHERE normalized_name = 'NEXUS BIOCARE' LIMIT 1"
+            ") WHERE stockist_id IS NULL"
+        ))
+        connection.execute(text(
+            "ALTER TABLE collection_uploads "
+            "DROP CONSTRAINT IF EXISTS uq_collection_upload_type_checksum"
+        ))
+        connection.execute(text("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint
+                    WHERE conname = 'uq_collection_upload_type_checksum_stockist'
+                ) THEN
+                    ALTER TABLE collection_uploads
+                    ADD CONSTRAINT uq_collection_upload_type_checksum_stockist
+                    UNIQUE (report_type, file_checksum, stockist_id);
+                END IF;
+            END $$
+        """))
         connection.execute(text("""
             DO $$
             BEGIN

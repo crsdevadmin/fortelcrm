@@ -1,6 +1,6 @@
 import client from './client';
 
-async function chunkedCollectionsUpload(file, reportType) {
+async function chunkedCollectionsUpload(file, reportType, stockistId) {
   if (!window.crypto?.subtle) throw new Error('Secure file upload is not supported by this browser');
   const buffer = await file.arrayBuffer();
   const digest = await window.crypto.subtle.digest('SHA-256', buffer);
@@ -10,6 +10,7 @@ async function chunkedCollectionsUpload(file, reportType) {
     file_size: file.size,
     file_checksum: checksum,
     report_type: reportType,
+    stockist_id: Number(stockistId),
   });
   const { session_id: sessionId, chunk_size: chunkSize, chunk_count: chunkCount } = start.data;
   for (let index = 0; index < chunkCount; index += 1) {
@@ -21,9 +22,9 @@ async function chunkedCollectionsUpload(file, reportType) {
 }
 
 export const collectionsAPI = {
-  upload: (file, reportType) => chunkedCollectionsUpload(file, reportType),
+  upload: (file, reportType, stockistId) => chunkedCollectionsUpload(file, reportType, stockistId),
   uploads: () => client.get('/collections/uploads'),
-  mdSummary: () => client.get('/collections/md-summary'),
+  mdSummary: (params = {}) => client.get('/collections/md-summary', { params }),
 };
 
 async function chunkedRegionalSalesUpload(file, fields) {

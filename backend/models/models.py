@@ -665,6 +665,7 @@ class CollectionUpload(Base):
 
     id               = Column(Integer, primary_key=True, index=True)
     uploaded_by_id   = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    stockist_id      = Column(Integer, ForeignKey("stockists.id"), nullable=True, index=True)
     report_type      = Column(String(20), nullable=False, index=True)  # receipt | outstanding
     filename         = Column(String(255), nullable=False)
     file_checksum    = Column(String(64), nullable=False, index=True)
@@ -675,6 +676,7 @@ class CollectionUpload(Base):
     uploaded_at      = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
     uploaded_by = relationship("User", foreign_keys=[uploaded_by_id])
+    stockist = relationship("Stockist", foreign_keys=[stockist_id])
     receipt_entries = relationship(
         "ReceiptEntry", back_populates="upload", cascade="all, delete-orphan"
     )
@@ -683,7 +685,7 @@ class CollectionUpload(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("report_type", "file_checksum", name="uq_collection_upload_type_checksum"),
+        UniqueConstraint("report_type", "file_checksum", "stockist_id", name="uq_collection_upload_type_checksum_stockist"),
     )
 
 
