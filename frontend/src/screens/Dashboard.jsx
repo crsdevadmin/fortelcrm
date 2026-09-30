@@ -2294,10 +2294,10 @@ export default function Dashboard() {
                 </div>
                 {(collectionsSummary?.by_distributor || []).length > 0 && (
                   <div style={{ overflowX: 'auto', border: '1px solid #e2e8f0', borderRadius: 11, marginBottom: 16 }}>
-                    <div style={{ padding: '11px 13px', fontSize: 12, fontWeight: 900, color: '#172033', background: '#f8fafc' }}>Collections by distributor</div>
+                    <div style={{ padding: '11px 13px', fontSize: 12, fontWeight: 900, color: '#172033', background: '#f8fafc' }}>Collections by source · Fortel and Nexus</div>
                     <table style={{ width: '100%', minWidth: 650, borderCollapse: 'collapse', fontSize: 10 }}>
                       <thead><tr style={{ background: '#f8fafc', textAlign: 'left', color: '#64748b', borderTop: '1px solid #e2e8f0' }}>
-                        <th style={{ padding: 9 }}>Distributor</th><th style={{ padding: 9 }}>Region</th><th style={{ padding: 9, textAlign: 'right' }}>Received</th><th style={{ padding: 9, textAlign: 'right' }}>Pending</th><th style={{ padding: 9, textAlign: 'right' }}>Total</th><th style={{ padding: 9, textAlign: 'right' }}>Recovered</th>
+                        <th style={{ padding: 9 }}>Source</th><th style={{ padding: 9 }}>Coverage</th><th style={{ padding: 9, textAlign: 'right' }}>Received</th><th style={{ padding: 9, textAlign: 'right' }}>Pending</th><th style={{ padding: 9, textAlign: 'right' }}>Total</th><th style={{ padding: 9, textAlign: 'right' }}>Recovered</th>
                       </tr></thead>
                       <tbody>{collectionsSummary.by_distributor.map(row => <tr key={row.stockist_id || row.stockist_name} style={{ borderTop: '1px solid #eef2f7' }}>
                         <td style={{ padding: 9, fontWeight: 850, color: '#172033' }}>{row.stockist_name}<div style={{ color: '#94a3b8', fontSize: 9, marginTop: 2 }}>{row.territory || '—'}</div></td>

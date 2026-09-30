@@ -57,13 +57,22 @@ def run():
             "ALTER TABLE collection_uploads ADD COLUMN IF NOT EXISTS "
             "stockist_id INTEGER REFERENCES stockists(id)"
         ))
+        connection.execute(text("""
+            INSERT INTO stockists (
+                name, normalized_name, region, territory, is_active, created_at, updated_at
+            )
+            SELECT 'FORTEL LIFE SCIENCES', 'FORTEL LIFE SCIENCES', 'All India', 'Company', TRUE, NOW(), NOW()
+            WHERE NOT EXISTS (
+                SELECT 1 FROM stockists WHERE normalized_name = 'FORTEL LIFE SCIENCES'
+            )
+        """))
         connection.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_collection_uploads_stockist_id "
             "ON collection_uploads (stockist_id)"
         ))
         connection.execute(text(
             "UPDATE collection_uploads SET stockist_id = ("
-            "SELECT id FROM stockists WHERE normalized_name = 'NEXUS BIOCARE' LIMIT 1"
+            "SELECT id FROM stockists WHERE normalized_name = 'FORTEL LIFE SCIENCES' LIMIT 1"
             ") WHERE stockist_id IS NULL"
         ))
         connection.execute(text(

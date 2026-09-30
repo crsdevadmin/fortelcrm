@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { collectionsAPI, primarySalesAPI } from '../api';
 
 const money = value => `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
@@ -153,7 +153,6 @@ function CollectionsReconciliation({ uploads, stockist }) {
 export default function CollectionsUpload() {
   const [uploads, setUploads] = useState([]);
   const [stockists, setStockists] = useState([]);
-  const [region, setRegion] = useState('');
   const [stockistId, setStockistId] = useState('');
   const [loading, setLoading] = useState(true);
   const load = () => collectionsAPI.uploads().then(response => setUploads(response.data || [])).catch(() => setUploads([])).finally(() => setLoading(false));
@@ -161,54 +160,41 @@ export default function CollectionsUpload() {
   useEffect(() => {
     primarySalesAPI.stockists().then(response => {
       const rows = response.data || [];
-      setStockists(rows);
-      const nexus = rows.find(row => String(row.name || '').toUpperCase().includes('NEXUS'));
-      const initial = nexus || rows[0];
+      const sources = rows.filter(row => ['FORTEL LIFE SCIENCES', 'NEXUS BIOCARE'].includes(String(row.name || '').trim().toUpperCase()));
+      setStockists(sources);
+      const fortel = sources.find(row => String(row.name || '').trim().toUpperCase() === 'FORTEL LIFE SCIENCES');
+      const initial = fortel || sources[0];
       if (initial) {
-        setRegion(initial.region);
         setStockistId(String(initial.id));
       }
     }).catch(() => setStockists([]));
   }, []);
 
-  const regions = useMemo(() => [...new Set(stockists.map(row => row.region))].sort(), [stockists]);
-  const regionStockists = useMemo(() => stockists.filter(row => row.region === region), [stockists, region]);
   const selectedStockist = stockists.find(row => String(row.id) === String(stockistId));
   const selectedUploads = uploads.filter(row => String(row.stockist_id) === String(stockistId));
-
-  const changeRegion = value => {
-    setRegion(value);
-    const options = stockists.filter(row => row.region === value);
-    const nexus = options.find(row => String(row.name || '').toUpperCase().includes('NEXUS'));
-    setStockistId(String((nexus || options[0])?.id || ''));
-  };
 
   return (
     <div style={{ padding: '24px', maxWidth: 1120, margin: '0 auto' }}>
       <div style={{ marginBottom: 20 }}>
         <h1 style={{ margin: 0, fontSize: 25, color: '#172033' }}>Receipts & Outstanding</h1>
-        <p style={{ margin: '7px 0 0', color: '#64748b', fontSize: 13 }}>Choose the source distributor, then upload its received and pending collection reports. The MD dashboard combines every distributor month-wise.</p>
+        <p style={{ margin: '7px 0 0', color: '#64748b', fontSize: 13 }}>Choose Fortel or Nexus, then upload the Received Amount and Outstanding Amount files for that source.</p>
       </div>
       <div style={{ background: '#fff', border: '1px solid #dbe3ed', borderRadius: 16, padding: 18, marginBottom: 18, boxShadow: '0 5px 18px rgba(15,23,42,.05)' }}>
-        <div style={{ fontSize: 14, fontWeight: 900, color: '#172033' }}>Report source</div>
-        <div style={{ color: '#64748b', fontSize: 11, marginTop: 3 }}>Select who supplied these Receipt and Outstanding sheets.</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 12, marginTop: 13 }}>
-          <label style={{ fontSize: 11, color: '#64748b', fontWeight: 750 }}>Region
-            <select value={region} onChange={event => changeRegion(event.target.value)} style={{ display: 'block', width: '100%', marginTop: 5, border: '1px solid #cbd5e1', borderRadius: 9, padding: '10px 11px', background: '#fff', color: '#172033', fontSize: 12 }}>
-              {regions.map(value => <option key={value} value={value}>{value}</option>)}
-            </select>
-          </label>
-          <label style={{ fontSize: 11, color: '#64748b', fontWeight: 750 }}>Distributor / stockist
-            <select value={stockistId} onChange={event => setStockistId(event.target.value)} style={{ display: 'block', width: '100%', marginTop: 5, border: '1px solid #cbd5e1', borderRadius: 9, padding: '10px 11px', background: '#fff', color: '#172033', fontSize: 12 }}>
-              <option value="">Select distributor</option>
-              {regionStockists.map(row => <option key={row.id} value={row.id}>{row.name}{row.territory && row.territory !== 'Unassigned' ? ` · ${row.territory}` : ''}</option>)}
-            </select>
-          </label>
+        <div style={{ fontSize: 14, fontWeight: 900, color: '#172033' }}>Select report source</div>
+        <div style={{ color: '#64748b', fontSize: 11, marginTop: 3 }}>Each source has two uploads: received amount and outstanding amount.</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, marginTop: 13 }}>
+          {stockists.map(row => {
+            const active = String(row.id) === String(stockistId);
+            const label = String(row.name).toUpperCase().includes('NEXUS') ? 'Nexus' : 'Fortel';
+            return <button key={row.id} type="button" onClick={() => setStockistId(String(row.id))} style={{ border: active ? '2px solid #0f766e' : '1px solid #cbd5e1', borderRadius: 11, padding: '13px 14px', background: active ? '#ecfdf5' : '#fff', color: active ? '#065f46' : '#334155', cursor: 'pointer', fontSize: 14, fontWeight: 900 }}>
+              {label}<span style={{ display: 'block', marginTop: 3, color: '#64748b', fontSize: 10, fontWeight: 650 }}>{label === 'Nexus' ? 'Tamil Nadu distributor' : 'Company collections'}</span>
+            </button>;
+          })}
         </div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))', gap: 18 }}>
-        <UploadCard type="receipt" title="Receipt Report" description="Amounts received by the selected distributor" color="#047857" stockistId={stockistId} stockistName={selectedStockist?.name} onComplete={load} />
-        <UploadCard type="outstanding" title="Outstanding Report" description="Amounts still pending with the selected distributor" color="#b45309" stockistId={stockistId} stockistName={selectedStockist?.name} onComplete={load} />
+        <UploadCard type="receipt" title="Received Amount" description="Upload the file containing amounts received" color="#047857" stockistId={stockistId} stockistName={selectedStockist?.name} onComplete={load} />
+        <UploadCard type="outstanding" title="Outstanding Amount" description="Upload the file containing pending amounts" color="#b45309" stockistId={stockistId} stockistName={selectedStockist?.name} onComplete={load} />
       </div>
       {!loading && <CollectionsReconciliation uploads={selectedUploads} stockist={selectedStockist} />}
       <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 16, marginTop: 22, overflow: 'hidden' }}>

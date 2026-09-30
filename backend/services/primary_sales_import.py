@@ -274,6 +274,7 @@ def parse_primary_city_split_workbook(content: bytes, filename: str) -> dict:
 
 
 SEED_STOCKISTS = (
+    ("FORTEL LIFE SCIENCES", "All India", "Company"),
     ("CBE HEXACARE", "Tamil Nadu", "Coimbatore 1"),
     ("CONNECT PHARMA DIST AND SUPPLIERS", "Tamil Nadu", "Coimbatore 1"),
     ("CLASSIC PHAR", "Tamil Nadu", "Coimbatore 1"),

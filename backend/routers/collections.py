@@ -324,14 +324,14 @@ def md_summary(
         return {
             "id": None,
             "report_type": report_type,
-            "filename": f"{len(rows)} distributor report{'s' if len(rows) != 1 else ''}",
+            "filename": f"{len(rows)} source report{'s' if len(rows) != 1 else ''}",
             "period_start": min(starts) if starts else None,
             "period_end": max(ends) if ends else None,
             "row_count": sum(row.source_row_count or 0 for row in rows),
             "total_amount": round(sum(float(row.total_amount or 0) for row in rows), 2),
             "uploaded_at": newest.uploaded_at.isoformat() if newest.uploaded_at else None,
             "uploaded_by": newest.uploaded_by.name if len(rows) == 1 and newest.uploaded_by else "Multiple uploads",
-            "distributor_count": len(rows),
+            "source_count": len(rows),
         }
 
     distributor_ids = sorted({key[0] for key in latest_by_distributor})
