@@ -186,18 +186,38 @@ def _persist_primary_city_split(content: bytes, filename: str, current_user: Use
 
     rows = parsed["rows"]
     dates = sorted(row["bill_date"] for row in rows if row["bill_date"])
-    replaced_rows = db.query(PrimaryCitySplitEntry).count()
-    replaced_uploads = db.query(PrimaryCitySplitUpload).count()
-    db.query(PrimaryCitySplitEntry).delete(synchronize_session=False)
-    db.query(PrimaryCitySplitUpload).delete(synchronize_session=False)
+    period_start = dates[0] if dates else None
+    period_end = dates[-1] if dates else None
+
+    # Nexus supplies one customer/product report per month. Re-uploading a
+    # month must replace that month's data without erasing the other months.
+    overlapping_query = db.query(PrimaryCitySplitUpload)
+    if period_start and period_end:
+        overlapping_query = overlapping_query.filter(
+            PrimaryCitySplitUpload.period_start <= period_end,
+            PrimaryCitySplitUpload.period_end >= period_start,
+        )
+    else:
+        overlapping_query = overlapping_query.filter(False)
+    overlapping_uploads = overlapping_query.all()
+    overlapping_ids = [row.id for row in overlapping_uploads]
+    replaced_rows = 0
+    if overlapping_ids:
+        replaced_rows = db.query(PrimaryCitySplitEntry).filter(
+            PrimaryCitySplitEntry.upload_id.in_(overlapping_ids)
+        ).delete(synchronize_session=False)
+        db.query(PrimaryCitySplitUpload).filter(
+            PrimaryCitySplitUpload.id.in_(overlapping_ids)
+        ).delete(synchronize_session=False)
+    replaced_uploads = len(overlapping_ids)
     db.flush()
 
     upload = PrimaryCitySplitUpload(
         uploaded_by_id=current_user.id,
         filename=filename,
         file_checksum=parsed["file_checksum"],
-        period_start=dates[0] if dates else None,
-        period_end=dates[-1] if dates else None,
+        period_start=period_start,
+        period_end=period_end,
         source_row_count=len(rows),
         skipped_count=parsed["skipped_count"],
         # The sheet already includes the distributor uplift; never multiply it again.

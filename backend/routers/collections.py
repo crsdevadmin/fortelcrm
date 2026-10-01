@@ -26,6 +26,10 @@ router = APIRouter(prefix="/collections", tags=["Receipts and outstanding"])
 MAX_UPLOAD_BYTES = 15 * 1024 * 1024
 UPLOAD_CHUNK_BYTES = 4 * 1024
 UPLOAD_SESSION_ROOT = Path("/tmp/fortel-collections-upload-sessions")
+COLLECTION_SOURCES = (
+    ("FORTEL LIFE SCIENCES", "All India", "Company"),
+    ("NEXUS BIOCARE", "Tamil Nadu", "Tamil Nadu distributor"),
+)
 
 
 class UploadStartRequest(BaseModel):
@@ -45,6 +49,10 @@ class UploadCompleteRequest(BaseModel):
     file_checksum: str
 
 
+class DeleteUploadRequest(BaseModel):
+    confirmation: str
+
+
 def _require_staff(user):
     if user.role not in {"back_office", "md"}:
         raise HTTPException(status_code=403, detail="Only back-office staff or the MD can upload these reports")
@@ -53,6 +61,42 @@ def _require_staff(user):
 def _require_md(user):
     if user.role != "md":
         raise HTTPException(status_code=403, detail="This collections information is visible only to the MD")
+
+
+def _collection_sources(db):
+    rows = []
+    for name, region, territory in COLLECTION_SOURCES:
+        source = db.query(Stockist).filter(Stockist.normalized_name == name).first()
+        if not source:
+            source = Stockist(
+                name=name,
+                normalized_name=name,
+                region=region,
+                territory=territory,
+                is_active=True,
+            )
+            db.add(source)
+            db.flush()
+        elif not source.is_active:
+            source.is_active = True
+        rows.append(source)
+    db.commit()
+    return rows
+
+
+@router.get("/sources")
+def list_collection_sources(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _require_staff(current_user)
+    return [{
+        "id": row.id,
+        "name": row.name,
+        "label": "Nexus" if row.normalized_name == "NEXUS BIOCARE" else "Fortel",
+        "region": row.region,
+        "territory": row.territory,
+    } for row in _collection_sources(db)]
 
 
 def _upload_dict(upload):
@@ -261,6 +305,32 @@ def list_uploads(
         item["customer_names"] = [row["customer_name"] for row in item["customer_amounts"]]
         item["customer_count"] = len(item["customer_amounts"])
         result.append(item)
+    return result
+
+
+@router.delete("/uploads/{upload_id}")
+def delete_collection_upload(
+    upload_id: int,
+    payload: DeleteUploadRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _require_staff(current_user)
+    if (payload.confirmation or "").strip().upper() != "DELETE REPORT":
+        raise HTTPException(status_code=400, detail="Type DELETE REPORT to confirm removal")
+    upload = db.query(CollectionUpload).filter(CollectionUpload.id == upload_id).first()
+    if not upload:
+        raise HTTPException(status_code=404, detail="Collection report not found")
+    deleted_rows = upload.source_row_count or 0
+    result = {
+        "id": upload.id,
+        "filename": upload.filename,
+        "report_type": upload.report_type,
+        "stockist_name": upload.stockist.name if upload.stockist else "Unassigned source",
+        "deleted_rows": deleted_rows,
+    }
+    db.delete(upload)
+    db.commit()
     return result
 
 

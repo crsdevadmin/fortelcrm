@@ -23,7 +23,9 @@ async function chunkedCollectionsUpload(file, reportType, stockistId) {
 
 export const collectionsAPI = {
   upload: (file, reportType, stockistId) => chunkedCollectionsUpload(file, reportType, stockistId),
+  sources: () => client.get('/collections/sources'),
   uploads: () => client.get('/collections/uploads'),
+  deleteUpload: (id, confirmation) => client.delete(`/collections/uploads/${id}`, { data: { confirmation } }),
   mdSummary: (params = {}) => client.get('/collections/md-summary', { params }),
 };
 

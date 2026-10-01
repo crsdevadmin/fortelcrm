@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { collectionsAPI, primarySalesAPI } from '../api';
+import { collectionsAPI } from '../api';
 
 const money = value => `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 const dateTime = value => value ? new Date(value).toLocaleString('en-IN') : '—';
+const MONTHS = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 function UploadCard({ type, title, description, color, stockistId, stockistName, onComplete }) {
   const inputRef = useRef(null);
@@ -25,7 +26,7 @@ function UploadCard({ type, title, description, color, stockistId, stockistName,
       setMessage({ ok: true, text: row.duplicate
         ? `${file.name} was already uploaded. The existing report is shown below.`
         : `${row.row_count} rows imported for ${row.stockist_name} · ${money(row.total_amount)}` });
-      onComplete();
+      onComplete(row);
     } catch (error) {
       setMessage({ ok: false, text: error.response?.data?.detail || 'Upload failed. Check the report and try again.' });
     } finally {
@@ -49,7 +50,7 @@ function UploadCard({ type, title, description, color, stockistId, stockistName,
   );
 }
 
-function ReportHistoryCard({ row }) {
+function ReportHistoryCard({ row, deleting, onDelete }) {
   const period = row.period_start || row.period_end
     ? `${row.period_start || '—'} to ${row.period_end || '—'}`
     : '—';
@@ -62,7 +63,10 @@ function ReportHistoryCard({ row }) {
           <div style={{ color: '#334155', fontSize: 12, fontWeight: 750, marginTop: 3 }}>{row.stockist_name}</div>
           <div style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>{row.region} · {row.territory} · {row.filename}</div>
         </div>
-        <div style={{ color: row.report_type === 'receipt' ? '#047857' : '#b45309', fontWeight: 900, fontSize: 16 }}>{money(row.total_amount)}</div>
+        <div style={{ textAlign: 'right' }}>
+          <div style={{ color: row.report_type === 'receipt' ? '#047857' : '#b45309', fontWeight: 900, fontSize: 16 }}>{money(row.total_amount)}</div>
+          <button type="button" disabled={deleting} onClick={() => onDelete(row)} style={{ marginTop: 7, border: '1px solid #fecaca', borderRadius: 7, padding: '5px 8px', background: '#fff', color: '#b91c1c', cursor: deleting ? 'wait' : 'pointer', fontSize: 10, fontWeight: 800 }}>{deleting ? 'Removing…' : 'Remove report'}</button>
+        </div>
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '5px 18px', marginTop: 9, color: '#64748b', fontSize: 11 }}>
         <span>{period}</span><span>{row.customer_count} customers</span><span>{row.row_count} rows</span><span>{row.uploaded_by || '—'}</span><span>{dateTime(row.uploaded_at)}</span>
@@ -73,7 +77,7 @@ function ReportHistoryCard({ row }) {
 
 const customerKey = value => String(value || '').trim().replace(/\s+/g, ' ').toUpperCase();
 
-function CollectionsReconciliation({ uploads, stockist }) {
+function CollectionsReconciliation({ uploads, stockist, periodLabel }) {
   const receipt = uploads.find(row => row.report_type === 'receipt');
   const outstanding = uploads.find(row => row.report_type === 'outstanding');
   if (!receipt && !outstanding) return null;
@@ -108,7 +112,7 @@ function CollectionsReconciliation({ uploads, stockist }) {
     <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 16, marginTop: 22, overflow: 'hidden', boxShadow: '0 5px 18px rgba(15,23,42,.05)' }}>
       <div style={{ padding: '17px 18px', borderBottom: '1px solid #e5e7eb' }}>
         <div style={{ fontWeight: 900, color: '#172033', fontSize: 17 }}>{stockist?.name || 'Distributor'} collection position</div>
-        <div style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>{stockist?.region} · latest receipt and outstanding reports combined customer-wise.</div>
+        <div style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>{periodLabel} · {stockist?.region} · received and outstanding combined customer-wise.</div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: 12, padding: 16 }}>
         {summary.map(item => <div key={item.label} style={{ padding: '14px 15px', borderRadius: 12, background: item.background }}>
@@ -151,27 +155,91 @@ function CollectionsReconciliation({ uploads, stockist }) {
 }
 
 export default function CollectionsUpload() {
+  const now = new Date();
   const [uploads, setUploads] = useState([]);
   const [stockists, setStockists] = useState([]);
   const [stockistId, setStockistId] = useState('');
+  const [sourcesLoading, setSourcesLoading] = useState(true);
+  const [sourcesError, setSourcesError] = useState('');
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth() + 1);
+  const [periodResolved, setPeriodResolved] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+  const [pageMessage, setPageMessage] = useState(null);
   const [loading, setLoading] = useState(true);
   const load = () => collectionsAPI.uploads().then(response => setUploads(response.data || [])).catch(() => setUploads([])).finally(() => setLoading(false));
   useEffect(load, []);
   useEffect(() => {
-    primarySalesAPI.stockists().then(response => {
-      const rows = response.data || [];
-      const sources = rows.filter(row => ['FORTEL LIFE SCIENCES', 'NEXUS BIOCARE'].includes(String(row.name || '').trim().toUpperCase()));
+    collectionsAPI.sources().then(response => {
+      const sources = response.data || [];
       setStockists(sources);
-      const fortel = sources.find(row => String(row.name || '').trim().toUpperCase() === 'FORTEL LIFE SCIENCES');
+      const fortel = sources.find(row => row.label === 'Fortel');
       const initial = fortel || sources[0];
       if (initial) {
         setStockistId(String(initial.id));
       }
-    }).catch(() => setStockists([]));
+      setSourcesError('');
+    }).catch(error => {
+      setStockists([]);
+      setSourcesError(error.response?.data?.detail || 'Unable to load Fortel and Nexus options. Refresh the page and try again.');
+    }).finally(() => setSourcesLoading(false));
   }, []);
 
   const selectedStockist = stockists.find(row => String(row.id) === String(stockistId));
-  const selectedUploads = uploads.filter(row => String(row.stockist_id) === String(stockistId));
+  const monthStart = `${year}-${String(month).padStart(2, '0')}-01`;
+  const monthEnd = `${year}-${String(month).padStart(2, '0')}-${String(new Date(year, month, 0).getDate()).padStart(2, '0')}`;
+  const selectedUploads = uploads.filter(row =>
+    String(row.stockist_id) === String(stockistId) &&
+    (!row.period_start || row.period_start <= monthEnd) &&
+    (!row.period_end || row.period_end >= monthStart)
+  );
+  const years = [...new Set([
+    now.getFullYear(),
+    ...uploads.flatMap(row => [row.period_start, row.period_end]).filter(Boolean).map(value => Number(String(value).slice(0, 4))),
+  ])].filter(Boolean).sort((a, b) => b - a);
+
+  useEffect(() => {
+    if (periodResolved || uploads.length === 0) return;
+    const latest = uploads.find(row => row.period_end || row.period_start);
+    const value = latest?.period_end || latest?.period_start;
+    if (value) {
+      setYear(Number(value.slice(0, 4)));
+      setMonth(Number(value.slice(5, 7)));
+    }
+    setPeriodResolved(true);
+  }, [uploads, periodResolved]);
+
+  const uploadComplete = row => {
+    const value = row?.period_end || row?.period_start;
+    if (value) {
+      setYear(Number(value.slice(0, 4)));
+      setMonth(Number(value.slice(5, 7)));
+      setPeriodResolved(true);
+    }
+    load();
+  };
+
+  const removeUpload = async row => {
+    const confirmation = window.prompt(
+      `Remove ${row.filename} from ${row.stockist_name} for ${MONTHS[month]} ${year}?\n\nThis will also remove all ${row.row_count || 0} imported customer rows from this report.\n\nType DELETE REPORT to continue.`
+    );
+    if (confirmation === null) return;
+    if (confirmation.trim().toUpperCase() !== 'DELETE REPORT') {
+      setPageMessage({ ok: false, text: 'Removal cancelled. Type DELETE REPORT exactly to confirm.' });
+      return;
+    }
+    setDeletingId(row.id);
+    setPageMessage(null);
+    try {
+      const response = await collectionsAPI.deleteUpload(row.id, confirmation);
+      setPageMessage({ ok: true, text: `${response.data.filename} removed with ${response.data.deleted_rows} imported rows.` });
+      await load();
+    } catch (error) {
+      setPageMessage({ ok: false, text: error.response?.data?.detail || 'Unable to remove this report.' });
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   return (
     <div style={{ padding: '24px', maxWidth: 1120, margin: '0 auto' }}>
@@ -179,28 +247,45 @@ export default function CollectionsUpload() {
         <h1 style={{ margin: 0, fontSize: 25, color: '#172033' }}>Receipts & Outstanding</h1>
         <p style={{ margin: '7px 0 0', color: '#64748b', fontSize: 13 }}>Choose Fortel or Nexus, then upload the Received Amount and Outstanding Amount files for that source.</p>
       </div>
+      {pageMessage && <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 9, fontSize: 12, color: pageMessage.ok ? '#166534' : '#b91c1c', background: pageMessage.ok ? '#dcfce7' : '#fee2e2' }}>{pageMessage.text}</div>}
       <div style={{ background: '#fff', border: '1px solid #dbe3ed', borderRadius: 16, padding: 18, marginBottom: 18, boxShadow: '0 5px 18px rgba(15,23,42,.05)' }}>
         <div style={{ fontSize: 14, fontWeight: 900, color: '#172033' }}>Select report source</div>
         <div style={{ color: '#64748b', fontSize: 11, marginTop: 3 }}>Each source has two uploads: received amount and outstanding amount.</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, marginTop: 13 }}>
-          {stockists.map(row => {
+          {sourcesLoading ? <div style={{ gridColumn: '1 / -1', padding: 13, color: '#64748b', fontSize: 12 }}>Loading Fortel and Nexus options…</div> : stockists.map(row => {
             const active = String(row.id) === String(stockistId);
-            const label = String(row.name).toUpperCase().includes('NEXUS') ? 'Nexus' : 'Fortel';
+            const label = row.label;
             return <button key={row.id} type="button" onClick={() => setStockistId(String(row.id))} style={{ border: active ? '2px solid #0f766e' : '1px solid #cbd5e1', borderRadius: 11, padding: '13px 14px', background: active ? '#ecfdf5' : '#fff', color: active ? '#065f46' : '#334155', cursor: 'pointer', fontSize: 14, fontWeight: 900 }}>
               {label}<span style={{ display: 'block', marginTop: 3, color: '#64748b', fontSize: 10, fontWeight: 650 }}>{label === 'Nexus' ? 'Tamil Nadu distributor' : 'Company collections'}</span>
             </button>;
           })}
         </div>
+        {sourcesError && <div style={{ marginTop: 10, padding: '9px 11px', borderRadius: 8, background: '#fee2e2', color: '#b91c1c', fontSize: 12 }}>{sourcesError}</div>}
+        <div style={{ borderTop: '1px solid #e5e7eb', marginTop: 15, paddingTop: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 850, color: '#172033' }}>Select report month</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, marginTop: 9 }}>
+            <label style={{ color: '#64748b', fontSize: 10, fontWeight: 750 }}>Month
+              <select value={month} onChange={event => setMonth(Number(event.target.value))} style={{ display: 'block', width: '100%', marginTop: 4, border: '1px solid #cbd5e1', borderRadius: 9, padding: '9px 10px', background: '#fff', color: '#172033', fontSize: 12 }}>
+                {MONTHS.slice(1).map((label, index) => <option key={label} value={index + 1}>{label}</option>)}
+              </select>
+            </label>
+            <label style={{ color: '#64748b', fontSize: 10, fontWeight: 750 }}>Year
+              <select value={year} onChange={event => setYear(Number(event.target.value))} style={{ display: 'block', width: '100%', marginTop: 4, border: '1px solid #cbd5e1', borderRadius: 9, padding: '9px 10px', background: '#fff', color: '#172033', fontSize: 12 }}>
+                {years.map(value => <option key={value} value={value}>{value}</option>)}
+              </select>
+            </label>
+          </div>
+        </div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))', gap: 18 }}>
-        <UploadCard type="receipt" title="Received Amount" description="Upload the file containing amounts received" color="#047857" stockistId={stockistId} stockistName={selectedStockist?.name} onComplete={load} />
-        <UploadCard type="outstanding" title="Outstanding Amount" description="Upload the file containing pending amounts" color="#b45309" stockistId={stockistId} stockistName={selectedStockist?.name} onComplete={load} />
+        <UploadCard type="receipt" title="Received Amount" description="Upload the file containing amounts received" color="#047857" stockistId={stockistId} stockistName={selectedStockist?.name} onComplete={uploadComplete} />
+        <UploadCard type="outstanding" title="Outstanding Amount" description="Upload the file containing pending amounts" color="#b45309" stockistId={stockistId} stockistName={selectedStockist?.name} onComplete={uploadComplete} />
       </div>
-      {!loading && <CollectionsReconciliation uploads={selectedUploads} stockist={selectedStockist} />}
+      {!loading && <CollectionsReconciliation uploads={selectedUploads} stockist={selectedStockist} periodLabel={`${MONTHS[month]} ${year}`} />}
       <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 16, marginTop: 22, overflow: 'hidden' }}>
-        <div style={{ padding: '16px 18px', borderBottom: '1px solid #e5e7eb', fontWeight: 850, color: '#172033' }}>Upload history{selectedStockist ? ` · ${selectedStockist.name}` : ''}</div>
+        <div style={{ padding: '16px 18px', borderBottom: '1px solid #e5e7eb', fontWeight: 850, color: '#172033' }}>Upload history{selectedStockist ? ` · ${selectedStockist.name}` : ''} · {MONTHS[month]} {year}</div>
         {loading ? <div style={{ padding: 24, color: '#64748b' }}>Loading…</div> : selectedUploads.length === 0 ? <div style={{ padding: 24, color: '#64748b' }}>No reports uploaded for this distributor yet.</div> : (
-          <div>{selectedUploads.map(row => <ReportHistoryCard key={row.id} row={row} />)}</div>
+          <div>{selectedUploads.map(row => <ReportHistoryCard key={row.id} row={row} deleting={deletingId === row.id} onDelete={removeUpload} />)}</div>
         )}
       </div>
     </div>

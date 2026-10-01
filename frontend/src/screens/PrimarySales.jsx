@@ -296,8 +296,8 @@ export default function PrimarySales() {
         {canUpload && (
           <form onSubmit={uploadCitySplit} style={{ background: '#f8fafc', border: '1px solid #bfdbfe', borderRadius: 14, padding: 15, marginBottom: 14, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <div style={{ flex: '1 1 280px' }}>
-              <div style={{ fontWeight: 900, fontSize: 13, color: '#172033' }}>Upload Nexus Tamil Nadu city split</div>
-              <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>Separate city detail · values are used exactly as uploaded and are not added again to company Primary Sales</div>
+              <div style={{ fontWeight: 900, fontSize: 13, color: '#172033' }}>Upload Nexus monthly sales report</div>
+              <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>Customerwise Purchase Report – Productwise (.xls or .xlsx) · replaces only the same month and preserves other months</div>
             </div>
             <input ref={cityFileRef} type="file" accept=".xls,.xlsx" onChange={event => setSelectedCityFile(event.target.files?.[0] || null)} style={{ ...fieldStyle, flex: '1 1 230px' }} />
             <button type="submit" disabled={cityUploading} style={{ border: 'none', borderRadius: 10, padding: '10px 18px', background: cityUploading ? '#94a3b8' : '#2563eb', color: '#fff', fontWeight: 900, cursor: cityUploading ? 'wait' : 'pointer' }}>
@@ -305,7 +305,7 @@ export default function PrimarySales() {
                 ? cityUploadProgress?.total
                   ? `Uploading ${cityUploadProgress.completed}/${cityUploadProgress.total}…`
                   : 'Preparing…'
-                : 'Upload city split'}
+                : 'Upload Nexus report'}
             </button>
           </form>
         )}
