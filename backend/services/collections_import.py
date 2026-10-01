@@ -84,6 +84,17 @@ def _header(rows, required):
         mapping = {_key(value): position for position, value in enumerate(row) if _key(value)}
         if required.issubset(mapping):
             return index, mapping
+    nexus_sales_columns = {
+        "customername", "billnumber", "billdate", "productname",
+        "quantity", "grossamountwithdiscount",
+    }
+    for row in rows[:30]:
+        keys = {_key(value) for value in row if _key(value)}
+        if nexus_sales_columns.issubset(keys):
+            raise ValueError(
+                "This is a Nexus monthly customer/product sales report. "
+                "Select Nexus and use Upload Nexus Monthly Sales, not Received Amount or Outstanding Amount."
+            )
     raise ValueError("The selected file does not contain the expected report columns")
 
 

@@ -332,7 +332,17 @@ export default function CollectionsUpload() {
           </div>
         </div>
       </div>
-      {selectedStockist?.label === 'Nexus' && <NexusSalesUploadCard onComplete={nexusSalesComplete} />}
+      {selectedStockist?.label === 'Nexus' && <div>
+        <div style={{ marginBottom: 9 }}>
+          <div style={{ fontSize: 13, fontWeight: 900, color: '#1e3a8a' }}>1. Nexus sales file</div>
+          <div style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>Use this only for Customerwise Purchase Report – Productwise files such as JUNE 2026.xls and AUG- 2026.xls.</div>
+        </div>
+        <NexusSalesUploadCard onComplete={nexusSalesComplete} />
+        <div style={{ marginBottom: 9 }}>
+          <div style={{ fontSize: 13, fontWeight: 900, color: '#172033' }}>2. Nexus collection files</div>
+          <div style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>These are separate file formats: upload a receipt report under Received Amount and a customer balance report under Outstanding Amount.</div>
+        </div>
+      </div>}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))', gap: 18 }}>
         <UploadCard type="receipt" title="Received Amount" description="Upload the file containing amounts received" color="#047857" stockistId={stockistId} stockistName={selectedStockist?.name} onComplete={uploadComplete} />
         <UploadCard type="outstanding" title="Outstanding Amount" description="Upload the file containing pending amounts" color="#b45309" stockistId={stockistId} stockistName={selectedStockist?.name} onComplete={uploadComplete} />
