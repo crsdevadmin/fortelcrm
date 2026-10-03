@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from ..auth.auth import get_current_user
@@ -174,6 +174,52 @@ def _city_label(value: str) -> str:
     return cleaned.title() if cleaned else "Unassigned"
 
 
+def _bill_months(rows) -> list[str]:
+    """Return the YYYY-MM months that an uploaded workbook covers."""
+    return sorted({row["bill_date"][:7] for row in rows if row.get("bill_date")})
+
+
+def _replace_months(db: Session, entry_model, upload_model, total_field: str, months: list[str]):
+    """Delete existing rows only for the months present in the new file.
+
+    Each monthly file replaces that month's data and leaves every other month
+    untouched, so June, July and August uploads can live side by side. Older
+    uploads that lose some (but not all) rows have their period and totals
+    recalculated; uploads left with no rows are removed.
+    """
+    if not months:
+        return 0, 0
+    month_filter = or_(*[entry_model.bill_date.like(f"{month}-%") for month in months])
+    affected_upload_ids = [
+        row[0] for row in db.query(entry_model.upload_id).filter(month_filter).distinct().all()
+    ]
+    replaced_rows = db.query(entry_model).filter(month_filter).delete(synchronize_session=False)
+    db.flush()
+
+    removed_uploads = 0
+    for upload_id in affected_upload_ids:
+        count, first_date, last_date, total = db.query(
+            func.count(entry_model.id),
+            func.min(entry_model.bill_date),
+            func.max(entry_model.bill_date),
+            func.sum(entry_model.gross_amount),
+        ).filter(entry_model.upload_id == upload_id).one()
+        upload = db.query(upload_model).filter(upload_model.id == upload_id).first()
+        if not upload:
+            continue
+        if not count:
+            db.delete(upload)
+            removed_uploads += 1
+            continue
+        upload.period_start = first_date
+        upload.period_end = last_date
+        upload.source_row_count = count
+        upload.inserted_count = count
+        setattr(upload, total_field, round(float(total or 0), 2))
+    db.flush()
+    return replaced_rows, removed_uploads
+
+
 def _persist_primary_city_split(content: bytes, filename: str, current_user: User, db: Session):
     if len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="Excel file must be 15 MB or smaller")
@@ -191,26 +237,9 @@ def _persist_primary_city_split(content: bytes, filename: str, current_user: Use
 
     # Nexus supplies one customer/product report per month. Re-uploading a
     # month must replace that month's data without erasing the other months.
-    overlapping_query = db.query(PrimaryCitySplitUpload)
-    if period_start and period_end:
-        overlapping_query = overlapping_query.filter(
-            PrimaryCitySplitUpload.period_start <= period_end,
-            PrimaryCitySplitUpload.period_end >= period_start,
-        )
-    else:
-        overlapping_query = overlapping_query.filter(False)
-    overlapping_uploads = overlapping_query.all()
-    overlapping_ids = [row.id for row in overlapping_uploads]
-    replaced_rows = 0
-    if overlapping_ids:
-        replaced_rows = db.query(PrimaryCitySplitEntry).filter(
-            PrimaryCitySplitEntry.upload_id.in_(overlapping_ids)
-        ).delete(synchronize_session=False)
-        db.query(PrimaryCitySplitUpload).filter(
-            PrimaryCitySplitUpload.id.in_(overlapping_ids)
-        ).delete(synchronize_session=False)
-    replaced_uploads = len(overlapping_ids)
-    db.flush()
+    replaced_rows, replaced_uploads = _replace_months(
+        db, PrimaryCitySplitEntry, PrimaryCitySplitUpload, "total_gross_amount", _bill_months(rows)
+    )
 
     upload = PrimaryCitySplitUpload(
         uploaded_by_id=current_user.id,
@@ -277,11 +306,11 @@ def _persist_primary_sales(content: bytes, filename: str, current_user: User, db
 
     rows = parsed["rows"]
     dates = sorted(row["bill_date"] for row in rows if row["bill_date"])
-    replaced_rows = db.query(PrimarySalesEntry).count()
-    replaced_uploads = db.query(PrimarySalesUpload).count()
-    db.query(PrimarySalesEntry).delete(synchronize_session=False)
-    db.query(PrimarySalesUpload).delete(synchronize_session=False)
-    db.flush()
+    # Replace only the month(s) covered by this file so earlier months that were
+    # uploaded separately (e.g. June, July) stay visible on the dashboard.
+    replaced_rows, replaced_uploads = _replace_months(
+        db, PrimarySalesEntry, PrimarySalesUpload, "total_net_amount", _bill_months(rows)
+    )
 
     upload = PrimarySalesUpload(
         uploaded_by_id=current_user.id,

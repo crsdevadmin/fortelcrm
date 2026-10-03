@@ -280,7 +280,7 @@ export default function PrimarySales() {
           <form onSubmit={upload} style={{ background: '#fff', border: '1px solid #cbd5e1', borderRadius: 14, padding: 15, marginBottom: 10, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
             <div style={{ flex: '1 1 280px' }}>
               <div style={{ fontWeight: 900, fontSize: 13, color: '#172033' }}>Upload company sales Excel</div>
-              <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>.xls or .xlsx · cumulative reports are refreshed without double-counting</div>
+              <div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>.xls or .xlsx · replaces only the months in the file and preserves other months</div>
             </div>
             <input ref={fileRef} type="file" accept=".xls,.xlsx" onChange={event => setSelectedFile(event.target.files?.[0] || null)} style={{ ...fieldStyle, flex: '1 1 230px' }} />
             <button type="submit" disabled={uploading} style={{ border: 'none', borderRadius: 10, padding: '10px 18px', background: uploading ? '#94a3b8' : '#0f766e', color: '#fff', fontWeight: 900, cursor: uploading ? 'wait' : 'pointer' }}>
