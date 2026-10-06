@@ -32,7 +32,7 @@ from ..utils.hierarchy import get_subtree_ids
 from ..utils.regional_territories import visible_territories
 from .sales import _enforce_regional_territory_access
 
-router = APIRouter(prefix="/secondary-sales", tags=["Secondary sales"])
+router = APIRouter(prefix="/sales/secondary", tags=["Secondary sales"])
 
 SHEET_START = (2026, 10)
 UPLOAD_SESSION_ROOT = Path("/tmp/fortel-secondary-upload-sessions")

@@ -111,7 +111,16 @@ export default function SecondarySalesSheet({ me, year, month, stateCode, city, 
     if (stateCode && stateCode !== 'ALL') params.state_code = stateCode;
     if (city && city !== 'ALL') params.city = city;
     return secondaryAPI.summary(params)
-      .then(response => setData(response.data || { uploads: [], lines: [] }))
+      .then(response => {
+        const body = response?.data;
+        if (!body || typeof body !== 'object' || !Array.isArray(body.uploads) || !Array.isArray(body.lines)) {
+          // An HTML page or empty body means the server does not have the secondary-sales API yet.
+          setData({ uploads: [], lines: [] });
+          setError('Secondary sales service is not available on the server yet. Deploy the latest backend and reload.');
+          return;
+        }
+        setData(body);
+      })
       .catch(err => {
         setData({ uploads: [], lines: [] });
         setError(err?.response?.data?.detail || 'Unable to load secondary sales.');
@@ -122,8 +131,8 @@ export default function SecondarySalesSheet({ me, year, month, stateCode, city, 
   useEffect(() => { load(); setOpen({}); }, [load]);
 
   const myUpload = useMemo(
-    () => data.uploads.find(upload => upload.associate_id === me?.id && upload.city === city) || null,
-    [data.uploads, me?.id, city]
+    () => (data?.uploads || []).find(upload => upload.associate_id === me?.id && upload.city === city) || null,
+    [data?.uploads, me?.id, city]
   );
 
   const upload = async file => {
@@ -177,15 +186,15 @@ export default function SecondarySalesSheet({ me, year, month, stateCode, city, 
   };
 
   const stockists = useMemo(() => summarise(
-    data.lines,
+    data?.lines || [],
     line => `${line.associate_id}|${line.stockist_key}`,
     line => line.stockist,
-  ), [data.lines]);
+  ), [data?.lines]);
   const products = useMemo(() => summarise(
-    data.lines,
+    data?.lines || [],
     line => (line.product_id ? `p${line.product_id}` : `s${line.source_product_name.toLowerCase()}`),
     line => line.product_name || line.source_product_name,
-  ), [data.lines]);
+  ), [data?.lines]);
 
   const totals = useMemo(() => {
     const weeks = emptyWeeks();
@@ -205,9 +214,9 @@ export default function SecondarySalesSheet({ me, year, month, stateCode, city, 
 
   const warnings = useMemo(() => {
     const list = [];
-    data.uploads.forEach(item => (item.warnings || []).forEach(text => list.push({ text, who: data.uploads.length > 1 ? `${item.associate_name} · ${item.city}` : '' })));
+    (data?.uploads || []).forEach(item => (item.warnings || []).forEach(text => list.push({ text, who: (data?.uploads || []).length > 1 ? `${item.associate_name} · ${item.city}` : '' })));
     return list;
-  }, [data.uploads]);
+  }, [data?.uploads]);
 
   const periodValue = selectedWeek ? totals.weeks[selectedWeek].value : totals.value;
   const periodUnits = selectedWeek ? totals.weeks[selectedWeek].qty : totals.units;
@@ -258,7 +267,7 @@ export default function SecondarySalesSheet({ me, year, month, stateCode, city, 
           [selectedWeek ? `Secondary sales · Week ${selectedWeek}` : `Secondary sales · ${MONTHS[month]}`, inr(periodValue), `${qty(periodUnits)} units sold`, '#0f766e'],
           ['Closing stock at stockists', inr(totals.closingValue), `${qty(totals.closingQty)} units · latest week reported`, '#1d4ed8'],
           ['Stockists', `${totals.selling} / ${stockists.length}`, 'with sales / on the sheet', '#7c3aed'],
-          ['Sheets uploaded', data.uploads.length, readOnly ? 'reps in this view' : 'for this city', '#b45309'],
+          ['Sheets uploaded', (data?.uploads || []).length, readOnly ? 'reps in this view' : 'for this city', '#b45309'],
         ].map(([label, value, sub, color]) => (
           <div key={label} style={{ background: '#fff', border: '1px solid #e5e7eb', borderTop: `3px solid ${color}`, borderRadius: 12, padding: '12px 14px' }}>
             <div style={{ fontSize: 10, fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</div>
@@ -353,7 +362,7 @@ export default function SecondarySalesSheet({ me, year, month, stateCode, city, 
                               </tr>
                             </thead>
                             <tbody>
-                              {group.items.sort((a, b) => b.value - a.value || b.closing.qty - a.closing.qty).map((item, index) => (
+                              {group.items.slice().sort((a, b) => b.value - a.value || b.closing.qty - a.closing.qty).map((item, index) => (
                                 <tr key={index} style={{ borderTop: '1px solid #e2e8f0' }}>
                                   <td style={{ ...cell, paddingLeft: 32, color: '#0f172a' }}>
                                     {view === 'stockist' ? item.line.source_product_name : item.line.stockist}

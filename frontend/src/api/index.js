@@ -112,7 +112,7 @@ async function chunkedSecondarySheetUpload(file, fields) {
   const buffer = await file.arrayBuffer();
   const digest = await window.crypto.subtle.digest('SHA-256', buffer);
   const checksum = Array.from(new Uint8Array(digest)).map(value => value.toString(16).padStart(2, '0')).join('');
-  const basePath = '/secondary-sales/upload-session';
+  const basePath = '/sales/secondary/upload-session';
   const start = await client.post(`${basePath}/start`, {
     filename: file.name,
     file_size: file.size,
@@ -131,9 +131,9 @@ async function chunkedSecondarySheetUpload(file, fields) {
 // ── SECONDARY SALES (stockist sheet, October 2026 onward) ──
 export const secondaryAPI = {
   upload: (file, fields) => chunkedSecondarySheetUpload(file, fields),
-  summary: (params) => client.get('/secondary-sales/summary', { params }),
-  download: (uploadId) => client.get(`/secondary-sales/uploads/${uploadId}/download`, { responseType: 'blob' }),
-  remove: (uploadId) => client.delete(`/secondary-sales/uploads/${uploadId}`),
+  summary: (params) => client.get('/sales/secondary/summary', { params }),
+  download: (uploadId) => client.get(`/sales/secondary/uploads/${uploadId}/download`, { responseType: 'blob' }),
+  remove: (uploadId) => client.delete(`/sales/secondary/uploads/${uploadId}`),
 };
 
 async function chunkedPrimarySalesUpload(file, onProgress, basePath) {
