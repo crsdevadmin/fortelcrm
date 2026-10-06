@@ -41,12 +41,18 @@ from .roi import (
 router = APIRouter(prefix="/targets", tags=["Dashboard"])
 
 
+SECONDARY_SHEET_START = (2026, 10)
+
+
 def _week_for_day(day: int) -> int:
     return min(4, max(1, ((day - 1) // 7) + 1))
 
 
 def _regional_mtd_entries(entries, year: int, month: int, through_week: int):
     eligible = [entry for entry in entries if int(entry.week or 0) <= through_week]
+    if (year, month) >= SECONDARY_SHEET_START:
+        # From the stockist sheet onward each row holds that week's own sales.
+        return eligible
     if (year, month) == (2026, 7):
         return eligible
     if (year, month) < (2026, 8):
@@ -60,7 +66,7 @@ def _regional_mtd_entries(entries, year: int, month: int, through_week: int):
 
 
 def _regional_week_value(entries, year: int, month: int, week: int) -> float:
-    if (year, month) == (2026, 7):
+    if (year, month) == (2026, 7) or (year, month) >= SECONDARY_SHEET_START:
         return sum(float(entry.value or 0) for entry in entries if int(entry.week or 0) == week)
     if (year, month) < (2026, 8):
         return sum(float(entry.value or 0) for entry in entries)

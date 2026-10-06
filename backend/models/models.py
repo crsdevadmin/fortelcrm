@@ -728,3 +728,57 @@ class OutstandingEntry(Base):
     balance       = Column(Float, nullable=False, default=0)
 
     upload = relationship("CollectionUpload", back_populates="outstanding_entries")
+
+
+# SECONDARY SALES — weekly stockist sheet uploaded by reps (October 2026 onward)
+
+class SecondarySalesUpload(Base):
+    __tablename__ = "secondary_sales_uploads"
+
+    id                  = Column(Integer, primary_key=True, index=True)
+    associate_id        = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    uploaded_by_id      = Column(Integer, ForeignKey("users.id"), nullable=False)
+    state_code          = Column(String(50), nullable=False, default="")
+    city                = Column(String(100), nullable=False, default="", index=True)
+    year                = Column(Integer, nullable=False)
+    month               = Column(Integer, nullable=False)
+    filename            = Column(String(255), nullable=False)
+    sheet_name          = Column(String(100), nullable=True)
+    content_type        = Column(String(100), nullable=False, default="application/octet-stream")
+    file_data           = Column(LargeBinary, nullable=False)
+    stockist_count      = Column(Integer, nullable=False, default=0)
+    total_sales_qty     = Column(Float, nullable=False, default=0)
+    total_sales_value   = Column(Float, nullable=False, default=0)
+    total_closing_qty   = Column(Float, nullable=False, default=0)
+    total_closing_value = Column(Float, nullable=False, default=0)
+    warnings            = Column(Text, nullable=True)   # JSON list of strings
+    uploaded_at         = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    associate = relationship("User", foreign_keys=[associate_id])
+    lines = relationship("SecondarySalesLine", back_populates="upload", cascade="all, delete-orphan")
+
+
+class SecondarySalesLine(Base):
+    __tablename__ = "secondary_sales_lines"
+
+    id                  = Column(Integer, primary_key=True, index=True)
+    upload_id           = Column(Integer, ForeignKey("secondary_sales_uploads.id", ondelete="CASCADE"), nullable=False, index=True)
+    associate_id        = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    state_code          = Column(String(50), nullable=False, default="")
+    city                = Column(String(100), nullable=False, default="")
+    year                = Column(Integer, nullable=False, index=True)
+    month               = Column(Integer, nullable=False, index=True)
+    week                = Column(Integer, nullable=False)
+    stockist_name       = Column(String(200), nullable=False)
+    stockist_key        = Column(String(200), nullable=False, index=True)
+    product_id          = Column(Integer, ForeignKey("products.id"), nullable=True)
+    source_product_name = Column(String(200), nullable=False)
+    rate                = Column(Float, nullable=False, default=0)
+    rate_source         = Column(String(20), nullable=False, default="sheet")
+    sales_qty           = Column(Float, nullable=False, default=0)
+    sales_value         = Column(Float, nullable=False, default=0)
+    closing_qty         = Column(Float, nullable=False, default=0)
+    closing_value       = Column(Float, nullable=False, default=0)
+
+    upload  = relationship("SecondarySalesUpload", back_populates="lines")
+    product = relationship("Product", foreign_keys=[product_id])

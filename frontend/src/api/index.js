@@ -107,6 +107,35 @@ export const salesAPI = {
   deleteRegionalWeekPdf: (pdfId) => client.delete(`/sales/regional/week-pdf/${pdfId}`),
 };
 
+async function chunkedSecondarySheetUpload(file, fields) {
+  if (!window.crypto?.subtle) throw new Error('Secure file upload is not supported by this browser');
+  const buffer = await file.arrayBuffer();
+  const digest = await window.crypto.subtle.digest('SHA-256', buffer);
+  const checksum = Array.from(new Uint8Array(digest)).map(value => value.toString(16).padStart(2, '0')).join('');
+  const basePath = '/secondary-sales/upload-session';
+  const start = await client.post(`${basePath}/start`, {
+    filename: file.name,
+    file_size: file.size,
+    file_checksum: checksum,
+    ...fields,
+  });
+  const { session_id: sessionId, chunk_size: chunkSize, chunk_count: chunkCount } = start.data;
+  for (let index = 0; index < chunkCount; index += 1) {
+    const bytes = new Uint8Array(buffer, index * chunkSize, Math.min(chunkSize, buffer.byteLength - (index * chunkSize)));
+    const data = window.btoa(String.fromCharCode(...bytes));
+    await client.post(`${basePath}/${sessionId}/chunk`, { index, data });
+  }
+  return client.post(`${basePath}/${sessionId}/complete`, { file_checksum: checksum });
+}
+
+// ── SECONDARY SALES (stockist sheet, October 2026 onward) ──
+export const secondaryAPI = {
+  upload: (file, fields) => chunkedSecondarySheetUpload(file, fields),
+  summary: (params) => client.get('/secondary-sales/summary', { params }),
+  download: (uploadId) => client.get(`/secondary-sales/uploads/${uploadId}/download`, { responseType: 'blob' }),
+  remove: (uploadId) => client.delete(`/secondary-sales/uploads/${uploadId}`),
+};
+
 async function chunkedPrimarySalesUpload(file, onProgress, basePath) {
   if (!window.crypto?.subtle) throw new Error('Secure file upload is not supported by this browser');
   const buffer = await file.arrayBuffer();

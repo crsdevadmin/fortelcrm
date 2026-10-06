@@ -5,6 +5,7 @@ import { roiAPI, investmentsAPI, salesAPI } from '../api';
 const SHOW_INDIVIDUAL_DOCTOR_CARDS = true;
 import { useAuth } from '../context/AuthContext';
 import EnterSales from './EnterSales';
+import SecondarySalesSheet from './SecondarySalesSheet';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { draftKey, readDraft, removeDraft, writeDraft } from '../utils/draftStorage';
 
@@ -1026,6 +1027,8 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
   const isLegacyJulyWeeklyMonth = salesYear === 2026 && salesMonth === 7;
   const isCumulativeWeeklyMonth = salesYear > 2026 || (salesYear === 2026 && salesMonth >= 8);
   const isWeeklyRegionalMonth = isLegacyJulyWeeklyMonth || isCumulativeWeeklyMonth;
+  // October 2026 onward: secondary sales come only from the stockist sheet upload.
+  const isSheetMonth = salesYear > 2026 || (salesYear === 2026 && salesMonth >= 10);
   const activeSalesWeek = isWeeklyRegionalMonth ? (week || null) : 0;
   const isAllWeeksView = isWeeklyRegionalMonth && week === 0;
   const regionalStateFilter = stateCode === 'ALL' ? '' : stateCode;
@@ -1215,7 +1218,7 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
   useEffect(() => { loadRegional(); }, [loadRegional]);
 
   const loadRegionalPdfs = useCallback(() => {
-    if (!me?.id || !isCumulativeWeeklyMonth || isAllWeeksView || stateCode === 'ALL' || city === 'ALL') {
+    if (!me?.id || !isCumulativeWeeklyMonth || isSheetMonth || isAllWeeksView || stateCode === 'ALL' || city === 'ALL') {
       setRegionalPdfs([]);
       return;
     }
@@ -1234,7 +1237,7 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
       setRegionalPdfs([]);
       setRegionalPdfError(error?.response?.data?.detail || 'Unable to load weekly PDFs.');
     });
-  }, [me?.id, isCumulativeWeeklyMonth, isAllWeeksView, stateCode, city, salesYear, salesMonth, week]);
+  }, [me?.id, isCumulativeWeeklyMonth, isSheetMonth, isAllWeeksView, stateCode, city, salesYear, salesMonth, week]);
 
   useEffect(() => { loadRegionalPdfs(); }, [loadRegionalPdfs]);
 
@@ -1529,16 +1532,16 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
         <div style={{ position: 'relative', zIndex: 1 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <div>
-            <div style={{ fontSize: 20, fontWeight: 900 }}>Regional Sales</div>
-            <div style={{ fontSize: 11, opacity: 0.55, marginTop: 3 }}>Product-wise sales by region · week-wise quantity and price</div>
+            <div style={{ fontSize: 20, fontWeight: 900 }}>{isSheetMonth ? 'Secondary Sales' : 'Regional Sales'}</div>
+            <div style={{ fontSize: 11, opacity: 0.55, marginTop: 3 }}>{isSheetMonth ? 'Stockist-wise weekly sales from the uploaded sheet · units × rate' : 'Product-wise sales by region · week-wise quantity and price'}</div>
             {regionalDraftStatus && <div style={{ fontSize: 10, color: '#86efac', fontWeight: 800, marginTop: 4 }}>✓ {regionalDraftStatus}</div>}
           </div>
           <div style={{ display: 'flex', gap: 8, marginLeft: 'auto', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            <button onClick={resetRegionalMonth} disabled={saving || loading || isAggregateRegionalView}
+            {!isSheetMonth && <button onClick={resetRegionalMonth} disabled={saving || loading || isAggregateRegionalView}
               title={isAggregateRegionalView ? 'Select a specific state and city to reset regional sales.' : 'Reset the selected month after typed confirmation'}
               style={{ padding: '9px 15px', borderRadius: 9, border: '1px solid rgba(255,255,255,0.28)', background: (saving || isAggregateRegionalView) ? 'rgba(255,255,255,0.12)' : 'rgba(248,113,113,0.22)', color: '#fff', cursor: (saving || isAggregateRegionalView) ? 'default' : 'pointer', fontWeight: 900 }}>
               Reset Month
-            </button>
+            </button>}
             {!isCumulativeWeeklyMonth && (
               <button onClick={saveRegionalSales} disabled={saving || loading || isAggregateRegionalView || isAllWeeksView || pendingRows.length === 0}
                 title={isAggregateRegionalView ? 'Select a specific state and city to save regional sales.' : pendingRows.length === 0 ? 'Enter or edit a row before saving.' : 'Save regional sales'}
@@ -1679,9 +1682,11 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
           {[
             ['Consolidated Sales', fmtInr(consolidated.value), '#8B5CF6'],
             [`${MONTHS[salesMonth]} · All Weeks`, fmtInr(monthlyConsolidated.value), '#0F766E'],
-            ['Products', products.length, '#3B82F6'],
-            ['Total Qty', totalQty.toLocaleString('en-IN'), '#10B981'],
-            ['Total Value', fmtInr(totalValue), '#F59E0B'],
+            ...(isSheetMonth ? [] : [
+              ['Products', products.length, '#3B82F6'],
+              ['Total Qty', totalQty.toLocaleString('en-IN'), '#10B981'],
+              ['Total Value', fmtInr(totalValue), '#F59E0B'],
+            ]),
           ].map(([label, value, color]) => (
             <div key={label} style={{
               background: `linear-gradient(135deg, ${color}ee 0%, ${color}bb 100%)`,
@@ -1703,6 +1708,18 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
         </div>
       </div>
 
+      {isSheetMonth ? (
+        <SecondarySalesSheet
+          me={me}
+          year={salesYear}
+          month={salesMonth}
+          stateCode={stateCode}
+          city={city}
+          week={week}
+          readOnly={isAggregateRegionalView}
+          onImported={loadRegional}
+        />
+      ) : (<>
       {error && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', color: '#991b1b', borderRadius: 10, padding: 12, marginBottom: 12 }}>{error}</div>}
       {message && <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#166534', borderRadius: 10, padding: 12, marginBottom: 12 }}>{message}</div>}
       {!loading && !locations.length && (
@@ -2014,6 +2031,7 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
           </div>
         </div>
       )}
+      </>)}
     </div>
   );
 }
