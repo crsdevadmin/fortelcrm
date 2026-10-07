@@ -56,19 +56,30 @@ const NEXUS_TYPES = {
   sales: { label: 'Monthly Sales', color: '#1d4ed8', bg: '#dbeafe' },
 };
 
-// Nexus: one upload. The server reads the column headings and files each
-// report as Received Amount, Outstanding Amount or Monthly Sales.
-function NexusUploadCard({ stockistId, stockistName, onComplete }) {
+// Nexus: one card with a slot per report. Every button sends the file to the
+// same auto-detecting upload, so a file put in the wrong slot is still filed
+// under the right report type.
+function NexusUploadCard({ stockistId, stockistName, uploads, onComplete }) {
   const inputRef = useRef(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState('');
   const [current, setCurrent] = useState('');
   const [results, setResults] = useState([]);
 
+  const latest = type => uploads
+    .filter(row => row.report_type === type)
+    .sort((a, b) => String(b.uploaded_at || '').localeCompare(String(a.uploaded_at || '')))[0];
+
+  const pick = slot => {
+    inputRef.current.dataset.slot = slot;
+    inputRef.current.click();
+  };
+
   const upload = async event => {
     const files = Array.from(event.target.files || []);
+    const slot = event.target.dataset.slot;
     event.target.value = '';
-    if (!files.length) return;
-    setBusy(true);
+    if (!files.length) { setBusy(''); return; }
+    setBusy(slot || 'all');
     setResults([]);
     const done = [];
     for (const file of files) {
@@ -76,7 +87,8 @@ function NexusUploadCard({ stockistId, stockistName, onComplete }) {
       try {
         const response = await collectionsAPI.upload(file, 'auto', stockistId);
         const row = response.data;
-        done.push({ ok: true, file: file.name, row });
+        const detected = row.detected_type || row.report_type;
+        done.push({ ok: true, file: file.name, row, moved: slot && slot !== 'all' && slot !== detected });
         onComplete(row);
       } catch (error) {
         done.push({ ok: false, file: file.name, text: error.response?.data?.detail || 'Upload failed. Check the report and try again.' });
@@ -84,34 +96,59 @@ function NexusUploadCard({ stockistId, stockistName, onComplete }) {
       setResults([...done]);
     }
     setCurrent('');
-    setBusy(false);
+    setBusy('');
   };
+
+  const slots = [
+    { type: 'receipt', title: 'Received Amount', file: 'Receipt Report', last: latest('receipt') },
+    { type: 'outstanding', title: 'Outstanding Amount', file: 'Party Wise Bill Receivable', last: latest('outstanding') },
+    { type: 'sales', title: 'Monthly Sales', file: 'Customerwise Purchase Report – Productwise', note: 'Saved in Primary Sales · not cash received' },
+  ];
 
   return (
     <div style={{ background: '#fff', border: '1px solid #bfdbfe', borderRadius: 16, padding: 22, boxShadow: '0 5px 18px rgba(37,99,235,.06)' }}>
-      <div style={{ display: 'flex', gap: 13, alignItems: 'center', marginBottom: 12 }}>
-        <div style={{ width: 42, height: 42, borderRadius: 12, background: '#dbeafe', color: '#1d4ed8', display: 'grid', placeItems: 'center', fontSize: 20, fontWeight: 900 }}>N</div>
-        <div>
-          <div style={{ fontSize: 17, fontWeight: 850, color: '#172033' }}>Upload Nexus reports</div>
-          <div style={{ fontSize: 12, color: '#475569', marginTop: 3 }}>Select one or more Nexus files. Each file is recognised automatically from its columns.</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
+        <div style={{ display: 'flex', gap: 13, alignItems: 'center' }}>
+          <div style={{ width: 42, height: 42, borderRadius: 12, background: '#dbeafe', color: '#1d4ed8', display: 'grid', placeItems: 'center', fontSize: 20, fontWeight: 900 }}>N</div>
+          <div>
+            <div style={{ fontSize: 17, fontWeight: 850, color: '#172033' }}>Nexus reports</div>
+            <div style={{ fontSize: 12, color: '#475569', marginTop: 3 }}>Upload each report in its box, or select all files at once — every file is checked and filed by its columns.</div>
+          </div>
         </div>
-      </div>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-        {[
-          ['receipt', 'Receipt Report'],
-          ['outstanding', 'Party Wise Bill Receivable'],
-          ['sales', 'Customerwise Purchase Report – Productwise'],
-        ].map(([type, name]) => (
-          <span key={type} style={{ fontSize: 10, fontWeight: 800, color: NEXUS_TYPES[type].color, background: NEXUS_TYPES[type].bg, borderRadius: 999, padding: '4px 9px' }}>
-            {name} → {NEXUS_TYPES[type].label}
-          </span>
-        ))}
+        <button type="button" disabled={Boolean(busy) || !stockistId} onClick={() => pick('all')}
+          style={{ border: '1px solid #1d4ed8', borderRadius: 10, padding: '9px 14px', background: '#fff', color: '#1d4ed8', cursor: busy ? 'wait' : 'pointer', fontWeight: 850, fontSize: 12 }}>
+          {busy === 'all' ? `Reading ${current}…` : 'Upload all files together'}
+        </button>
       </div>
       <input ref={inputRef} type="file" multiple accept=".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={upload} style={{ display: 'none' }} />
-      <button disabled={busy || !stockistId} onClick={() => inputRef.current?.click()} style={{ width: '100%', border: 0, borderRadius: 10, padding: '12px 14px', color: '#fff', background: busy || !stockistId ? '#94a3b8' : '#1d4ed8', cursor: busy ? 'wait' : 'pointer', fontWeight: 850, fontSize: 14 }}>
-        {busy ? `Reading ${current}…` : 'Upload Nexus file(s)'}
-      </button>
-      <div style={{ fontSize: 11, color: '#64748b', marginTop: 8 }}>{stockistName ? `${stockistName} · ` : ''}Excel .xls or .xlsx · maximum 15 MB each · monthly sales go to Primary Sales and are not counted as cash received</div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+        {slots.map(slot => {
+          const style = NEXUS_TYPES[slot.type];
+          const working = busy === slot.type;
+          return (
+            <div key={slot.type} style={{ border: `1px solid ${style.bg}`, borderTop: `3px solid ${style.color}`, borderRadius: 12, padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 900, color: '#172033' }}>{slot.title}</div>
+                <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{slot.file}</div>
+              </div>
+              <div style={{ fontSize: 11, color: slot.last ? style.color : '#94a3b8', fontWeight: 700, minHeight: 30 }}>
+                {slot.type === 'sales'
+                  ? slot.note
+                  : slot.last
+                    ? <>✓ {slot.last.filename}<br /><span style={{ color: '#475569', fontWeight: 600 }}>{money(slot.last.total_amount)} · {slot.last.row_count} rows</span></>
+                    : 'Not uploaded for this month'}
+              </div>
+              <button type="button" disabled={Boolean(busy) || !stockistId} onClick={() => pick(slot.type)}
+                style={{ marginTop: 'auto', width: '100%', border: 0, borderRadius: 9, padding: '10px 12px', color: '#fff', background: busy || !stockistId ? '#94a3b8' : style.color, cursor: busy ? 'wait' : 'pointer', fontWeight: 850, fontSize: 12 }}>
+                {working ? `Reading ${current || 'file'}…` : `Upload ${slot.title}`}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: 11, color: '#64748b', marginTop: 10 }}>{stockistName ? `${stockistName} · ` : ''}Excel .xls or .xlsx · maximum 15 MB each</div>
+
       {results.length > 0 && (
         <div style={{ display: 'grid', gap: 7, marginTop: 12 }}>
           {results.map((item, index) => {
@@ -127,8 +164,9 @@ function NexusUploadCard({ stockistId, stockistName, onComplete }) {
                         : `${item.row.row_count || 0} rows · ${money(item.row.total_amount)}${item.row.period_start ? ` · ${item.row.period_start} to ${item.row.period_end || '—'}` : ''}`)
                       : item.text}
                   </div>
+                  {item.moved && type && <div style={{ color: '#92400e', marginTop: 2, fontWeight: 700 }}>Detected as {type.label}, so it was saved there instead.</div>}
                 </div>
-                {item.ok && type && <span style={{ fontSize: 10, fontWeight: 900, color: type.color, background: type.bg, borderRadius: 999, padding: '4px 9px', whiteSpace: 'nowrap' }}>{type.label}</span>}
+                {item.ok && type && <span style={{ fontSize: 10, fontWeight: 900, color: type.color, background: type.bg, borderRadius: 999, padding: '4px 9px', whiteSpace: 'nowrap' }}>Saved as {type.label}</span>}
               </div>
             );
           })}
@@ -373,7 +411,7 @@ export default function CollectionsUpload() {
         </div>
       </div>
       {selectedStockist?.label === 'Nexus' ? (
-        <NexusUploadCard stockistId={stockistId} stockistName={selectedStockist?.name} onComplete={nexusComplete} />
+        <NexusUploadCard stockistId={stockistId} stockistName={selectedStockist?.name} uploads={selectedUploads} onComplete={nexusComplete} />
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))', gap: 18 }}>
           <UploadCard type="receipt" title="Received Amount" description="Upload the file containing amounts received" color="#047857" stockistId={stockistId} stockistName={selectedStockist?.name} onComplete={uploadComplete} />
