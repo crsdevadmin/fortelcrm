@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { collectionsAPI, primarySalesAPI } from '../api';
+import { collectionsAPI } from '../api';
 
 const money = value => `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })}`;
 const dateTime = value => value ? new Date(value).toLocaleString('en-IN') : '—';
@@ -50,47 +50,90 @@ function UploadCard({ type, title, description, color, stockistId, stockistName,
   );
 }
 
-function NexusSalesUploadCard({ onComplete }) {
+const NEXUS_TYPES = {
+  receipt: { label: 'Received Amount', color: '#047857', bg: '#dcfce7' },
+  outstanding: { label: 'Outstanding Amount', color: '#b45309', bg: '#fef3c7' },
+  sales: { label: 'Monthly Sales', color: '#1d4ed8', bg: '#dbeafe' },
+};
+
+// Nexus: one upload. The server reads the column headings and files each
+// report as Received Amount, Outstanding Amount or Monthly Sales.
+function NexusUploadCard({ stockistId, stockistName, onComplete }) {
   const inputRef = useRef(null);
   const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState(null);
-  const [message, setMessage] = useState(null);
+  const [current, setCurrent] = useState('');
+  const [results, setResults] = useState([]);
 
   const upload = async event => {
-    const file = event.target.files?.[0];
+    const files = Array.from(event.target.files || []);
     event.target.value = '';
-    if (!file) return;
+    if (!files.length) return;
     setBusy(true);
-    setProgress(null);
-    setMessage(null);
-    try {
-      const response = await primarySalesAPI.uploadCitySplit(file, (completed, total) => setProgress({ completed, total }));
-      const result = response.data;
-      setMessage({ ok: true, text: `${result.upload?.source_row_count || 0} Nexus sales rows imported · ${money(result.upload?.total_sales_amount)}` });
-      onComplete(result.upload);
-    } catch (error) {
-      setMessage({ ok: false, text: error.response?.data?.detail || 'Nexus sales upload failed. Check the report and try again.' });
-    } finally {
-      setBusy(false);
-      setProgress(null);
+    setResults([]);
+    const done = [];
+    for (const file of files) {
+      setCurrent(file.name);
+      try {
+        const response = await collectionsAPI.upload(file, 'auto', stockistId);
+        const row = response.data;
+        done.push({ ok: true, file: file.name, row });
+        onComplete(row);
+      } catch (error) {
+        done.push({ ok: false, file: file.name, text: error.response?.data?.detail || 'Upload failed. Check the report and try again.' });
+      }
+      setResults([...done]);
     }
+    setCurrent('');
+    setBusy(false);
   };
 
   return (
-    <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 16, padding: 22, marginBottom: 18, boxShadow: '0 5px 18px rgba(37,99,235,.06)' }}>
+    <div style={{ background: '#fff', border: '1px solid #bfdbfe', borderRadius: 16, padding: 22, boxShadow: '0 5px 18px rgba(37,99,235,.06)' }}>
       <div style={{ display: 'flex', gap: 13, alignItems: 'center', marginBottom: 12 }}>
         <div style={{ width: 42, height: 42, borderRadius: 12, background: '#dbeafe', color: '#1d4ed8', display: 'grid', placeItems: 'center', fontSize: 20, fontWeight: 900 }}>N</div>
         <div>
-          <div style={{ fontSize: 17, fontWeight: 850, color: '#172033' }}>Nexus Monthly Sales</div>
-          <div style={{ fontSize: 12, color: '#475569', marginTop: 3 }}>Customerwise Purchase Report – Productwise, including customer, bill, product, quantity, rate and value.</div>
+          <div style={{ fontSize: 17, fontWeight: 850, color: '#172033' }}>Upload Nexus reports</div>
+          <div style={{ fontSize: 12, color: '#475569', marginTop: 3 }}>Select one or more Nexus files. Each file is recognised automatically from its columns.</div>
         </div>
       </div>
-      <input ref={inputRef} type="file" accept=".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={upload} style={{ display: 'none' }} />
-      <button disabled={busy} onClick={() => inputRef.current?.click()} style={{ width: '100%', border: 0, borderRadius: 10, padding: '11px 14px', color: '#fff', background: busy ? '#94a3b8' : '#2563eb', cursor: busy ? 'wait' : 'pointer', fontWeight: 800 }}>
-        {busy ? (progress?.total ? `Uploading ${progress.completed}/${progress.total}…` : 'Reading Nexus report…') : 'Upload Nexus Monthly Sales'}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+        {[
+          ['receipt', 'Receipt Report'],
+          ['outstanding', 'Party Wise Bill Receivable'],
+          ['sales', 'Customerwise Purchase Report – Productwise'],
+        ].map(([type, name]) => (
+          <span key={type} style={{ fontSize: 10, fontWeight: 800, color: NEXUS_TYPES[type].color, background: NEXUS_TYPES[type].bg, borderRadius: 999, padding: '4px 9px' }}>
+            {name} → {NEXUS_TYPES[type].label}
+          </span>
+        ))}
+      </div>
+      <input ref={inputRef} type="file" multiple accept=".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={upload} style={{ display: 'none' }} />
+      <button disabled={busy || !stockistId} onClick={() => inputRef.current?.click()} style={{ width: '100%', border: 0, borderRadius: 10, padding: '12px 14px', color: '#fff', background: busy || !stockistId ? '#94a3b8' : '#1d4ed8', cursor: busy ? 'wait' : 'pointer', fontWeight: 850, fontSize: 14 }}>
+        {busy ? `Reading ${current}…` : 'Upload Nexus file(s)'}
       </button>
-      <div style={{ fontSize: 11, color: '#64748b', marginTop: 8 }}>Excel .xls or .xlsx · saved in Primary Sales · not counted as cash received or outstanding</div>
-      {message && <div style={{ marginTop: 12, padding: '9px 11px', borderRadius: 8, fontSize: 12, color: message.ok ? '#166534' : '#b91c1c', background: message.ok ? '#dcfce7' : '#fee2e2' }}>{message.text}</div>}
+      <div style={{ fontSize: 11, color: '#64748b', marginTop: 8 }}>{stockistName ? `${stockistName} · ` : ''}Excel .xls or .xlsx · maximum 15 MB each · monthly sales go to Primary Sales and are not counted as cash received</div>
+      {results.length > 0 && (
+        <div style={{ display: 'grid', gap: 7, marginTop: 12 }}>
+          {results.map((item, index) => {
+            const type = NEXUS_TYPES[item.row?.detected_type || item.row?.report_type];
+            return (
+              <div key={index} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', alignItems: 'center', padding: '9px 11px', borderRadius: 9, fontSize: 12, background: item.ok ? '#f8fafc' : '#fee2e2', border: `1px solid ${item.ok ? '#e2e8f0' : '#fecaca'}` }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 850, color: '#172033', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.file}</div>
+                  <div style={{ color: item.ok ? '#475569' : '#b91c1c', marginTop: 2 }}>
+                    {item.ok
+                      ? (item.row.duplicate
+                        ? 'Already uploaded earlier — the existing report is kept.'
+                        : `${item.row.row_count || 0} rows · ${money(item.row.total_amount)}${item.row.period_start ? ` · ${item.row.period_start} to ${item.row.period_end || '—'}` : ''}`)
+                      : item.text}
+                  </div>
+                </div>
+                {item.ok && type && <span style={{ fontSize: 10, fontWeight: 900, color: type.color, background: type.bg, borderRadius: 999, padding: '4px 9px', whiteSpace: 'nowrap' }}>{type.label}</span>}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -264,14 +307,11 @@ export default function CollectionsUpload() {
     load();
   };
 
-  const nexusSalesComplete = row => {
-    const value = row?.period_end || row?.period_start;
-    if (value) {
-      setYear(Number(value.slice(0, 4)));
-      setMonth(Number(value.slice(5, 7)));
-      setPeriodResolved(true);
+  const nexusComplete = row => {
+    if (row?.detected_type === 'sales') {
+      setPageMessage({ ok: true, text: 'Nexus monthly sales imported. View its customer, city and product totals in Primary Sales.' });
     }
-    setPageMessage({ ok: true, text: 'Nexus monthly sales imported successfully. View its customer, city and product totals in Primary Sales.' });
+    uploadComplete(row);
   };
 
   const removeUpload = async row => {
@@ -300,12 +340,12 @@ export default function CollectionsUpload() {
     <div style={{ padding: '24px', maxWidth: 1120, margin: '0 auto' }}>
       <div style={{ marginBottom: 20 }}>
         <h1 style={{ margin: 0, fontSize: 25, color: '#172033' }}>Receipts & Outstanding</h1>
-        <p style={{ margin: '7px 0 0', color: '#64748b', fontSize: 13 }}>Choose Fortel or Nexus, then upload the Received Amount and Outstanding Amount files for that source.</p>
+        <p style={{ margin: '7px 0 0', color: '#64748b', fontSize: 13 }}>Choose Fortel or Nexus, then upload that source's reports. Nexus files are recognised automatically.</p>
       </div>
       {pageMessage && <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 9, fontSize: 12, color: pageMessage.ok ? '#166534' : '#b91c1c', background: pageMessage.ok ? '#dcfce7' : '#fee2e2' }}>{pageMessage.text}</div>}
       <div style={{ background: '#fff', border: '1px solid #dbe3ed', borderRadius: 16, padding: 18, marginBottom: 18, boxShadow: '0 5px 18px rgba(15,23,42,.05)' }}>
         <div style={{ fontSize: 14, fontWeight: 900, color: '#172033' }}>Select report source</div>
-        <div style={{ color: '#64748b', fontSize: 11, marginTop: 3 }}>Fortel and Nexus accept received and outstanding reports. Nexus also accepts its monthly customer/product sales report.</div>
+        <div style={{ color: '#64748b', fontSize: 11, marginTop: 3 }}>Fortel: upload received and outstanding reports separately. Nexus: one upload for receipt, outstanding and monthly sales files.</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10, marginTop: 13 }}>
           {sourcesLoading ? <div style={{ gridColumn: '1 / -1', padding: 13, color: '#64748b', fontSize: 12 }}>Loading Fortel and Nexus options…</div> : stockists.map(row => {
             const active = String(row.id) === String(stockistId);
@@ -332,21 +372,14 @@ export default function CollectionsUpload() {
           </div>
         </div>
       </div>
-      {selectedStockist?.label === 'Nexus' && <div>
-        <div style={{ marginBottom: 9 }}>
-          <div style={{ fontSize: 13, fontWeight: 900, color: '#1e3a8a' }}>1. Nexus sales file</div>
-          <div style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>Use this only for Customerwise Purchase Report – Productwise files such as JUNE 2026.xls and AUG- 2026.xls.</div>
+      {selectedStockist?.label === 'Nexus' ? (
+        <NexusUploadCard stockistId={stockistId} stockistName={selectedStockist?.name} onComplete={nexusComplete} />
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))', gap: 18 }}>
+          <UploadCard type="receipt" title="Received Amount" description="Upload the file containing amounts received" color="#047857" stockistId={stockistId} stockistName={selectedStockist?.name} onComplete={uploadComplete} />
+          <UploadCard type="outstanding" title="Outstanding Amount" description="Upload the file containing pending amounts" color="#b45309" stockistId={stockistId} stockistName={selectedStockist?.name} onComplete={uploadComplete} />
         </div>
-        <NexusSalesUploadCard onComplete={nexusSalesComplete} />
-        <div style={{ marginBottom: 9 }}>
-          <div style={{ fontSize: 13, fontWeight: 900, color: '#172033' }}>2. Nexus collection files</div>
-          <div style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>These are separate file formats: upload a receipt report under Received Amount and a customer balance report under Outstanding Amount.</div>
-        </div>
-      </div>}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))', gap: 18 }}>
-        <UploadCard type="receipt" title="Received Amount" description="Upload the file containing amounts received" color="#047857" stockistId={stockistId} stockistName={selectedStockist?.name} onComplete={uploadComplete} />
-        <UploadCard type="outstanding" title="Outstanding Amount" description="Upload the file containing pending amounts" color="#b45309" stockistId={stockistId} stockistName={selectedStockist?.name} onComplete={uploadComplete} />
-      </div>
+      )}
       {!loading && <CollectionsReconciliation uploads={selectedUploads} stockist={selectedStockist} periodLabel={`${MONTHS[month]} ${year}`} />}
       <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 16, marginTop: 22, overflow: 'hidden' }}>
         <div style={{ padding: '16px 18px', borderBottom: '1px solid #e5e7eb', fontWeight: 850, color: '#172033' }}>Upload history{selectedStockist ? ` · ${selectedStockist.name}` : ''} · {MONTHS[month]} {year}</div>

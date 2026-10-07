@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from ..auth.auth import get_current_user
 from ..database import get_db
 from ..models.models import CollectionUpload, OutstandingEntry, ReceiptEntry, Stockist, User
-from ..services.collections_import import parse_collection_report
+from ..services.collections_import import detect_report_type, parse_collection_report
 
 
 router = APIRouter(prefix="/collections", tags=["Receipts and outstanding"])
@@ -118,8 +118,53 @@ def _upload_dict(upload):
     }
 
 
+def _persist_auto_report(content, filename, stockist_id, current_user, db):
+    """Nexus single upload: detect receipt / outstanding / monthly sales and import it."""
+    filename = Path(filename or "report").name[:255]
+    if Path(filename).suffix.lower() not in {".xls", ".xlsx"}:
+        raise HTTPException(status_code=400, detail="Upload an Excel .xls or .xlsx file")
+    if not content:
+        raise HTTPException(status_code=400, detail="The selected file is empty")
+    stockist = db.query(Stockist).filter(Stockist.id == stockist_id, Stockist.is_active == True).first()
+    if not stockist:
+        raise HTTPException(status_code=400, detail="Select a valid distributor before uploading")
+    try:
+        detected = detect_report_type(content, filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="The Excel file could not be read. Upload a valid .xls or .xlsx workbook") from exc
+
+    if detected == "sales":
+        if stockist.normalized_name != "NEXUS BIOCARE":
+            raise HTTPException(status_code=400, detail="This is a Nexus monthly sales report. Select Nexus before uploading it.")
+        from .primary_sales import _persist_primary_city_split, _require_uploader
+        _require_uploader(current_user)
+        result = _persist_primary_city_split(content, filename, current_user, db)
+        upload = result.get("upload") or {}
+        return {
+            "detected_type": "sales",
+            "report_type": "sales",
+            "filename": filename,
+            "stockist_id": stockist.id,
+            "stockist_name": stockist.name,
+            "period_start": upload.get("period_start"),
+            "period_end": upload.get("period_end"),
+            "row_count": upload.get("source_row_count"),
+            "total_amount": upload.get("total_sales_amount", upload.get("total_gross_amount")),
+            "duplicate": False,
+            "message": result.get("message"),
+        }
+
+    result = _persist_report(content, filename, detected, stockist_id, current_user, db)
+    result["detected_type"] = detected
+    return result
+
+
 def _persist_report(content, filename, report_type, stockist_id, current_user, db):
     report_type = (report_type or "").strip().lower()
+    if report_type == "auto":
+        return _persist_auto_report(content, filename, stockist_id, current_user, db)
     if report_type not in {"receipt", "outstanding"}:
         raise HTTPException(status_code=400, detail="Report type must be receipt or outstanding")
     filename = Path(filename or "report").name[:255]
@@ -211,8 +256,8 @@ def start_upload_session(
     filename = Path(payload.filename or "").name[:255]
     report_type = (payload.report_type or "").strip().lower()
     checksum = (payload.file_checksum or "").lower()
-    if report_type not in {"receipt", "outstanding"}:
-        raise HTTPException(status_code=400, detail="Report type must be receipt or outstanding")
+    if report_type not in {"receipt", "outstanding", "auto"}:
+        raise HTTPException(status_code=400, detail="Report type must be receipt, outstanding or auto")
     if Path(filename).suffix.lower() not in {".xls", ".xlsx"}:
         raise HTTPException(status_code=400, detail="Upload an Excel .xls or .xlsx file")
     if payload.file_size <= 0 or payload.file_size > MAX_UPLOAD_BYTES:

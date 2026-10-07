@@ -93,7 +93,7 @@ def _header(rows, required):
         if nexus_sales_columns.issubset(keys):
             raise ValueError(
                 "This is a Nexus monthly customer/product sales report. "
-                "Select Nexus and use Upload Nexus Monthly Sales, not Received Amount or Outstanding Amount."
+                "Select Nexus and upload it with the Nexus file upload."
             )
     raise ValueError("The selected file does not contain the expected report columns")
 
@@ -165,3 +165,33 @@ def parse_collection_report(content, filename, report_type):
         "entries": entries,
         "total_amount": round(sum(entry["amount" if report_type == "receipt" else "balance"] for entry in entries), 2),
     }
+
+
+RECEIPT_COLUMNS = {"date", "receiptno", "customername", "amount"}
+OUTSTANDING_COLUMNS = {"customercode", "customername", "balance"}
+
+
+def detect_report_type(content, filename):
+    """Work out which Nexus report a file is from its header row.
+
+    Returns "receipt", "outstanding" or "sales" (Customerwise Purchase Report –
+    Productwise). Raises ValueError when the file matches none of them.
+    """
+    from .primary_sales_import import REQUIRED_HEADERS, _column_map
+
+    rows, _ = _rows(content, filename)
+    for row in rows[:30]:
+        keys = {_key(value) for value in row if _key(value)}
+        if not keys:
+            continue
+        if RECEIPT_COLUMNS.issubset(keys):
+            return "receipt"
+        if OUTSTANDING_COLUMNS.issubset(keys):
+            return "outstanding"
+        columns = _column_map(row)
+        if all(field in columns for field in REQUIRED_HEADERS) and "city" in columns:
+            return "sales"
+    raise ValueError(
+        "This file is not a Nexus Receipt Report, Party Wise Bill Receivable (outstanding) report "
+        "or Customerwise Purchase Report – Productwise. Check that the column headings are unchanged."
+    )
