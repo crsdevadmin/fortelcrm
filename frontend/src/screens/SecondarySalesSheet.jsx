@@ -79,17 +79,199 @@ const cell = { padding: '9px 11px', fontSize: 12, whiteSpace: 'nowrap' };
 const num = { ...cell, textAlign: 'right', fontVariantNumeric: 'tabular-nums' };
 const head = { ...cell, fontSize: 10, fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.4, background: '#f8fafc', borderBottom: '1px solid #e5e7eb' };
 
-function WeekCells({ weeks, selectedWeek, showValue }) {
-  return WEEKS.map(w => {
-    const data = weeks[w];
-    const active = selectedWeek === w;
-    return (
-      <td key={w} style={{ ...num, background: active ? '#fefce8' : undefined, color: data.qty ? '#0f172a' : '#cbd5e1' }}>
-        <div style={{ fontWeight: 800 }}>{showValue ? (data.value ? inr(data.value) : '—') : (data.qty ? qty(data.qty) : '—')}</div>
-        {showValue && data.qty > 0 && <div style={{ fontSize: 10, color: '#64748b', marginTop: 1 }}>{qty(data.qty)} units</div>}
-      </td>
-    );
-  });
+const MEASURES = [
+  ['value', 'Sales ₹'],
+  ['units', 'Sales units'],
+  ['closing', 'Closing stock'],
+];
+
+function cellMetric(weeks, measure, selectedWeek) {
+  if (!weeks) return { main: 0, sub: 0 };
+  if (measure === 'closing') {
+    if (selectedWeek) {
+      const w = weeks[selectedWeek];
+      return { main: w.hasClosing ? w.closing : 0, sub: w.hasClosing ? w.closingValue : 0 };
+    }
+    const latest = latestClosing(weeks);
+    return { main: latest.qty, sub: latest.value };
+  }
+  const list = selectedWeek ? [selectedWeek] : WEEKS;
+  const units = list.reduce((s, w) => s + weeks[w].qty, 0);
+  const value = list.reduce((s, w) => s + weeks[w].value, 0);
+  return measure === 'value' ? { main: value, sub: units } : { main: units, sub: value };
+}
+
+function addLine(weeks, line) {
+  const w = weeks[line.week] || weeks[4];
+  w.qty += Number(line.sales_qty) || 0;
+  w.value += Number(line.sales_value) || 0;
+  if (Number(line.closing_qty) > 0) {
+    w.closing += Number(line.closing_qty) || 0;
+    w.closingValue += Number(line.closing_value) || 0;
+    w.hasClosing = true;
+  }
+}
+
+// Products in rows, stockists in columns — same layout as the uploaded sheet.
+function SalesMatrix({ lines, loading, readOnly, city, month, selectedWeek }) {
+  const [measure, setMeasure] = useState('value');
+
+  const { columns, rows, colTotals } = useMemo(() => {
+    const colMap = {};
+    const rowMap = {};
+    lines.forEach(line => {
+      const colKey = `${line.associate_id}|${line.stockist_key}`;
+      const col = colMap[colKey] || (colMap[colKey] = {
+        key: colKey, name: line.stockist, rep: line.associate_name, city: line.city, weeks: emptyWeeks(), items: {},
+      });
+      addLine(col.weeks, line);
+      // Column closing = each product's own latest closing, summed.
+      const itemWeeks = col.items[line.source_product_name] || (col.items[line.source_product_name] = emptyWeeks());
+      addLine(itemWeeks, line);
+
+      const rowKey = line.product_id ? `p${line.product_id}` : `s${line.source_product_name.toLowerCase()}`;
+      const row = rowMap[rowKey] || (rowMap[rowKey] = {
+        key: rowKey,
+        name: line.product_name || line.source_product_name,
+        source: line.source_product_name,
+        matched: Boolean(line.product_id),
+        rate: line.rate,
+        rateSource: line.rate_source,
+        cells: {},
+        weeks: emptyWeeks(),
+      });
+      const cell = row.cells[colKey] || (row.cells[colKey] = emptyWeeks());
+      addLine(cell, line);
+    });
+
+    const colClosing = col => Object.values(col.items).reduce((acc, weeks) => {
+      const m = cellMetric(weeks, 'closing', selectedWeek);
+      return { main: acc.main + m.main, sub: acc.sub + m.sub };
+    }, { main: 0, sub: 0 });
+    const columnList = Object.values(colMap).map(col => ({
+      ...col,
+      total: measure === 'closing' ? colClosing(col) : cellMetric(col.weeks, measure, selectedWeek),
+      salesValue: cellMetric(col.weeks, 'value', 0).main,
+    })).sort((a, b) => b.salesValue - a.salesValue || a.name.localeCompare(b.name));
+
+    const rowList = Object.values(rowMap).map(row => {
+      const total = columnList.reduce((acc, col) => {
+        const m = cellMetric(row.cells[col.key], measure, selectedWeek);
+        return { main: acc.main + m.main, sub: acc.sub + m.sub };
+      }, { main: 0, sub: 0 });
+      const salesValue = columnList.reduce((s, col) => s + cellMetric(row.cells[col.key], 'value', 0).main, 0);
+      return { ...row, total, salesValue };
+    }).sort((a, b) => b.total.main - a.total.main || b.salesValue - a.salesValue || a.name.localeCompare(b.name));
+
+    const grand = columnList.reduce((acc, col) => ({ main: acc.main + col.total.main, sub: acc.sub + col.total.sub }), { main: 0, sub: 0 });
+    return { columns: columnList, rows: rowList, colTotals: grand };
+  }, [lines, measure, selectedWeek]);
+
+  const maxCell = useMemo(() => rows.reduce((max, row) => Math.max(max, ...columns.map(col => cellMetric(row.cells[col.key], measure, selectedWeek).main)), 0), [rows, columns, measure, selectedWeek]);
+
+  const fmtMain = v => (measure === 'value' ? inr(v) : qty(v));
+  const fmtSub = v => (measure === 'value' ? `${qty(v)} units` : shortInr(v));
+  const accent = measure === 'closing' ? '29,78,216' : '15,118,110';
+  const period = selectedWeek ? `Week ${selectedWeek}` : `${MONTHS[month]} (all weeks)`;
+  const sticky = { position: 'sticky', left: 0, zIndex: 1 };
+
+  return (
+    <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '11px 13px', borderBottom: '1px solid #e5e7eb' }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 900, color: '#0f172a' }}>Product × stockist · {period}</div>
+          <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>
+            {measure === 'closing'
+              ? (selectedWeek ? `Closing stock reported for Week ${selectedWeek}` : 'Latest closing stock reported in the month')
+              : 'Secondary sales = units × rate · pick a week above to see one week'}
+          </div>
+        </div>
+        <div style={{ display: 'flex', border: '1px solid #e2e8f0', borderRadius: 9, overflow: 'hidden' }}>
+          {MEASURES.map(([key, label]) => (
+            <button key={key} type="button" onClick={() => setMeasure(key)}
+              style={{ padding: '6px 12px', border: 0, background: measure === key ? '#0f766e' : '#fff', color: measure === key ? '#fff' : '#475569', fontSize: 11, fontWeight: 900, cursor: 'pointer' }}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ borderCollapse: 'separate', borderSpacing: 0, width: '100%', minWidth: 150 + columns.length * 110 + 120 }}>
+          <thead>
+            <tr>
+              <th style={{ ...head, ...sticky, zIndex: 2, textAlign: 'left', minWidth: 132, borderRight: '1px solid #e5e7eb' }}>Product · rate</th>
+              {columns.map(col => (
+                <th key={col.key} style={{ ...head, textAlign: 'right', whiteSpace: 'normal', minWidth: 96, maxWidth: 140, verticalAlign: 'bottom', lineHeight: 1.25, textTransform: 'none', fontSize: 11, color: '#334155' }}>
+                  {col.name}
+                  {readOnly && <div style={{ fontSize: 9, fontWeight: 700, color: '#94a3b8', marginTop: 2 }}>{col.rep} · {col.city}</div>}
+                </th>
+              ))}
+              <th style={{ ...head, textAlign: 'right', background: '#ecfdf5', color: '#065f46', borderLeft: '1px solid #d1fae5' }}>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={columns.length + 2} style={{ ...cell, textAlign: 'center', color: '#64748b', padding: 30 }}>Loading…</td></tr>
+            ) : rows.length === 0 ? (
+              <tr><td colSpan={columns.length + 2} style={{ ...cell, textAlign: 'center', color: '#64748b', padding: 30, whiteSpace: 'normal' }}>
+                {readOnly ? 'No stockist sheets uploaded for this selection yet.' : `No sheet uploaded for ${city} in ${MONTHS[month]} yet. Upload the stockist sheet above.`}
+              </td></tr>
+            ) : rows.map(row => (
+              <tr key={row.key}>
+                <td style={{ ...cell, ...sticky, background: '#fff', borderTop: '1px solid #f1f5f9', borderRight: '1px solid #e5e7eb', fontWeight: 800, color: '#0f172a', whiteSpace: 'normal', minWidth: 132, maxWidth: 210 }}>
+                  {row.source}
+                  <div style={{ fontSize: 10, color: '#475569', fontWeight: 700, marginTop: 1 }}>
+                    {row.rateSource === 'missing' ? <span style={{ color: '#dc2626' }}>no rate</span> : inr(row.rate)}
+                    {row.rateSource === 'product_master' && <span style={{ color: '#94a3b8', fontWeight: 600 }}> · PTS</span>}
+                  </div>
+                  {!row.matched && <div style={{ fontSize: 9, color: '#c2410c', fontWeight: 900 }}>not in Product Master</div>}
+                </td>
+                {columns.map(col => {
+                  const m = cellMetric(row.cells[col.key], measure, selectedWeek);
+                  const shade = m.main > 0 && maxCell > 0 ? 0.06 + 0.22 * (m.main / maxCell) : 0;
+                  return (
+                    <td key={col.key} style={{ ...num, borderTop: '1px solid #f1f5f9', background: shade ? `rgba(${accent},${shade.toFixed(3)})` : undefined }}>
+                      {m.main > 0 ? (
+                        <>
+                          <div style={{ fontWeight: 800, color: '#0f172a' }}>{fmtMain(m.main)}</div>
+                          <div style={{ fontSize: 9, color: '#64748b' }}>{fmtSub(m.sub)}</div>
+                        </>
+                      ) : <span style={{ color: '#cbd5e1' }}>—</span>}
+                    </td>
+                  );
+                })}
+                <td style={{ ...num, borderTop: '1px solid #f1f5f9', background: '#f0fdf4', borderLeft: '1px solid #d1fae5' }}>
+                  {row.total.main > 0 ? (
+                    <>
+                      <div style={{ fontWeight: 900, color: measure === 'closing' ? '#1e3a8a' : '#065f46' }}>{fmtMain(row.total.main)}</div>
+                      <div style={{ fontSize: 9, color: '#64748b' }}>{fmtSub(row.total.sub)}</div>
+                    </>
+                  ) : <span style={{ color: '#cbd5e1' }}>—</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          {!loading && rows.length > 0 && (
+            <tfoot>
+              <tr>
+                <td style={{ ...cell, ...sticky, background: '#ecfdf5', borderTop: '2px solid #10b981', borderRight: '1px solid #d1fae5', fontWeight: 900, color: '#065f46' }}>TOTAL</td>
+                {columns.map(col => (
+                  <td key={col.key} style={{ ...num, background: '#ecfdf5', borderTop: '2px solid #10b981' }}>
+                    <div style={{ fontWeight: 900, color: col.total.main ? '#065f46' : '#94a3b8' }}>{col.total.main ? fmtMain(col.total.main) : '—'}</div>
+                    {col.total.main > 0 && <div style={{ fontSize: 9, color: '#047857' }}>{fmtSub(col.total.sub)}</div>}
+                  </td>
+                ))}
+                <td style={{ ...num, background: '#d1fae5', borderTop: '2px solid #10b981', borderLeft: '1px solid #a7f3d0' }}>
+                  <div style={{ fontWeight: 900, color: '#065f46' }}>{fmtMain(colTotals.main)}</div>
+                  <div style={{ fontSize: 9, color: '#047857' }}>{fmtSub(colTotals.sub)}</div>
+                </td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+    </div>
+  );
 }
 
 export default function SecondarySalesSheet({ me, year, month, stateCode, city, week, readOnly, onImported }) {
@@ -98,11 +280,8 @@ export default function SecondarySalesSheet({ me, year, month, stateCode, city, 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [view, setView] = useState('stockist');
-  const [open, setOpen] = useState({});
   const inputRef = useRef(null);
   const selectedWeek = week || 0;
-  const showRep = readOnly;
 
   const load = useCallback(() => {
     setLoading(true);
@@ -111,7 +290,16 @@ export default function SecondarySalesSheet({ me, year, month, stateCode, city, 
     if (stateCode && stateCode !== 'ALL') params.state_code = stateCode;
     if (city && city !== 'ALL') params.city = city;
     return secondaryAPI.summary(params)
-      .then(response => setData(response.data || { uploads: [], lines: [] }))
+      .then(response => {
+        const body = response?.data;
+        if (!body || typeof body !== 'object' || !Array.isArray(body.uploads) || !Array.isArray(body.lines)) {
+          // An HTML page or empty body means the server does not have the secondary-sales API yet.
+          setData({ uploads: [], lines: [] });
+          setError('Secondary sales service is not available on the server yet. Deploy the latest backend and reload.');
+          return;
+        }
+        setData(body);
+      })
       .catch(err => {
         setData({ uploads: [], lines: [] });
         setError(err?.response?.data?.detail || 'Unable to load secondary sales.');
@@ -119,11 +307,11 @@ export default function SecondarySalesSheet({ me, year, month, stateCode, city, 
       .finally(() => setLoading(false));
   }, [year, month, stateCode, city]);
 
-  useEffect(() => { load(); setOpen({}); }, [load]);
+  useEffect(() => { load(); }, [load]);
 
   const myUpload = useMemo(
-    () => data.uploads.find(upload => upload.associate_id === me?.id && upload.city === city) || null,
-    [data.uploads, me?.id, city]
+    () => (data?.uploads || []).find(upload => upload.associate_id === me?.id && upload.city === city) || null,
+    [data?.uploads, me?.id, city]
   );
 
   const upload = async file => {
@@ -177,15 +365,10 @@ export default function SecondarySalesSheet({ me, year, month, stateCode, city, 
   };
 
   const stockists = useMemo(() => summarise(
-    data.lines,
+    data?.lines || [],
     line => `${line.associate_id}|${line.stockist_key}`,
     line => line.stockist,
-  ), [data.lines]);
-  const products = useMemo(() => summarise(
-    data.lines,
-    line => (line.product_id ? `p${line.product_id}` : `s${line.source_product_name.toLowerCase()}`),
-    line => line.product_name || line.source_product_name,
-  ), [data.lines]);
+  ), [data?.lines]);
 
   const totals = useMemo(() => {
     const weeks = emptyWeeks();
@@ -205,13 +388,12 @@ export default function SecondarySalesSheet({ me, year, month, stateCode, city, 
 
   const warnings = useMemo(() => {
     const list = [];
-    data.uploads.forEach(item => (item.warnings || []).forEach(text => list.push({ text, who: data.uploads.length > 1 ? `${item.associate_name} · ${item.city}` : '' })));
+    (data?.uploads || []).forEach(item => (item.warnings || []).forEach(text => list.push({ text, who: (data?.uploads || []).length > 1 ? `${item.associate_name} · ${item.city}` : '' })));
     return list;
-  }, [data.uploads]);
+  }, [data?.uploads]);
 
   const periodValue = selectedWeek ? totals.weeks[selectedWeek].value : totals.value;
   const periodUnits = selectedWeek ? totals.weeks[selectedWeek].qty : totals.units;
-  const groups = view === 'stockist' ? stockists : products;
   const noStockSales = stockists.filter(g => g.units === 0 && g.closingQty > 0);
 
   return (
@@ -258,7 +440,7 @@ export default function SecondarySalesSheet({ me, year, month, stateCode, city, 
           [selectedWeek ? `Secondary sales · Week ${selectedWeek}` : `Secondary sales · ${MONTHS[month]}`, inr(periodValue), `${qty(periodUnits)} units sold`, '#0f766e'],
           ['Closing stock at stockists', inr(totals.closingValue), `${qty(totals.closingQty)} units · latest week reported`, '#1d4ed8'],
           ['Stockists', `${totals.selling} / ${stockists.length}`, 'with sales / on the sheet', '#7c3aed'],
-          ['Sheets uploaded', data.uploads.length, readOnly ? 'reps in this view' : 'for this city', '#b45309'],
+          ['Sheets uploaded', (data?.uploads || []).length, readOnly ? 'reps in this view' : 'for this city', '#b45309'],
         ].map(([label, value, sub, color]) => (
           <div key={label} style={{ background: '#fff', border: '1px solid #e5e7eb', borderTop: `3px solid ${color}`, borderRadius: 12, padding: '12px 14px' }}>
             <div style={{ fontSize: 10, fontWeight: 900, color: '#64748b', textTransform: 'uppercase', letterSpacing: 0.4 }}>{label}</div>
@@ -282,127 +464,7 @@ export default function SecondarySalesSheet({ me, year, month, stateCode, city, 
         </div>
       )}
 
-      <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '11px 13px', borderBottom: '1px solid #e5e7eb' }}>
-          <div style={{ fontSize: 13, fontWeight: 900, color: '#0f172a' }}>
-            {view === 'stockist' ? 'Secondary sales by stockist' : 'Secondary sales by product'}
-            <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', marginLeft: 8 }}>value = units × rate · tap a row for detail</span>
-          </div>
-          <div style={{ display: 'flex', border: '1px solid #e2e8f0', borderRadius: 9, overflow: 'hidden' }}>
-            {[['stockist', 'By stockist'], ['product', 'By product']].map(([key, label]) => (
-              <button key={key} type="button" onClick={() => { setView(key); setOpen({}); }}
-                style={{ padding: '6px 12px', border: 0, background: view === key ? '#0f766e' : '#fff', color: view === key ? '#fff' : '#475569', fontSize: 11, fontWeight: 900, cursor: 'pointer' }}>
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 820 }}>
-            <thead>
-              <tr>
-                <th style={{ ...head, textAlign: 'left' }}>{view === 'stockist' ? 'Stockist' : 'Product'}</th>
-                {showRep && view === 'stockist' && <th style={{ ...head, textAlign: 'left' }}>Rep · City</th>}
-                {WEEKS.map(w => <th key={w} style={{ ...head, textAlign: 'right', background: selectedWeek === w ? '#fef9c3' : head.background }}>Week {w}</th>)}
-                <th style={{ ...head, textAlign: 'right' }}>Units</th>
-                <th style={{ ...head, textAlign: 'right' }}>Secondary sales</th>
-                <th style={{ ...head, textAlign: 'right' }}>Closing stock</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan={9} style={{ ...cell, textAlign: 'center', color: '#64748b', padding: 30 }}>Loading…</td></tr>
-              ) : groups.length === 0 ? (
-                <tr><td colSpan={9} style={{ ...cell, textAlign: 'center', color: '#64748b', padding: 30, whiteSpace: 'normal' }}>
-                  {readOnly ? 'No stockist sheets uploaded for this selection yet.' : `No sheet uploaded for ${city} in ${MONTHS[month]} yet. Upload the stockist sheet above.`}
-                </td></tr>
-              ) : groups.map(group => {
-                const expanded = Boolean(open[group.key]);
-                const unmatched = view === 'product' && !group.line.product_id;
-                return (
-                  <React.Fragment key={group.key}>
-                    <tr onClick={() => setOpen(prev => ({ ...prev, [group.key]: !prev[group.key] }))}
-                      style={{ borderTop: '1px solid #f1f5f9', cursor: 'pointer', background: expanded ? '#f8fafc' : '#fff' }}>
-                      <td style={{ ...cell, fontWeight: 900, color: '#0f172a' }}>
-                        <span style={{ display: 'inline-block', width: 14, color: '#94a3b8' }}>{expanded ? '▾' : '▸'}</span>
-                        {group.label}
-                        {unmatched && <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 900, color: '#c2410c', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 6, padding: '1px 5px' }}>not in Product Master</span>}
-                        {view === 'stockist' && group.units === 0 && group.closingQty > 0 && <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 900, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '1px 5px' }}>stock only</span>}
-                      </td>
-                      {showRep && view === 'stockist' && <td style={{ ...cell, color: '#475569' }}>{group.line.associate_name} · {group.line.city}</td>}
-                      <WeekCells weeks={group.weeks} selectedWeek={selectedWeek} showValue />
-                      <td style={{ ...num, fontWeight: 800 }}>{qty(group.units)}</td>
-                      <td style={{ ...num, fontWeight: 900, color: '#0f766e' }}>{inr(group.value)}</td>
-                      <td style={{ ...num }}>
-                        <div style={{ fontWeight: 800, color: '#1e3a8a' }}>{group.closingQty ? shortInr(group.closingValue) : '—'}</div>
-                        {group.closingQty > 0 && <div style={{ fontSize: 10, color: '#64748b' }}>{qty(group.closingQty)} units</div>}
-                      </td>
-                    </tr>
-                    {expanded && (
-                      <tr>
-                        <td colSpan={9} style={{ padding: '0 0 10px 0', background: '#f8fafc' }}>
-                          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                            <thead>
-                              <tr>
-                                <th style={{ ...head, paddingLeft: 32, textAlign: 'left', background: '#f1f5f9' }}>{view === 'stockist' ? 'Product' : 'Stockist'}</th>
-                                <th style={{ ...head, textAlign: 'right', background: '#f1f5f9' }}>Rate</th>
-                                {WEEKS.map(w => <th key={w} style={{ ...head, textAlign: 'right', background: selectedWeek === w ? '#fef9c3' : '#f1f5f9' }}>W{w} units</th>)}
-                                <th style={{ ...head, textAlign: 'right', background: '#f1f5f9' }}>Units</th>
-                                <th style={{ ...head, textAlign: 'right', background: '#f1f5f9' }}>Value</th>
-                                <th style={{ ...head, textAlign: 'right', background: '#f1f5f9' }}>Closing</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {group.items.slice().sort((a, b) => b.value - a.value || b.closing.qty - a.closing.qty).map((item, index) => (
-                                <tr key={index} style={{ borderTop: '1px solid #e2e8f0' }}>
-                                  <td style={{ ...cell, paddingLeft: 32, color: '#0f172a' }}>
-                                    {view === 'stockist' ? item.line.source_product_name : item.line.stockist}
-                                    {view === 'stockist' && item.line.product_name && item.line.product_name !== item.line.source_product_name && (
-                                      <span style={{ fontSize: 10, color: '#94a3b8', marginLeft: 6 }}>→ {item.line.product_name}</span>
-                                    )}
-                                    {view === 'stockist' && !item.line.product_id && (
-                                      <span style={{ fontSize: 9, color: '#c2410c', marginLeft: 6, fontWeight: 900 }}>not in Product Master</span>
-                                    )}
-                                    {showRep && view === 'product' && <span style={{ fontSize: 10, color: '#94a3b8', marginLeft: 6 }}>{item.line.associate_name}</span>}
-                                  </td>
-                                  <td style={{ ...num, color: '#475569' }}>
-                                    {inr(item.line.rate)}
-                                    {item.line.rate_source === 'product_master' && <div style={{ fontSize: 9, color: '#94a3b8' }}>PTS (sheet blank)</div>}
-                                    {item.line.rate_source === 'missing' && <div style={{ fontSize: 9, color: '#dc2626', fontWeight: 800 }}>no rate</div>}
-                                  </td>
-                                  <WeekCells weeks={item.weeks} selectedWeek={selectedWeek} />
-                                  <td style={{ ...num, fontWeight: 800 }}>{qty(item.units)}</td>
-                                  <td style={{ ...num, fontWeight: 900, color: '#0f766e' }}>{item.value ? inr(item.value) : '—'}</td>
-                                  <td style={{ ...num, color: '#1e3a8a' }}>
-                                    {item.closing.qty ? `${qty(item.closing.qty)}` : '—'}
-                                    {item.closing.week && <div style={{ fontSize: 9, color: '#94a3b8' }}>W{item.closing.week}</div>}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-            {!loading && groups.length > 0 && (
-              <tfoot>
-                <tr style={{ background: '#ecfdf5', borderTop: '2px solid #10b981' }}>
-                  <td style={{ ...cell, fontWeight: 900, color: '#065f46' }}>TOTAL</td>
-                  {showRep && view === 'stockist' && <td style={cell} />}
-                  <WeekCells weeks={totals.weeks} selectedWeek={selectedWeek} showValue />
-                  <td style={{ ...num, fontWeight: 900, color: '#065f46' }}>{qty(totals.units)}</td>
-                  <td style={{ ...num, fontWeight: 900, color: '#065f46' }}>{inr(totals.value)}</td>
-                  <td style={{ ...num, fontWeight: 900, color: '#1e3a8a' }}>{shortInr(totals.closingValue)}</td>
-                </tr>
-              </tfoot>
-            )}
-          </table>
-        </div>
-      </div>
+      <SalesMatrix lines={data?.lines || []} loading={loading} readOnly={readOnly} city={city} month={month} selectedWeek={selectedWeek} />
     </div>
   );
 }
