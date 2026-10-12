@@ -84,6 +84,19 @@ def test_blank_rate_falls_back_to_product_master():
     assert line["sales_value"] == 17 * 3416
 
 
+def test_blank_rate_duplicate_template_row_is_not_double_counted():
+    raw = workbook_bytes(rows=[
+        {2: "Amtrios Caps", 4: 17, 5: 10},
+        {2: "Amtrios Caps", 3: 2593, 14: 1, 15: 6},
+    ])
+    result = parse_secondary_sheet(raw, PRODUCTS, month=10)
+    sales_lines = [line for line in result["lines"] if line["sales_qty"]]
+    assert len(sales_lines) == 1
+    assert sales_lines[0]["stockist"] == "Nest"
+    assert result["totals"]["sales_value"] == 2593
+    assert any("Ignored blank-rate duplicate template row" in warning for warning in result["warnings"])
+
+
 def test_unknown_product_is_kept_with_sheet_rate_and_warned():
     raw = workbook_bytes(rows=[{2: "Lycotrum", 3: 1363, 4: 2}])
     result = parse_secondary_sheet(raw, PRODUCTS, month=10)

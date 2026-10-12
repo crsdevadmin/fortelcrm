@@ -252,6 +252,24 @@ def parse_secondary_sheet(raw, products, month=None, filename=""):
     missing_rate = []
     bad_cells = []
     seen_products = {}
+    # Some circulated sheets contain an old/template product block with blank
+    # rates above the real, rated product block.  Counting both makes the blank
+    # row fall back to Product Master and can materially overstate sales.  When
+    # the same product exists on a rated row, treat its blank-rate copies as
+    # template rows and ignore them.
+    rated_product_keys = set()
+    for candidate in rows[header_index + 1:]:
+        name = _clean_name(candidate[product_col] if product_col < len(candidate) else None)
+        if not name or _key(name).startswith("total"):
+            continue
+        candidate_rate, candidate_problem = (
+            _number(candidate[rate_col])
+            if rate_col is not None and rate_col < len(candidate)
+            else (0.0, None)
+        )
+        if not candidate_problem and candidate_rate > 0:
+            rated_product_keys.add(_key(name))
+
     blank_run = 0
     for row_index in range(header_index + 1, len(rows)):
         row = rows[row_index]
@@ -270,6 +288,12 @@ def parse_secondary_sheet(raw, products, month=None, filename=""):
         if problem:
             bad_cells.append(f"{source_name} rate")
             sheet_rate = 0.0
+        product_key = _key(source_name)
+        if sheet_rate <= 0 and product_key in rated_product_keys:
+            warnings.append(
+                f"Ignored blank-rate duplicate template row for '{source_name}' (row {excel_row})."
+            )
+            continue
         product = match_product(products, source_name, sheet_rate)
         master_rate = _product_rate(product) if product else 0.0
         if sheet_rate > 0:
@@ -279,7 +303,6 @@ def parse_secondary_sheet(raw, products, month=None, filename=""):
         else:
             rate, rate_source = 0.0, "missing"
 
-        product_key = _key(source_name)
         if product_key in seen_products:
             warnings.append(f"'{source_name}' appears twice (rows {seen_products[product_key]} and {excel_row}); both rows were added together.")
         seen_products.setdefault(product_key, excel_row)
