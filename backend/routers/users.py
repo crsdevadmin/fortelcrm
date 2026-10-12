@@ -206,6 +206,12 @@ def get_regional_territory_options():
     return list(REGIONAL_TERRITORIES)
 
 
+@router.get("/regional-territories/owner-rules")
+def get_regional_territory_owner_rules():
+    from ..utils.regional_territories import CHENNAI_2_OWNER_IDS
+    return {"chennai_2_owner_ids": sorted(CHENNAI_2_OWNER_IDS)}
+
+
 # ── Get single user ───────────────────────────
 
 @router.get("/{user_id}")

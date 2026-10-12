@@ -7,7 +7,8 @@ from .hierarchy import get_subtree_ids
 
 
 REGIONAL_TERRITORIES = (
-    "Chennai",
+    "Chennai 1",
+    "Chennai 2",
     "Madurai",
     "Coimbatore 1",
     "Coimbatore 2",
@@ -16,13 +17,55 @@ REGIONAL_TERRITORIES = (
 )
 
 TERRITORY_STATES = {
-    "Chennai": "TAMIL NADU",
+    "Chennai 1": "TAMIL NADU",
+    "Chennai 2": "TAMIL NADU",
     "Madurai": "TAMIL NADU",
     "Coimbatore 1": "TAMIL NADU",
     "Coimbatore 2": "TAMIL NADU",
     "Hyderabad": "TELANGANA",
     "Cochin": "KERALA",
 }
+
+# Chennai is split by owner, the same way Coimbatore is: doctors/sales owned by
+# these user ids are Chennai 2, everyone else's Chennai work is Chennai 1.
+# Keep in step with CHENNAI_2_OWNER_IDS in frontend/src/screens/ROIDashboard.jsx.
+CHENNAI_2_OWNER_IDS: Set[int] = set()
+
+# Who owns each Chennai territory. Ids differ per database, so owners are named
+# by email and resolved to ids at startup (load_territory_owners, main.py).
+CHENNAI_1_OWNER_EMAILS = {"siva.kumar@fortel.in"}
+CHENNAI_2_OWNER_EMAILS = {"hanni.wilfred@fortel.in"}
+
+
+def load_territory_owners(db: Session) -> None:
+    """Resolve the Chennai owners to user ids and give each owner access to
+    their territory (Siva Kumar D -> Chennai 1, Hanni Wilfred -> Chennai 2)."""
+    owners = {
+        "Chennai 1": CHENNAI_1_OWNER_EMAILS,
+        "Chennai 2": CHENNAI_2_OWNER_EMAILS,
+    }
+    CHENNAI_2_OWNER_IDS.clear()
+    for territory, emails in owners.items():
+        users = db.query(User).filter(User.email.in_(list(emails))).all()
+        for user in users:
+            if territory == "Chennai 2":
+                CHENNAI_2_OWNER_IDS.add(user.id)
+            other = "Chennai 1" if territory == "Chennai 2" else "Chennai 2"
+            db.query(UserRegionalTerritory).filter(
+                UserRegionalTerritory.user_id == user.id,
+                UserRegionalTerritory.territory == other,
+            ).delete(synchronize_session=False)
+            exists = db.query(UserRegionalTerritory).filter(
+                UserRegionalTerritory.user_id == user.id,
+                UserRegionalTerritory.territory == territory,
+            ).first()
+            if not exists:
+                db.add(UserRegionalTerritory(user_id=user.id, territory=territory))
+    db.commit()
+
+# Territory names that existed before a split, mapped to where their old
+# rows now belong (used by the startup migration in main.py).
+RENAMED_TERRITORIES = {"Chennai": "Chennai 1"}
 
 MADURAI_REGIONAL_AREAS = {
     "madurai",
@@ -66,7 +109,7 @@ def territory_for_city(city: Optional[str], owner_id: Optional[int] = None) -> O
     if value in exact:
         return exact[value]
     if value == "chennai":
-        return "Chennai"
+        return "Chennai 2" if int(owner_id or 0) in CHENNAI_2_OWNER_IDS else "Chennai 1"
     if value in MADURAI_REGIONAL_AREAS:
         return "Madurai"
     if value in COIMBATORE_REGIONAL_AREAS:

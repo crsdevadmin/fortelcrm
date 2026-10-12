@@ -68,6 +68,7 @@ export const usersAPI = {
   changeReporting: (id, manager_id, director_id) =>
     client.patch(`/users/${id}/change-reporting`, null, { params: { new_manager_id: manager_id, new_director_id: director_id } }),
   deactivate: (id) => client.delete(`/users/${id}`),
+  territoryOwnerRules: () => client.get('/users/regional-territories/owner-rules'),
 };
 
 // ── SALES ────────────────────────────────────

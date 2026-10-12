@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 const MONTHS = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const CUR_YEAR = new Date().getFullYear();
 const CUR_MONTH = new Date().getMonth() + 1;
-const REGIONAL_TERRITORIES = ['Chennai', 'Madurai', 'Coimbatore 1', 'Coimbatore 2', 'Hyderabad', 'Cochin'];
+const REGIONAL_TERRITORIES = ['Chennai 1', 'Chennai 2', 'Madurai', 'Coimbatore 1', 'Coimbatore 2', 'Hyderabad', 'Cochin'];
 
 const fmtInr = (value) => {
   const n = Number(value) || 0;

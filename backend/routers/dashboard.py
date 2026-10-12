@@ -658,6 +658,8 @@ def get_territory_performance(
     if selected_city:
         if selected_city == "coimbatore":
             selected_territories &= {"Coimbatore 1", "Coimbatore 2"}
+        elif selected_city == "chennai":
+            selected_territories &= {"Chennai 1", "Chennai 2"}
         else:
             selected = territory_for_city(city)
             selected_territories &= ({selected} if selected else set())

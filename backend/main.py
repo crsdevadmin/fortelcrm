@@ -26,6 +26,40 @@ from .routers.secondary_sales import router as secondary_sales_router
 
 Base.metadata.create_all(bind=engine)
 
+
+def _migrate_renamed_territories():
+    """Move rows saved under a territory that has since been split (e.g. the old
+    single "Chennai") to its successor ("Chennai 1"). Idempotent."""
+    from sqlalchemy import text
+    from .utils.regional_territories import RENAMED_TERRITORIES
+    with engine.begin() as conn:
+        for old, new in RENAMED_TERRITORIES.items():
+            # user access: skip users who already have the new name (unique constraint)
+            conn.execute(text(
+                "DELETE FROM user_regional_territories t WHERE t.territory = :old AND EXISTS ("
+                " SELECT 1 FROM user_regional_territories n WHERE n.user_id = t.user_id AND n.territory = :new)"
+            ), {"old": old, "new": new})
+            for table in ("user_regional_territories", "stockists", "primary_city_split_entries"):
+                conn.execute(text(f"UPDATE {table} SET territory = :new WHERE territory = :old"),
+                             {"old": old, "new": new})
+
+
+try:
+    _migrate_renamed_territories()
+except Exception as exc:  # never block startup on this
+    print("territory rename migration skipped:", exc)
+
+try:
+    from .database import SessionLocal
+    from .utils.regional_territories import load_territory_owners
+    _db = SessionLocal()
+    try:
+        load_territory_owners(_db)
+    finally:
+        _db.close()
+except Exception as exc:
+    print("territory owner load skipped:", exc)
+
 app = FastAPI(
     title="Fortel CRM API",
     description="Doctor Investment, ROI and Growth Platform - Fortel Life Sciences",

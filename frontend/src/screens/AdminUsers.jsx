@@ -16,7 +16,7 @@ const ROLES = [
 ];
 
 const REGIONAL_TERRITORIES = [
-  'Chennai', 'Madurai', 'Coimbatore 1', 'Coimbatore 2', 'Hyderabad', 'Cochin',
+  'Chennai 1', 'Chennai 2', 'Madurai', 'Coimbatore 1', 'Coimbatore 2', 'Hyderabad', 'Cochin',
 ];
 
 const ROLE_COLORS = {

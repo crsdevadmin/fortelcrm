@@ -161,7 +161,11 @@ function SalesMatrix({ lines, loading, readOnly, city, month, selectedWeek }) {
       }, { main: 0, sub: 0 });
       const salesValue = columnList.reduce((s, col) => s + cellMetric(row.cells[col.key], 'value', 0).main, 0);
       return { ...row, total, salesValue };
-    }).sort((a, b) => b.total.main - a.total.main || b.salesValue - a.salesValue || a.name.localeCompare(b.name));
+    })
+      // A product can have closing stock but no sales. Keep it available in
+      // Closing stock, without cluttering the two sales views with an all-dash row.
+      .filter(row => row.total.main > 0)
+      .sort((a, b) => b.total.main - a.total.main || b.salesValue - a.salesValue || a.name.localeCompare(b.name));
 
     const grand = columnList.reduce((acc, col) => ({ main: acc.main + col.total.main, sub: acc.sub + col.total.sub }), { main: 0, sub: 0 });
     return { columns: columnList, rows: rowList, colTotals: grand };

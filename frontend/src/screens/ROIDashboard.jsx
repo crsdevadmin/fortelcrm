@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
-import { roiAPI, investmentsAPI, salesAPI } from '../api';
+import { roiAPI, investmentsAPI, salesAPI, usersAPI } from '../api';
 
 const SHOW_INDIVIDUAL_DOCTOR_CARDS = true;
 import { useAuth } from '../context/AuthContext';
@@ -35,14 +35,32 @@ const CHENNAI_AREAS = new Set([
   'guindy', 'pallikaranai', 'porur', 'tambaram', 'velachery', 'vellore',
 ]);
 const HYDERABAD_AREAS = new Set(['gachibowli', 'nallagandla', 'lakdikapul', 'redhills', 'red hills']);
-const TAMIL_NADU_REGIONAL_CITIES = ['Chennai', 'Madurai', 'Coimbatore 1', 'Coimbatore 2'];
+const TAMIL_NADU_REGIONAL_CITIES = ['Chennai 1', 'Chennai 2', 'Madurai', 'Coimbatore 1', 'Coimbatore 2'];
 const REGIONAL_TERRITORY_STATES = {
-  Chennai: 'Tamil Nadu',
+  'Chennai 1': 'Tamil Nadu',
+  'Chennai 2': 'Tamil Nadu',
   Madurai: 'Tamil Nadu',
   'Coimbatore 1': 'Tamil Nadu',
   'Coimbatore 2': 'Tamil Nadu',
   Hyderabad: 'Telangana',
   Cochin: 'Kerala',
+};
+// Same split rule as backend CHENNAI_2_OWNER_IDS (regional_territories.py).
+const CHENNAI_2_OWNER_IDS = new Set([]);
+// Owner ids come from the server (resolved from emails there), fetched once.
+let _chennaiRulesPromise = null;
+const useChennaiOwnerRules = () => {
+  const [, setVersion] = useState(0);
+  useEffect(() => {
+    if (!_chennaiRulesPromise) {
+      _chennaiRulesPromise = usersAPI.territoryOwnerRules()
+        .then(r => { (r.data?.chennai_2_owner_ids || []).forEach(id => CHENNAI_2_OWNER_IDS.add(Number(id))); })
+        .catch(() => { _chennaiRulesPromise = null; });
+    }
+    let alive = true;
+    _chennaiRulesPromise && _chennaiRulesPromise.then(() => { if (alive) setVersion(v => v + 1); });
+    return () => { alive = false; };
+  }, []);
 };
 const MADURAI_REGIONAL_AREAS = new Set([
   'madurai', 'trichy', 'tiruchirappalli', 'tirnalveli', 'tirunelveli',
@@ -56,7 +74,8 @@ const COIMBATORE_REGIONAL_AREAS = new Set([
 ]);
 const tamilNaduRegionalCity = (rawCity, ownerId) => {
   const city = (rawCity || '').trim().toLowerCase().replace(/\s+/g, ' ');
-  if (city === 'chennai' || CHENNAI_AREAS.has(city)) return 'Chennai';
+  if (city === 'chennai 1' || city === 'chennai 2') return city === 'chennai 2' ? 'Chennai 2' : 'Chennai 1';
+  if (city === 'chennai' || CHENNAI_AREAS.has(city)) return CHENNAI_2_OWNER_IDS.has(Number(ownerId)) ? 'Chennai 2' : 'Chennai 1';
   if (MADURAI_REGIONAL_AREAS.has(city)) return 'Madurai';
   if (COIMBATORE_REGIONAL_AREAS.has(city)) return Number(ownerId) === 9 ? 'Coimbatore 2' : 'Coimbatore 1';
   return '';
@@ -985,6 +1004,7 @@ function normalizeRiskData(data = {}) {
 }
 
 function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity = 'ALL' }) {
+  useChennaiOwnerRules();
   const { user: me } = useAuth();
   const [salesYear, setSalesYear] = useState(year);
   const [salesMonth, setSalesMonth] = useState(month);
@@ -2037,6 +2057,7 @@ function RegionalSalesPanel({ year, month, initialStateCode = 'ALL', initialCity
 }
 
 export default function ROIDashboard({ defaultTab = 'roi' }) {
+  useChennaiOwnerRules();
   const { user: me } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
