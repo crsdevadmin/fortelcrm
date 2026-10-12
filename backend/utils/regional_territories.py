@@ -62,6 +62,48 @@ def load_territory_owners(db: Session) -> None:
             if not exists:
                 db.add(UserRegionalTerritory(user_id=user.id, territory=territory))
     db.commit()
+    _move_old_chennai_rows(db)
+
+
+# Rows saved before the split carry city "Chennai". Every screen looks them up
+# by exact territory name, so they would vanish from Chennai 1/2 unless moved.
+# Owner decides: Chennai 2 owners -> "Chennai 2", everyone else -> "Chennai 1".
+# Unique keys include city, so a row is skipped if the new name already exists.
+_CHENNAI_TABLES = (
+    # table, owner column, columns of the unique key besides city (None = no unique key)
+    ("regional_sales_entries", "associate_id",
+     ("associate_id", "state_code", "product_id", "year", "month", "week")),
+    ("regional_product_targets", "owner_user_id",
+     ("owner_user_id", "state_code", "product_id", "year", "month")),
+    ("regional_sales_week_pdfs", "associate_id", None),
+    ("secondary_sales_uploads", "associate_id", None),
+    ("secondary_sales_lines", "associate_id", None),
+)
+
+
+def _move_old_chennai_rows(db: Session) -> None:
+    from sqlalchemy import bindparam, text
+
+    c2 = sorted(CHENNAI_2_OWNER_IDS) or [-1]
+    target = "CASE WHEN t.{owner} IN :c2 THEN 'Chennai 2' ELSE 'Chennai 1' END"
+    for table, owner, key in _CHENNAI_TABLES:
+        new_city = target.format(owner=owner)
+        clash = ""
+        if key:
+            same = " AND ".join(f"n.{col} = t.{col}" for col in key)
+            clash = (f" AND NOT EXISTS (SELECT 1 FROM {table} n WHERE {same}"
+                     f" AND n.city = {new_city})")
+        sql = (f"UPDATE {table} AS t SET city = {new_city}"
+               f" WHERE lower(trim(t.city)) = 'chennai'{clash}")
+        try:
+            stmt = text(sql).bindparams(bindparam("c2", value=list(c2), expanding=True))
+            moved = db.execute(stmt).rowcount
+            db.commit()
+            if moved:
+                print(f"territory split: moved {moved} {table} rows from Chennai")
+        except Exception as exc:
+            db.rollback()
+            print(f"territory split: {table} skipped: {exc}")
 
 # Territory names that existed before a split, mapped to where their old
 # rows now belong (used by the startup migration in main.py).
