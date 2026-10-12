@@ -37,6 +37,12 @@ FORM_WORDS = {
     "mouthwash": "wash", "wash": "wash", "viscous": "viscous", "lp": "lp", "sachet": "sachet",
 }
 
+# Common stockist-sheet spellings that differ from the Product Master brand.
+# Keep these explicit so a typo cannot fuzzy-match an unrelated medicine.
+BRAND_ALIASES = {
+    "lycotrum": "lycoturm",
+}
+
 
 class SheetFormatError(ValueError):
     """The workbook does not look like the secondary-sales template."""
@@ -83,14 +89,15 @@ def match_product(products, source_name, rate=0.0):
     tokens = _tokens(source_name)
     if not tokens:
         return None
-    brand = tokens[0]
+    brand = BRAND_ALIASES.get(tokens[0], tokens[0])
     numbers = {t for t in tokens if re.fullmatch(r"\d+(?:\.\d+)?", t)}
     forms = {FORM_WORDS[t] for t in tokens if t in FORM_WORDS}
     candidates = []
     for product in products:
         name = getattr(product, "name", "") or ""
         product_tokens = _tokens(name)
-        if not product_tokens or product_tokens[0] != brand:
+        product_brand = BRAND_ALIASES.get(product_tokens[0], product_tokens[0]) if product_tokens else ""
+        if not product_tokens or product_brand != brand:
             continue
         product_numbers = {t for t in product_tokens if re.fullmatch(r"\d+(?:\.\d+)?", t)}
         product_forms = {FORM_WORDS[t] for t in product_tokens if t in FORM_WORDS}

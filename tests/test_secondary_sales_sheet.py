@@ -20,6 +20,7 @@ PRODUCTS = [
     product(4, "Caximeg Oral Susp 240ml", 2956),
     product(5, "Zyora Mouthwash 200ml", 162),
     product(6, "Zyora Mouthwash 500ml", 369),
+    product(7, "Lycoturm Syrup 200ml", 1714),
 ]
 
 
@@ -123,6 +124,11 @@ def test_size_in_name_selects_the_right_pack():
     assert match_product(PRODUCTS, "Caximeg60", 805).id == 3
     assert match_product(PRODUCTS, "Amtrios-Inj", 0).id == 2
     assert match_product(PRODUCTS, "Zyora 500ml", 0).id == 6
+
+
+def test_known_lycotrum_spelling_maps_to_lycoturm_product_master():
+    assert match_product(PRODUCTS, "Lycotrum", 0).id == 7
+    assert match_product(PRODUCTS, "Lycotrum Syrup 200ml", 0).id == 7
 
 
 def test_text_in_quantity_cell_is_reported():
